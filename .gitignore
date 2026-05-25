@@ -1,0 +1,28 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+docker/secrets/db_password.txt
+docker/secrets/app_key.txt
+docker/web/data/store.json
+docker/nginx/certs/
+
+# Dependencies and build output
+node_modules/
+vendor/
+.next/
+dist/
+build/
+
+# OS and IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temp
+*.log
+tmp/
+temp/

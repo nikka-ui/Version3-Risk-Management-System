@@ -1,0 +1,71 @@
+# Development overrides - hot reload friendly, optional local tools
+# docker compose -f docker/compose.yml -f docker/compose.override.yml --profile dev up
+
+services:
+  nginx:
+    ports:
+      - "${NGINX_HTTP_PORT:-8080}:80"
+
+  web:
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./web/data:/app/data
+
+  api:
+    environment:
+      APP_ENV: local
+
+  ai-service:
+    environment:
+      FLASK_ENV: development
+    ports:
+      - "127.0.0.1:${AI_DEBUG_PORT:-5001}:5000"
+
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: rms-minio
+    profiles:
+      - dev
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rmsminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-rmsminio-dev-change-me}
+    volumes:
+      - rms_minio_data:/data
+    networks:
+      - rms_data
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: rms-mailpit
+    profiles:
+      - dev
+    networks:
+      - rms_app
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  rms_minio_data:
+    name: rms_minio_data

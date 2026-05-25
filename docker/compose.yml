@@ -1,0 +1,219 @@
+# AI Risk Management System - base compose stack
+# Usage (dev):  docker compose -f docker/compose.yml -f docker/compose.override.yml up
+# Usage (prod): docker compose -f docker/compose.yml -f docker/compose.prod.yml up -d
+
+name: rms
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: rms-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - rms_edge
+      - rms_app
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: ../
+      dockerfile: docker/web/Dockerfile
+    container_name: rms-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "3000"
+    networks:
+      - rms_app
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: ../
+      dockerfile: docker/api/Dockerfile
+    container_name: rms-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:-rms}
+      DB_USERNAME: ${DB_USERNAME:-rms}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      APP_KEY_FILE: /run/secrets/app_key
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:5000}
+    secrets:
+      - db_password
+      - app_key
+    networks:
+      - rms_app
+      - rms_data
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  ai-service:
+    build:
+      context: ../
+      dockerfile: docker/ai-service/Dockerfile
+    container_name: rms-ai-service
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-production}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE:-rms}
+      DB_USERNAME: ${DB_USERNAME:-rms}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    networks:
+      - rms_app
+      - rms_data
+    expose:
+      - "5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-rms}
+      POSTGRES_USER: ${DB_USERNAME:-rms}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - rms_postgres_data:/var/lib/postgresql/data
+    networks:
+      - rms_data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-rms} -d ${DB_DATABASE:-rms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: rms-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - rms_redis_data:/data
+    networks:
+      - rms_data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  rms_edge:
+    name: rms_edge
+    driver: bridge
+  rms_app:
+    name: rms_app
+    driver: bridge
+    internal: false
+  rms_data:
+    name: rms_data
+    driver: bridge
+    internal: true
+
+volumes:
+  rms_postgres_data:
+    name: rms_postgres_data
+  rms_redis_data:
+    name: rms_redis_data
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  app_key:
+    file: ./secrets/app_key.txt
