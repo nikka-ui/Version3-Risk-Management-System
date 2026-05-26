@@ -29,6 +29,16 @@ function requireSupervisor(req, res, next) {
   return next();
 }
 
+function requireRmOfficer(req, res, next) {
+  if (!req.session?.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'rm_officer') {
+    return res.status(403).send('Risk Management Officer access only.');
+  }
+  return next();
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.session?.user) {
@@ -71,6 +81,7 @@ module.exports = {
   requireAuth,
   requireAdmin,
   requireSupervisor,
+  requireRmOfficer,
   requireRole,
   authenticate,
   sessionUser,

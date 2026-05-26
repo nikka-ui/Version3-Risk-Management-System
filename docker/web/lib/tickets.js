@@ -2,6 +2,9 @@ const {
   DEFAULT_DEPARTMENT,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  OFFICER_REVIEW_STATUSES,
+  OFFICER_FINAL_VALIDATION_STATUSES,
+  OFFICER_MONITORING_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,
@@ -528,6 +531,168 @@ function assignMitigationForDemo(reference) {
   saveStore();
 }
 
+function getTicketByRefForOfficer(reference) {
+  const { store } = getStore();
+  const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
+  if (!ticket || ticket.status === 'draft') return null;
+  return ticket;
+}
+
+function listTicketsForOfficer() {
+  const { store } = getStore();
+  return (store.riskTickets || [])
+    .filter((t) => t.status !== 'draft')
+    .map(publicTicket)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function listOfficerReviewQueue() {
+  return listTicketsForOfficer().filter((t) => OFFICER_REVIEW_STATUSES.includes(t.status));
+}
+
+function listOfficerFinalValidationQueue() {
+  return listTicketsForOfficer().filter((t) => OFFICER_FINAL_VALIDATION_STATUSES.includes(t.status));
+}
+
+function listOfficerMonitoringQueue() {
+  return listTicketsForOfficer().filter((t) => OFFICER_MONITORING_STATUSES.includes(t.status));
+}
+
+function getOfficerStats() {
+  const tickets = listTicketsForOfficer();
+  const monitoring = tickets.filter((t) => OFFICER_MONITORING_STATUSES.includes(t.status));
+  return {
+    awaitingReview: tickets.filter((t) => OFFICER_REVIEW_STATUSES.includes(t.status)).length,
+    awaitingFinalValidation: tickets.filter((t) => OFFICER_FINAL_VALIDATION_STATUSES.includes(t.status))
+      .length,
+    inMitigation: tickets.filter((t) => t.status === 'in_mitigation').length,
+    returned: tickets.filter((t) => t.status === 'returned').length,
+    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+    overdueMitigation: monitoring.filter((t) => t.isOverdue).length,
+    open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+  };
+}
+
+function findAttachmentForOfficer(attachmentId) {
+  const { store } = getStore();
+  for (const ticket of store.riskTickets || []) {
+    const att = findAttachmentOnTicket(ticket, attachmentId);
+    if (att) return { ticket, attachment: att };
+  }
+  return null;
+}
+
+function getAccomplishmentForTicket(ticket) {
+  if (!ticket?.accomplishmentId) return null;
+  const { store } = getStore();
+  return (store.accomplishments || []).find((a) => a.id === ticket.accomplishmentId) || null;
+}
+
+function logOfficerAction(ticket, username, action) {
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: username,
+    submitterRole: 'rm_officer',
+    status: getStatusLabel(ticket.status),
+    action,
+  });
+}
+
+function rejectTicketForOfficer(reference, username, body) {
+  const { store, saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!OFFICER_REVIEW_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting RMO review.' };
+  }
+  const notes = String(body.rejectionNotes || body.officerNotes || '').trim();
+  if (!notes) return { error: 'Rejection notes are required when returning a report.' };
+
+  const now = new Date().toISOString();
+  ticket.status = 'returned';
+  ticket.officerNotes = notes;
+  ticket.mitigationDueAt = null;
+  ticket.updatedAt = now;
+  saveStore();
+  logOfficerAction(ticket, username, 'returned_for_revision');
+  return { ticket: publicTicket(ticket) };
+}
+
+function acceptAndAssignMitigation(reference, username, body) {
+  const { store, saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!OFFICER_REVIEW_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting RMO review.' };
+  }
+
+  const plan = String(body.mitigationPlan || body.officerNotes || '').trim();
+  if (!plan) return { error: 'Mitigation plan / officer notes are required.' };
+
+  const dueRaw = String(body.mitigationDueAt || '').trim();
+  let due;
+  if (dueRaw) {
+    due = new Date(dueRaw);
+    if (Number.isNaN(due.getTime())) return { error: 'Invalid mitigation due date.' };
+  } else {
+    due = new Date();
+    due.setDate(due.getDate() + 14);
+  }
+
+  const now = new Date().toISOString();
+  ticket.status = 'in_mitigation';
+  ticket.officerNotes = plan;
+  ticket.mitigationDueAt = due.toISOString();
+  ticket.updatedAt = now;
+  saveStore();
+  logOfficerAction(ticket, username, 'mitigation_assigned');
+  return { ticket: publicTicket(ticket) };
+}
+
+function closeTicketAsOfficer(reference, username, body) {
+  const { store, saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!OFFICER_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting final validation.' };
+  }
+
+  const notes = String(body.closingNotes || '').trim();
+  const now = new Date().toISOString();
+  ticket.status = 'closed';
+  if (notes) {
+    ticket.officerNotes = ticket.officerNotes
+      ? `${ticket.officerNotes}\n\nFinal validation: ${notes}`
+      : `Final validation: ${notes}`;
+  }
+  ticket.updatedAt = now;
+  saveStore();
+  logOfficerAction(ticket, username, 'closed');
+  return { ticket: publicTicket(ticket) };
+}
+
+function returnAccomplishmentForRevision(reference, username, body) {
+  const { store, saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!OFFICER_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting final validation.' };
+  }
+
+  const notes = String(body.returnNotes || body.officerNotes || '').trim();
+  if (!notes) return { error: 'Return notes are required when sending back for revision.' };
+
+  const now = new Date().toISOString();
+  ticket.status = 'in_mitigation';
+  ticket.officerNotes = notes;
+  ticket.updatedAt = now;
+  saveStore();
+  logOfficerAction(ticket, username, 'accomplishment_returned');
+  return { ticket: publicTicket(ticket) };
+}
+
 function submitAccomplishment(reference, username, displayName, body) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
@@ -593,4 +758,16 @@ module.exports = {
   publicTicket,
   assignMitigationForDemo,
   peekNextTicketRef,
+  getTicketByRefForOfficer,
+  listTicketsForOfficer,
+  listOfficerReviewQueue,
+  listOfficerFinalValidationQueue,
+  listOfficerMonitoringQueue,
+  getOfficerStats,
+  findAttachmentForOfficer,
+  getAccomplishmentForTicket,
+  rejectTicketForOfficer,
+  acceptAndAssignMitigation,
+  closeTicketAsOfficer,
+  returnAccomplishmentForRevision,
 };

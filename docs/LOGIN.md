@@ -55,6 +55,23 @@ Submitted tickets appear in the IT Administrator **Report history** log (`/admin
 
 **Evidence files:** Uploaded PDF/PNG/JPG files are stored on disk at `docker/web/uploads/` (Docker volume `/app/uploads`), not inside `store.json`. Each ticket links to its files by ticket reference (e.g. `RISK-2026-00001/`).
 
+## Risk Management Officer
+
+Sign in as `rm-officer` / `a3c2026` to open the **Risk Management Officer** console at http://localhost:8080/officer:
+
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview | `/officer` | Dashboard stats and quick links |
+| Review queue | `/officer/review` | Risk reports awaiting initial validation (Under RMO Review) |
+| Final validation | `/officer/final-validation` | Accomplishment reports awaiting effectiveness validation |
+| Implementation monitoring | `/officer/monitoring` | Tickets with approved mitigation in progress |
+| All tickets | `/officer/tickets` | Organization-wide submitted tickets |
+| Ticket detail | `/officer/tickets/:ref` | Review report, accept/reject, or final close/return |
+
+Workflow (per architecture): validate submitted reports (accept with mitigation plan or return for revision); after department implementation and accomplishment submission, perform final validation and close or return for further work.
+
+Officer actions are recorded in the IT Administrator **Report history** log (`/admin/logs/reports`).
+
 ## Security notes
 
 - Credentials are defined in [`docker/web/config/users.js`](../docker/web/config/users.js) for development only.
@@ -66,7 +83,8 @@ Submitted tickets appear in the IT Administrator **Report history** log (`/admin
 
 | Path | Purpose |
 |------|---------|
-| `docker/web/server.js` | Routes: `/login`, `/dashboard`, `/logout` |
+| `docker/web/server.js` | Routes: `/login`, `/dashboard`, `/logout`, `/supervisor`, `/officer`, `/admin` |
+| `docker/web/lib/templates/officer.js` | Risk Management Officer HTML templates |
 | `docker/web/config/users.js` | Account definitions |
 | `docker/web/public/css/login.css` | Login and dashboard styles |
 | `docker/web/lib/auth.js` | Session guards and authentication |

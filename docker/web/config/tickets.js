@@ -40,6 +40,15 @@ const TICKET_STATUSES = {
 
 const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
 
+/** Tickets awaiting initial RMO validation (architecture: Under RMO Review). */
+const OFFICER_REVIEW_STATUSES = ['under_review'];
+
+/** Tickets awaiting final RMO effectiveness validation (architecture: Accomplishment Submitted). */
+const OFFICER_FINAL_VALIDATION_STATUSES = ['pending_audit'];
+
+/** Tickets RMO may monitor after assigning mitigation. */
+const OFFICER_MONITORING_STATUSES = ['in_mitigation', 'returned', 'reopened'];
+
 const GRACE_PERIOD_MS = 30 * 60 * 1000;
 
 function getStatusLabel(status) {
@@ -56,6 +65,9 @@ module.exports = {
   RISK_CATEGORIES,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  OFFICER_REVIEW_STATUSES,
+  OFFICER_FINAL_VALIDATION_STATUSES,
+  OFFICER_MONITORING_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,

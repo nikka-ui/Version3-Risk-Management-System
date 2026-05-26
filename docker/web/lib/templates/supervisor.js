@@ -810,23 +810,26 @@ function newRiskReportPreviewPage(user, ticket, { flash, error }) {
           <p class="section-hint">Ensure the information is accurate. You will submit this report for Risk Management Officer review.</p>
         </div>
 
-        <div class="review-confirm">
-          <label class="confirm-check">
-            <input type="checkbox" id="confirmBox" name="confirmBox" value="1" required>
-            <span>I confirm that the information provided is accurate.</span>
-          </label>
-          <div class="review-note text-muted">Ticket: <span class="mono">${escapeHtml(ticket.reference)}</span></div>
-        </div>
+        <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/submit" class="submit-report-form" id="submitForm">
+          <div class="review-confirm">
+            <label class="confirm-check">
+              <input type="checkbox" id="confirmBox" name="confirmBox" value="1" required>
+              <span>I confirm that the information provided is accurate.</span>
+            </label>
+            <div class="review-note text-muted">Ticket: <span class="mono">${escapeHtml(ticket.reference)}</span></div>
+          </div>
 
-        <div class="enterprise-actions enterprise-actions--split">
-          <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">Edit draft</a>
-          <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" class="inline-form">
-            <button type="submit" class="btn-enterprise-outline">Save Draft</button>
-          </form>
-          <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/submit" class="inline-form" id="submitForm">
+          <div class="enterprise-actions enterprise-actions--split">
+            <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">Edit draft</a>
             <button type="submit" class="btn-enterprise-primary btn-enterprise-submit" id="submitBtn" disabled>
               Submit Report
             </button>
+          </div>
+        </form>
+
+        <div class="enterprise-actions enterprise-actions--draft-save">
+          <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" class="inline-form">
+            <button type="submit" class="btn-enterprise-outline">Save Draft</button>
           </form>
         </div>
       </section>

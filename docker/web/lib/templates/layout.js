@@ -4,17 +4,20 @@ const { FONT_LINKS } = require('./head');
 function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isAdmin = user.role === 'admin' || navVariant === 'admin';
   const isSupervisor = user.role === 'supervisor' || navVariant === 'supervisor';
+  const isOfficer = user.role === 'rm_officer' || navVariant === 'officer';
   let nav;
   if (isAdmin) {
     nav = adminNav(activeNav);
   } else if (isSupervisor) {
     nav = supervisorNav(activeNav);
+  } else if (isOfficer) {
+    nav = officerNav(activeNav);
   } else {
     nav = `<nav class="app-nav"><a href="/dashboard" class="${activeNav === 'home' ? 'active' : ''}">Overview</a></nav>`;
   }
-  const shellClass = isAdmin || isSupervisor ? 'app-shell app-shell--admin' : 'app-shell';
-  const bodyClass = isAdmin || isSupervisor ? 'app-body app-body--admin' : 'app-body';
-  const homeHref = isAdmin ? '/admin' : isSupervisor ? '/supervisor' : '/dashboard';
+  const shellClass = isAdmin || isSupervisor || isOfficer ? 'app-shell app-shell--admin' : 'app-shell';
+  const bodyClass = isAdmin || isSupervisor || isOfficer ? 'app-body app-body--admin' : 'app-body';
+  const homeHref = isAdmin ? '/admin' : isSupervisor ? '/supervisor' : isOfficer ? '/officer' : '/dashboard';
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
 
   return `<!DOCTYPE html>
@@ -61,6 +64,23 @@ function supervisorNav(active) {
     { id: 'new', href: '/supervisor/tickets/new', label: 'New report' },
     { id: 'actions', href: '/supervisor/actions', label: 'Action required' },
     { id: 'accomplishments', href: '/supervisor/accomplishments', label: 'Accomplishments' },
+  ];
+  const links = items
+    .map(
+      (i) =>
+        `<a href="${i.href}" class="${active === i.id ? 'active' : ''}">${escapeHtml(i.label)}</a>`,
+    )
+    .join('');
+  return `<nav class="app-nav app-nav--admin">${links}</nav>`;
+}
+
+function officerNav(active) {
+  const items = [
+    { id: 'overview', href: '/officer', label: 'Overview' },
+    { id: 'review', href: '/officer/review', label: 'Review queue' },
+    { id: 'final', href: '/officer/final-validation', label: 'Final validation' },
+    { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
+    { id: 'tickets', href: '/officer/tickets', label: 'All tickets' },
   ];
   const links = items
     .map(

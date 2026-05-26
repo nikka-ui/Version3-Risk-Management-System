@@ -66,20 +66,38 @@ function dashboardPage(user) {
   };
 
   const hint = roleHints[user.role] || 'Welcome to the risk management system.';
-  const adminLink =
+  const consoleLink =
     user.role === 'admin'
-      ? `<p style="margin-top:1rem"><a href="/admin" class="btn-outline">Open administration</a></p>`
-      : '';
+      ? `<p style="margin-top:1rem"><a href="/admin" class="btn-enterprise-primary btn-primary--auto">Open administration</a></p>`
+      : user.role === 'rm_officer'
+        ? `<p style="margin-top:1rem"><a href="/officer" class="btn-enterprise-primary btn-primary--auto">Open RMO dashboard</a></p>`
+        : user.role === 'supervisor'
+          ? `<p style="margin-top:1rem"><a href="/supervisor" class="btn-enterprise-primary btn-primary--auto">Open supervisor dashboard</a></p>`
+          : '';
+
+  const placeholder =
+    user.role === 'rm_officer' || user.role === 'supervisor' || user.role === 'admin'
+      ? ''
+      : `<p class="text-muted" style="margin-top:1.5rem;font-size:0.8125rem">
+        Risk ticket modules will appear here for your role in upcoming releases.
+      </p>`;
+
+  const navVariant =
+    user.role === 'admin'
+      ? 'admin'
+      : user.role === 'supervisor'
+        ? 'supervisor'
+        : user.role === 'rm_officer'
+          ? 'officer'
+          : undefined;
 
   const body = `
     <div class="page-head">
       <h1>Welcome, ${escapeHtml(user.displayName)}</h1>
       <p class="page-desc">${escapeHtml(hint)}</p>
       <span class="role-badge">${escapeHtml(user.roleLabel)}</span>
-      ${adminLink}
-      <p class="text-muted" style="margin-top:1.5rem;font-size:0.8125rem">
-        Risk ticket modules will appear here for your role in upcoming releases.
-      </p>
+      ${consoleLink}
+      ${placeholder}
     </div>`;
 
   return appLayout({
@@ -87,6 +105,8 @@ function dashboardPage(user) {
     user,
     activeNav: 'home',
     body,
+    wide: Boolean(navVariant),
+    navVariant,
   });
 }
 

@@ -13,6 +13,11 @@ services:
     volumes:
       - ./web/data:/app/data
       - ./web/uploads:/app/uploads
+      # Mount app source so role consoles (supervisor, officer, admin) update without image rebuild
+      - ./web/server.js:/app/server.js
+      - ./web/lib:/app/lib
+      - ./web/config:/app/config
+      - ./web/public:/app/public
 
   api:
     environment:

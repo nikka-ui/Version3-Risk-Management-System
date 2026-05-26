@@ -852,6 +852,13 @@ form.inline {
   margin-top: -0.35rem;
 }
 
+.section-sub {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--text, #1e293b);
+}
+
 .enterprise-grid {
   display: grid;
   gap: 1rem;
@@ -1417,4 +1424,13 @@ form.inline {
 
 .upload-zone--invalid .upload-title {
   color: #b91c1c;
+}
+
+.submit-report-form {
+  margin-top: 0;
+}
+
+.enterprise-actions--draft-save {
+  margin-top: 0.75rem;
+  justify-content: flex-start;
 }

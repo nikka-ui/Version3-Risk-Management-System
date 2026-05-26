@@ -1,7 +1,14 @@
 const path = require('path');
 const express = require('express');
 const cookieSession = require('cookie-session');
-const { authenticate, requireAuth, requireAdmin, requireSupervisor, sessionUser } = require('./lib/auth');
+const {
+  authenticate,
+  requireAuth,
+  requireAdmin,
+  requireSupervisor,
+  requireRmOfficer,
+  sessionUser,
+} = require('./lib/auth');
 const { loginPage, dashboardPage } = require('./lib/templates');
 const {
   adminOverviewPage,
@@ -19,6 +26,14 @@ const {
   accomplishmentsPage,
 } = require('./lib/templates/supervisor');
 const {
+  officerOverviewPage,
+  reviewQueuePage,
+  finalValidationQueuePage,
+  monitoringQueuePage,
+  allTicketsPage,
+  renderOfficerTicketPage,
+} = require('./lib/templates/officer');
+const {
   getSupervisorStats,
   listTicketsForSupervisor,
   getTicketByRef,
@@ -34,6 +49,18 @@ const {
   assignMitigationForDemo,
   findAttachmentForUser,
   canSupervisorDraftCrud,
+  getOfficerStats,
+  listTicketsForOfficer,
+  listOfficerReviewQueue,
+  listOfficerFinalValidationQueue,
+  listOfficerMonitoringQueue,
+  getTicketByRefForOfficer,
+  findAttachmentForOfficer,
+  rejectTicketForOfficer,
+  acceptAndAssignMitigation,
+  closeTicketAsOfficer,
+  returnAccomplishmentForRevision,
+  publicTicket,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { handleEvidenceUpload } = require('./lib/upload');
@@ -87,6 +114,10 @@ function flashFromQuery(query) {
     evidence_added: 'Evidence reference added.',
     accomplishment_submitted: 'Accomplishment report submitted for audit review.',
     mitigation_assigned: 'Mitigation assignment simulated (development).',
+    rmo_accepted: 'Mitigation plan assigned. Department may begin implementation.',
+    rmo_rejected: 'Report returned to department for revision.',
+    rmo_closed: 'Ticket closed after final validation.',
+    rmo_returned: 'Accomplishment returned for further implementation.',
     not_found: 'Ticket not found.',
     invalid: null,
   };
@@ -96,6 +127,7 @@ function flashFromQuery(query) {
 function dashboardPath(user) {
   if (user?.role === 'admin') return '/admin';
   if (user?.role === 'supervisor') return '/supervisor';
+  if (user?.role === 'rm_officer') return '/officer';
   return '/dashboard';
 }
 
@@ -179,6 +211,9 @@ app.get('/dashboard', requireAuth, (req, res) => {
   }
   if (req.session.user.role === 'supervisor') {
     return res.redirect('/supervisor');
+  }
+  if (req.session.user.role === 'rm_officer') {
+    return res.redirect('/officer');
   }
   res.type('html').send(dashboardPage(req.session.user));
 });
@@ -311,10 +346,12 @@ app.post('/supervisor/tickets/new/preview/:ref/submit', requireSupervisor, (req,
   const user = req.session.user;
   const ref = req.params.ref;
 
-  // Server-side guard: prevent submit if confirmation checkbox wasn't checked.
-  if (!req.body.confirmBox) {
-    const ticket = getTicketByRef(ref, user.username);
-    return res.redirect(`/supervisor/tickets/new/preview/${encodeURIComponent(ref)}?error=${encodeURIComponent('Please confirm the information is accurate.')}`);
+  // Server-side guard: checkbox must be inside submit form (name=confirmBox, value=1).
+  const confirmed = req.body.confirmBox === '1' || req.body.confirmBox === 'on';
+  if (!confirmed) {
+    return res.redirect(
+      `/supervisor/tickets/new/preview/${encodeURIComponent(ref)}?error=${encodeURIComponent('Please confirm the information is accurate.')}`,
+    );
   }
 
   const sub = submitTicket(ref, user.username, user.displayName);
@@ -420,6 +457,119 @@ app.get('/supervisor/accomplishments', requireSupervisor, (req, res) => {
       flashFromQuery(req.query),
     ),
   );
+});
+
+/* —— Risk Management Officer —— */
+
+app.get('/officer', requireRmOfficer, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    officerOverviewPage(user, getOfficerStats(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/officer/review', requireRmOfficer, (req, res) => {
+  res.type('html').send(
+    reviewQueuePage(
+      req.session.user,
+      listOfficerReviewQueue(),
+      flashFromQuery(req.query),
+      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+    ),
+  );
+});
+
+app.get('/officer/final-validation', requireRmOfficer, (req, res) => {
+  res.type('html').send(
+    finalValidationQueuePage(
+      req.session.user,
+      listOfficerFinalValidationQueue(),
+      flashFromQuery(req.query),
+      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+    ),
+  );
+});
+
+app.get('/officer/monitoring', requireRmOfficer, (req, res) => {
+  res.type('html').send(
+    monitoringQueuePage(
+      req.session.user,
+      listOfficerMonitoringQueue(),
+      flashFromQuery(req.query),
+    ),
+  );
+});
+
+app.get('/officer/tickets', requireRmOfficer, (req, res) => {
+  res.type('html').send(
+    allTicketsPage(req.session.user, listTicketsForOfficer(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/officer/tickets/:ref', requireRmOfficer, (req, res) => {
+  const raw = getTicketByRefForOfficer(req.params.ref);
+  if (!raw) {
+    return res.redirect('/officer/tickets?flash=not_found');
+  }
+  const ticket = { ...raw, ...publicTicket(raw) };
+  res.type('html').send(
+    renderOfficerTicketPage(req.session.user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+    }),
+  );
+});
+
+app.get('/officer/attachments/:id', requireRmOfficer, (req, res) => {
+  const found = findAttachmentForOfficer(req.params.id);
+  if (!found?.attachment?.storageKey) {
+    return res.status(404).send('Attachment not found.');
+  }
+  const { readFileStream } = require('./lib/attachments');
+  const file = readFileStream(found.attachment.storageKey);
+  if (!file) return res.status(404).send('File not found on disk.');
+  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
+  );
+  file.stream.pipe(res);
+});
+
+app.post('/officer/tickets/:ref/accept', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = acceptAndAssignMitigation(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/monitoring?flash=rmo_accepted`);
+});
+
+app.post('/officer/tickets/:ref/reject', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = rejectTicketForOfficer(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/officer/review?flash=rmo_rejected');
+});
+
+app.post('/officer/tickets/:ref/close', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = closeTicketAsOfficer(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/officer/final-validation?flash=rmo_closed');
+});
+
+app.post('/officer/tickets/:ref/return-accomplishment', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = returnAccomplishmentForRevision(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/officer/monitoring?flash=rmo_returned');
 });
 
 /* —— IT Administrator —— */
