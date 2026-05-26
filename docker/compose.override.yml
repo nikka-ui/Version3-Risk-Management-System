@@ -9,8 +9,10 @@ services:
   web:
     environment:
       NODE_ENV: development
+      UPLOADS_DIR: /app/uploads
     volumes:
       - ./web/data:/app/data
+      - ./web/uploads:/app/uploads
 
   api:
     environment:

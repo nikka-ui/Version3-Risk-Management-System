@@ -13,6 +13,8 @@ const {
   supervisorOverviewPage,
   ticketsListPage,
   ticketFormPage,
+  newRiskReportStep1Page,
+  newRiskReportPreviewPage,
   actionsPage,
   accomplishmentsPage,
 } = require('./lib/templates/supervisor');
@@ -22,14 +24,19 @@ const {
   getTicketByRef,
   listActionTickets,
   listAccomplishments,
+  peekNextTicketRef,
   createTicket,
   updateTicketDraft,
+  deleteDraftTicket,
   submitTicket,
   addEvidence,
   submitAccomplishment,
   assignMitigationForDemo,
+  findAttachmentForUser,
+  canSupervisorDraftCrud,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
+const { handleEvidenceUpload } = require('./lib/upload');
 const {
   listUsers,
   createUser,
@@ -73,6 +80,9 @@ function flashFromQuery(query) {
     role_updated: 'Role updated successfully.',
     deleted: 'Account deleted successfully.',
     draft_saved: 'Draft saved successfully.',
+    preview_generated: 'AI preview generated successfully.',
+    draft_updated: 'Draft updated successfully.',
+    draft_deleted: 'Draft deleted successfully.',
     submitted: 'Risk report submitted for RMO review.',
     evidence_added: 'Evidence reference added.',
     accomplishment_submitted: 'Accomplishment report submitted for audit review.',
@@ -187,19 +197,131 @@ app.get('/supervisor', requireSupervisor, (req, res) => {
 app.get('/supervisor/tickets', requireSupervisor, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
-    ticketsListPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query)),
+    ticketsListPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
+      filter: req.query.filter,
+      error: req.query.error,
+    }),
   );
 });
 
 app.get('/supervisor/tickets/new', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  const ticketRef = peekNextTicketRef();
   res.type('html').send(
-    ticketFormPage(req.session.user, null, {
-      mode: 'new',
+    newRiskReportStep1Page(user, ticketRef, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
-      devMode: isDev,
     }),
   );
+});
+
+// Step 1 -> Step 2 (AI preview)
+app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpload, (req, res) => {
+  const user = req.session.user;
+  if (req.uploadError) {
+    return res.redirect(`/supervisor/tickets/new?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const referenceOverride = req.body.referenceOverride;
+
+  const result = createTicket(user.username, user.displayName, req.body, {
+    referenceOverride,
+    uploadedFiles: req.files,
+  });
+
+  if (result.error) {
+    return res.redirect(`/supervisor/tickets/new?error=${encodeURIComponent(result.error)}`);
+  }
+
+  return res.redirect(`/supervisor/tickets/new/preview/${result.ticket.reference}?flash=preview_generated`);
+});
+
+app.get('/supervisor/tickets/:ref/edit', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  const ticket = getTicketByRef(req.params.ref, user.username);
+  if (!ticket || !canSupervisorDraftCrud(ticket)) {
+    return res.redirect('/supervisor/tickets?error=' + encodeURIComponent('Only draft tickets can be edited.'));
+  }
+  return res.type('html').send(
+    newRiskReportStep1Page(user, ticket.reference, {
+      mode: 'edit',
+      ticket,
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+    }),
+  );
+});
+
+app.post('/supervisor/tickets/:ref/edit', requireSupervisor, handleEvidenceUpload, (req, res) => {
+  const user = req.session.user;
+  const ref = req.params.ref;
+  if (req.uploadError) {
+    return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = updateTicketDraft(ref, user.username, req.body, { uploadedFiles: req.files });
+  if (result.error) {
+    return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/supervisor/tickets/new/preview/${ref}?flash=draft_updated`);
+});
+
+app.post('/supervisor/tickets/:ref/delete', requireSupervisor, (req, res) => {
+  const result = deleteDraftTicket(req.params.ref, req.session.user.username);
+  if (result.error) {
+    return res.redirect('/supervisor/tickets?error=' + encodeURIComponent(result.error));
+  }
+  return res.redirect('/supervisor/tickets?flash=draft_deleted');
+});
+
+app.get('/supervisor/attachments/:id', requireSupervisor, (req, res) => {
+  const found = findAttachmentForUser(req.params.id, req.session.user.username);
+  if (!found?.attachment?.storageKey) {
+    return res.status(404).send('Attachment not found.');
+  }
+  const { readFileStream } = require('./lib/attachments');
+  const file = readFileStream(found.attachment.storageKey);
+  if (!file) return res.status(404).send('File not found on disk.');
+  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
+  );
+  file.stream.pipe(res);
+});
+
+app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  const ticket = getTicketByRef(req.params.ref, user.username);
+  if (!ticket) {
+    return res.redirect('/supervisor/tickets/new?flash=not_found');
+  }
+  res.type('html').send(
+    newRiskReportPreviewPage(user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+    }),
+  );
+});
+
+app.post('/supervisor/tickets/new/preview/:ref/save', requireSupervisor, (req, res) => {
+  // Draft was already created during NEXT; nothing else to save in the placeholder build.
+  return res.redirect(`/supervisor/tickets?flash=draft_saved`);
+});
+
+app.post('/supervisor/tickets/new/preview/:ref/submit', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  const ref = req.params.ref;
+
+  // Server-side guard: prevent submit if confirmation checkbox wasn't checked.
+  if (!req.body.confirmBox) {
+    const ticket = getTicketByRef(ref, user.username);
+    return res.redirect(`/supervisor/tickets/new/preview/${encodeURIComponent(ref)}?error=${encodeURIComponent('Please confirm the information is accurate.')}`);
+  }
+
+  const sub = submitTicket(ref, user.username, user.displayName);
+  if (sub.error) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(sub.error)}`);
+  }
+  return res.redirect(`/supervisor/tickets/${ref}?flash=submitted`);
 });
 
 app.get('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {

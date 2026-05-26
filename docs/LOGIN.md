@@ -51,6 +51,10 @@ Sign in as `personnel` / `a3c2026` to open the **Department Supervisor** console
 
 Submitted tickets appear in the IT Administrator **Report history** log (`/admin/logs/reports`).
 
+**My Tickets (draft CRUD):** Open `/supervisor/tickets` to edit or delete **Draft** reports before submission. Submitted tickets are view-only.
+
+**Evidence files:** Uploaded PDF/PNG/JPG files are stored on disk at `docker/web/uploads/` (Docker volume `/app/uploads`), not inside `store.json`. Each ticket links to its files by ticket reference (e.g. `RISK-2026-00001/`).
+
 ## Security notes
 
 - Credentials are defined in [`docker/web/config/users.js`](../docker/web/config/users.js) for development only.

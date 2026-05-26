@@ -2,6 +2,22 @@
 
 const DEFAULT_DEPARTMENT = 'Operations';
 
+// Department dropdown options for the supervisor "New Risk Report" form.
+// (Mirrors the V2 spec list shown in the UI requirements.)
+const DEPARTMENTS = [
+  'Admin',
+  'Corp Plan',
+  'Corp Sec',
+  'Finance/Accounting',
+  'HRMS',
+  'Internal Audit',
+  'IT',
+  'MMCD',
+  'Operations',
+  'RMO',
+  'Treasury',
+];
+
 const RISK_CATEGORIES = [
   { id: 'operational', label: 'Operational' },
   { id: 'financial', label: 'Financial' },
@@ -36,6 +52,7 @@ function getCategoryLabel(categoryId) {
 
 module.exports = {
   DEFAULT_DEPARTMENT,
+  DEPARTMENTS,
   RISK_CATEGORIES,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,

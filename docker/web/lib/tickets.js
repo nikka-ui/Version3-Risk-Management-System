@@ -6,6 +6,11 @@ const {
   getStatusLabel,
   getCategoryLabel,
 } = require('../config/tickets');
+const {
+  saveUploadedFiles,
+  deleteTicketUploads,
+  removeAttachmentsFromTicket,
+} = require('./attachments');
 
 function getStore() {
   const { loadStore, saveStore } = require('./store');
@@ -14,7 +19,7 @@ function getStore() {
 
 function nextTicketRef(store) {
   const year = new Date().getFullYear();
-  const prefix = `RMS-${year}-`;
+  const prefix = `RISK-${year}-`;
   const nums = (store.riskTickets || [])
     .map((t) => t.reference)
     .filter((r) => r && r.startsWith(prefix))
@@ -22,6 +27,12 @@ function nextTicketRef(store) {
     .filter((n) => !Number.isNaN(n));
   const next = (nums.length ? Math.max(...nums) : 0) + 1;
   return `${prefix}${String(next).padStart(5, '0')}`;
+}
+
+function peekNextTicketRef() {
+  const { loadStore } = require('./store');
+  const store = loadStore();
+  return nextTicketRef(store);
 }
 
 function publicTicket(ticket) {
@@ -54,6 +65,115 @@ function publicTicket(ticket) {
   };
 }
 
+function clampInt(n, min, max) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return min;
+  return Math.min(max, Math.max(min, Math.round(num)));
+}
+
+function riskLevelFromSeverity(severity1to5) {
+  const sev = clampInt(severity1to5, 1, 5);
+  if (sev <= 2) return { id: 'low', label: 'Low' };
+  if (sev === 3) return { id: 'moderate', label: 'Moderate' };
+  if (sev === 4) return { id: 'high', label: 'High' };
+  return { id: 'critical', label: 'Extreme/Critical' };
+}
+
+function detectRiskCategory(text) {
+  const s = String(text || '').toLowerCase();
+  const compliance = [
+    'audit',
+    'compliance',
+    'regulation',
+    'policy',
+    'noncompliance',
+    'penalt',
+    'sanction',
+    'regulatory',
+    'iso',
+    'iso 31000',
+  ];
+  const financial = ['finance', 'financial', 'account', 'invoice', 'payment', 'budget', 'tax', 'revenue', 'cost', 'fraud'];
+  const reputational = ['reputation', 'brand', 'public', 'media', 'customer', 'customer trust', 'lawsuit', 'scandal'];
+  const strategic = ['strategy', 'strategic', 'market', 'competitor', 'competitors', 'growth', 'roadmap'];
+
+  const any = (arr) => arr.some((k) => s.includes(k));
+  if (any(compliance)) return 'compliance';
+  if (any(financial)) return 'financial';
+  if (any(reputational)) return 'reputational';
+  if (any(strategic)) return 'strategic';
+  return 'operational';
+}
+
+function generateAiAnalysisFromReport({ title, department, location, fiveW1H, evidenceFiles }) {
+  const joined = [
+    title,
+    department,
+    location,
+    fiveW1H?.what,
+    fiveW1H?.why,
+    fiveW1H?.where,
+    fiveW1H?.when,
+    fiveW1H?.who,
+    fiveW1H?.how,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const s = String(joined || '').toLowerCase();
+
+  // Heuristic scoring to support the UI preview until the real AI service is wired.
+  const impactKeywords = ['breach', 'fraud', 'shutdown', 'injury', 'penalt', 'sanction', 'lawsuit', 'leak', 'outage', 'major'];
+  const likelihoodKeywords = ['often', 'frequent', 'recurr', 'pattern', 'may', 'could', 'lack of', 'weak', 'previous', 'history'];
+
+  const countHits = (arr) => arr.reduce((acc, k) => (s.includes(k) ? acc + 1 : acc), 0);
+  const impactHits = countHits(impactKeywords);
+  const likelihoodHits = countHits(likelihoodKeywords);
+
+  const lenBoost = Math.floor((s.length || 0) / 450); // up to a few points
+  const base = 2;
+
+  const likelihood = clampInt(base + lenBoost + likelihoodHits * 1.2, 1, 5);
+  const impact = clampInt(base + lenBoost + impactHits * 1.3, 1, 5);
+
+  const severity = clampInt(Math.round((likelihood + impact) / 2), 1, 5);
+  const riskLevel = riskLevelFromSeverity(severity);
+
+  const riskCategory = detectRiskCategory(s);
+  const evidenceCount = Array.isArray(evidenceFiles) ? evidenceFiles.length : 0;
+  const confidenceBase = 0.68;
+  const evidenceBoost = evidenceCount >= 1 ? 0.08 : 0;
+  const richTextBoost = (s.length || 0) > 180 ? 0.06 : 0;
+  const confidence = Math.max(0.5, Math.min(0.98, confidenceBase + evidenceBoost + richTextBoost));
+
+  const titleSafe = String(title || '').trim();
+  const what = String(fiveW1H?.what || '').trim();
+  const why = String(fiveW1H?.why || '').trim();
+
+  const summary = `AI preview summary: “${titleSafe || 'Untitled'}” appears to describe an incident where ${what || 'the event is described'} occurred due to ${why || 'the stated cause'}. Based on the provided narrative, the report is classified as ${getCategoryLabel(riskCategory)} risk with likelihood ${likelihood}/5 and impact ${impact}/5.`;
+
+  return {
+    summary,
+    likelihood,
+    impact,
+    riskCategory,
+    severity,
+    riskLevel,
+    confidence: Math.round(confidence * 100) / 100,
+    manualReviewRequired: confidence < 0.75,
+    processedAt: new Date().toISOString(),
+  };
+}
+
+function isDraftTicket(ticket) {
+  return ticket?.status === 'draft';
+}
+
+/** Draft-only CRUD from My Tickets (create / edit / delete before submit). */
+function canSupervisorDraftCrud(ticket) {
+  return isDraftTicket(ticket);
+}
+
 function canSupervisorEdit(ticket) {
   const status = TICKET_STATUSES[ticket.status];
   if (!status) return false;
@@ -63,6 +183,28 @@ function canSupervisorEdit(ticket) {
     return elapsed < GRACE_PERIOD_MS;
   }
   return false;
+}
+
+function findAttachmentOnTicket(ticket, attachmentId) {
+  return (ticket?.evidence || []).find((a) => a.id === attachmentId) || null;
+}
+
+function findAttachmentForUser(attachmentId, username) {
+  const { store } = getStore();
+  for (const ticket of store.riskTickets || []) {
+    if (ticket.submittedBy !== username) continue;
+    const att = findAttachmentOnTicket(ticket, attachmentId);
+    if (att) return { ticket, attachment: att };
+  }
+  return null;
+}
+
+function mergeUploadedEvidence(ticket, uploadedFiles) {
+  if (!uploadedFiles?.length) return null;
+  const result = saveUploadedFiles(ticket.reference, uploadedFiles);
+  if (result.error) return result;
+  ticket.evidence = [...(ticket.evidence || []), ...result.attachments];
+  return null;
 }
 
 function listTicketsForSupervisor(username) {
@@ -120,6 +262,7 @@ function parseFiveW1H(body) {
   };
 }
 
+/** Legacy text-only evidence lines (pre–file storage). */
 function parseEvidenceList(raw) {
   return String(raw || '')
     .split('\n')
@@ -130,26 +273,55 @@ function parseEvidenceList(raw) {
       id: `ev-${Date.now()}-${i}`,
       name,
       uploadedAt: new Date().toISOString(),
-      note: 'Metadata only until object storage is integrated',
+      legacy: true,
     }));
 }
 
+function parseRemoveAttachmentIds(body) {
+  const raw = body.removeAttachmentIds;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String);
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function mockAiClassification(ticket) {
-  const score = Math.min(5, Math.max(1, Math.round((ticket.likelihood + ticket.impact) / 2)));
-  const confidence = 0.72 + Math.random() * 0.2;
+  const riskLevel = riskLevelFromSeverity(Math.round((ticket.likelihood + ticket.impact) / 2));
+  const confidence = Math.max(
+    0.55,
+    Math.min(0.98, 0.68 + (ticket.evidence?.length ? 0.1 : 0) + (String(ticket.description || '').length > 200 ? 0.06 : 0)),
+  );
   return {
-    category: ticket.category,
-    severity: score,
+    summary: `AI analysis: ${getCategoryLabel(ticket.category)} risk with likelihood ${ticket.likelihood}/5 and impact ${ticket.impact}/5 (confidence ${Math.round(
+      confidence * 100,
+    )}%).`,
+    likelihood: ticket.likelihood,
+    impact: ticket.impact,
+    riskCategory: ticket.category,
+    severity: riskLevel.id === 'critical' ? 5 : riskLevel.id === 'high' ? 4 : riskLevel.id === 'moderate' ? 3 : 2,
+    riskLevel,
     confidence: Math.round(confidence * 100) / 100,
     manualReviewRequired: confidence < 0.75,
-    summary: `AI pre-classification: ${getCategoryLabel(ticket.category)} risk with severity ${score}/5 based on reported likelihood (${ticket.likelihood}) and impact (${ticket.impact}).`,
     processedAt: new Date().toISOString(),
   };
 }
 
-function createTicket(username, displayName, body) {
+function createTicket(username, displayName, body, { referenceOverride, uploadedFiles } = {}) {
   const { store, saveStore } = getStore();
   if (!store.riskTickets) store.riskTickets = [];
+  const ref = referenceOverride || nextTicketRef(store);
+  const existing = (store.riskTickets || []).find(
+    (t) => t.reference === ref && t.submittedBy === username,
+  );
+  if (existing) {
+    if (!isDraftTicket(existing)) {
+      return { error: 'This ticket can no longer be edited.' };
+    }
+    return updateTicketDraft(ref, username, body, { uploadedFiles });
+  }
+
   const now = new Date().toISOString();
   const fiveW1H = parseFiveW1H(body);
   const title = String(body.title || '').trim();
@@ -158,27 +330,54 @@ function createTicket(username, displayName, body) {
     return { error: 'What happened and why are required (5W1H).' };
   }
 
-  const ticket = {
-    id: `tkt-${Date.now()}`,
-    reference: nextTicketRef(store),
+  const evidenceFromUpload = [];
+  const uploadResult = uploadedFiles?.length ? saveUploadedFiles(ref, uploadedFiles) : { attachments: [] };
+  if (uploadResult.error) return { error: uploadResult.error };
+  evidenceFromUpload.push(...(uploadResult.attachments || []));
+  const legacyEvidence = uploadedFiles?.length ? [] : parseEvidenceList(body.evidenceFiles);
+  const evidenceFiles = [...evidenceFromUpload, ...legacyEvidence];
+  if (!evidenceFiles.length) {
+    return { error: 'At least one evidence file is required.' };
+  }
+
+  const ai = generateAiAnalysisFromReport({
     title,
-    description: String(body.description || '').trim(),
     department: String(body.department || DEFAULT_DEPARTMENT).trim(),
     location: String(body.location || '').trim(),
-    category: String(body.category || 'operational'),
-    likelihood: Math.min(5, Math.max(1, parseInt(body.likelihood, 10) || 3)),
-    impact: Math.min(5, Math.max(1, parseInt(body.impact, 10) || 3)),
+    fiveW1H,
+    evidenceFiles,
+  });
+
+  const description =
+    String(body.description || '')
+      .trim()
+      .replace(/\n{3,}/g, '\n\n') ||
+    [fiveW1H?.what, fiveW1H?.why, fiveW1H?.where, fiveW1H?.when, fiveW1H?.who, fiveW1H?.how]
+      .filter(Boolean)
+      .join('\n');
+
+  const ticket = {
+    id: `tkt-${Date.now()}`,
+    reference: ref,
+    title,
+    description,
+    department: String(body.department || DEFAULT_DEPARTMENT).trim(),
+    location: String(body.location || '').trim(),
+    // AI preview values (used for risk analysis badges and submission workflow).
+    category: ai.riskCategory,
+    likelihood: ai.likelihood,
+    impact: ai.impact,
     riskScore: null,
     mitigationApproach: String(body.mitigationApproach || '').trim(),
     fiveW1H,
-    evidence: parseEvidenceList(body.evidenceFiles),
+    evidence: evidenceFiles,
     status: 'draft',
     submittedBy: username,
     submittedByName: displayName,
     createdAt: now,
     updatedAt: now,
     submittedAt: null,
-    ai: null,
+    ai,
     accomplishmentId: null,
     mitigationDueAt: null,
     officerNotes: null,
@@ -189,11 +388,14 @@ function createTicket(username, displayName, body) {
   return { ticket: publicTicket(ticket) };
 }
 
-function updateTicketDraft(reference, username, body) {
+function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly = true } = {}) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
-  if (!canSupervisorEdit(ticket)) {
+  if (draftOnly && !canSupervisorDraftCrud(ticket)) {
+    return { error: 'Only draft tickets can be edited from My Tickets.' };
+  }
+  if (!draftOnly && !canSupervisorEdit(ticket)) {
     return { error: 'This ticket can no longer be edited.' };
   }
 
@@ -204,23 +406,62 @@ function updateTicketDraft(reference, username, body) {
     return { error: 'What happened and why are required (5W1H).' };
   }
 
+  removeAttachmentsFromTicket(ticket, parseRemoveAttachmentIds(body));
+
   ticket.title = title;
-  ticket.description = String(body.description || '').trim();
+  ticket.description =
+    String(body.description || '').trim() ||
+    [fiveW1H.what, fiveW1H.why, fiveW1H.where, fiveW1H.when, fiveW1H.who, fiveW1H.how]
+      .filter(Boolean)
+      .join('\n');
   ticket.department = String(body.department || ticket.department).trim();
   ticket.location = String(body.location || '').trim();
-  ticket.category = String(body.category || ticket.category);
-  ticket.likelihood = Math.min(5, Math.max(1, parseInt(body.likelihood, 10) || ticket.likelihood));
-  ticket.impact = Math.min(5, Math.max(1, parseInt(body.impact, 10) || ticket.impact));
-  ticket.riskScore = ticket.likelihood * ticket.impact;
   ticket.mitigationApproach = String(body.mitigationApproach || '').trim();
   ticket.fiveW1H = fiveW1H;
-  if (body.evidenceFiles) {
+
+  const uploadErr = mergeUploadedEvidence(ticket, uploadedFiles);
+  if (uploadErr) return uploadErr;
+
+  if (!uploadedFiles?.length && body.evidenceFiles) {
     const added = parseEvidenceList(body.evidenceFiles);
     ticket.evidence = [...(ticket.evidence || []), ...added];
   }
+
+  if (!(ticket.evidence || []).length) {
+    return { error: 'At least one evidence file is required.' };
+  }
+
+  const ai = generateAiAnalysisFromReport({
+    title: ticket.title,
+    department: ticket.department,
+    location: ticket.location,
+    fiveW1H: ticket.fiveW1H,
+    evidenceFiles: ticket.evidence,
+  });
+  ticket.category = ai.riskCategory;
+  ticket.likelihood = ai.likelihood;
+  ticket.impact = ai.impact;
+  ticket.riskScore = ticket.likelihood * ticket.impact;
+  ticket.ai = ai;
   ticket.updatedAt = new Date().toISOString();
   saveStore();
   return { ticket: publicTicket(ticket) };
+}
+
+function deleteDraftTicket(reference, username) {
+  const { store, saveStore } = getStore();
+  const idx = (store.riskTickets || []).findIndex(
+    (t) => t.reference === reference && t.submittedBy === username,
+  );
+  if (idx < 0) return { error: 'Ticket not found.' };
+  const ticket = store.riskTickets[idx];
+  if (!canSupervisorDraftCrud(ticket)) {
+    return { error: 'Only draft tickets can be deleted.' };
+  }
+  deleteTicketUploads(ticket.reference);
+  store.riskTickets.splice(idx, 1);
+  saveStore();
+  return { reference: ticket.reference };
 }
 
 function submitTicket(reference, username, displayName) {
@@ -232,7 +473,14 @@ function submitTicket(reference, username, displayName) {
   }
 
   const now = new Date().toISOString();
-  ticket.ai = mockAiClassification(ticket);
+  // If the supervisor already generated an AI preview, keep it unless the draft was edited.
+  const shouldRefreshAi =
+    !ticket.ai
+    || ticket.ai.likelihood !== ticket.likelihood
+    || ticket.ai.impact !== ticket.impact
+    || ticket.ai.riskCategory !== ticket.category;
+
+  ticket.ai = shouldRefreshAi ? mockAiClassification(ticket) : ticket.ai;
   ticket.status = 'under_review';
   ticket.submittedAt = ticket.submittedAt || now;
   ticket.updatedAt = now;
@@ -251,13 +499,17 @@ function submitTicket(reference, username, displayName) {
   return { ticket: publicTicket(ticket) };
 }
 
-function addEvidence(reference, username, body) {
+function addEvidence(reference, username, body, { uploadedFiles } = {}) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
-  const added = parseEvidenceList(body.evidenceFiles);
-  if (!added.length) return { error: 'Enter at least one evidence file name or reference.' };
-  ticket.evidence = [...(ticket.evidence || []), ...added];
+  const uploadErr = mergeUploadedEvidence(ticket, uploadedFiles);
+  if (uploadErr) return uploadErr;
+  if (!uploadedFiles?.length) {
+    const added = parseEvidenceList(body.evidenceFiles);
+    if (!added.length) return { error: 'Upload at least one evidence file.' };
+    ticket.evidence = [...(ticket.evidence || []), ...added];
+  }
   ticket.updatedAt = new Date().toISOString();
   saveStore();
   return { ticket: publicTicket(ticket) };
@@ -328,12 +580,17 @@ module.exports = {
   getSupervisorStats,
   listActionTickets,
   listAccomplishments,
+  isDraftTicket,
+  canSupervisorDraftCrud,
   canSupervisorEdit,
+  findAttachmentForUser,
   createTicket,
   updateTicketDraft,
+  deleteDraftTicket,
   submitTicket,
   addEvidence,
   submitAccomplishment,
   publicTicket,
   assignMitigationForDemo,
+  peekNextTicketRef,
 };

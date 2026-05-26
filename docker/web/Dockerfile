@@ -8,7 +8,7 @@ COPY docker/web/package.json docker/web/server.js ./
 COPY docker/web/config ./config
 COPY docker/web/lib ./lib
 COPY docker/web/public ./public
-RUN mkdir -p /app/data && chown -R node:node /app/data
+RUN mkdir -p /app/data /app/uploads && chown -R node:node /app/data /app/uploads
 
 RUN npm install --omit=dev \
     && chown -R node:node /app
