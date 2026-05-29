@@ -31,6 +31,8 @@ const TICKET_STATUSES = {
   submitted: { label: 'Submitted', supervisorCanEdit: false },
   under_review: { label: 'Under RMO Review', supervisorCanEdit: false },
   returned: { label: 'Returned for Revision', supervisorCanEdit: true },
+  under_audit: { label: 'Under Audit Review', supervisorCanEdit: false },
+  audit_returned: { label: 'Returned by Audit', supervisorCanEdit: false },
   in_mitigation: { label: 'Implementation Required', supervisorCanEdit: false },
   pending_audit: { label: 'Accomplishment Submitted', supervisorCanEdit: false },
   resolved: { label: 'Resolved', supervisorCanEdit: false },
@@ -40,14 +42,21 @@ const TICKET_STATUSES = {
 
 const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
 
-/** Tickets awaiting initial RMO validation (architecture: Under RMO Review). */
-const OFFICER_REVIEW_STATUSES = ['under_review'];
+/**
+ * Tickets awaiting RMO validation. Includes solutions sent back by the Audit
+ * Officer (architecture step 4: insufficient → return to RMO), so the RMO can
+ * revise the mitigation plan and resubmit it for audit.
+ */
+const OFFICER_REVIEW_STATUSES = ['under_review', 'audit_returned'];
 
 /** Tickets awaiting final RMO effectiveness validation (architecture: Accomplishment Submitted). */
 const OFFICER_FINAL_VALIDATION_STATUSES = ['pending_audit'];
 
-/** Tickets RMO may monitor after assigning mitigation. */
-const OFFICER_MONITORING_STATUSES = ['in_mitigation', 'returned', 'reopened'];
+/** Tickets RMO may monitor after audit approval / during implementation. */
+const OFFICER_MONITORING_STATUSES = ['under_audit', 'in_mitigation', 'returned', 'reopened'];
+
+/** Tickets awaiting Audit Officer review of the RMO mitigation solution. */
+const AUDIT_REVIEW_STATUSES = ['under_audit'];
 
 const GRACE_PERIOD_MS = 30 * 60 * 1000;
 
@@ -68,6 +77,7 @@ module.exports = {
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
+  AUDIT_REVIEW_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,

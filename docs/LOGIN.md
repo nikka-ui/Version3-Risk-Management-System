@@ -70,7 +70,27 @@ Sign in as `rm-officer` / `a3c2026` to open the **Risk Management Officer** cons
 
 Workflow (per architecture): validate submitted reports (accept with mitigation plan or return for revision); after department implementation and accomplishment submission, perform final validation and close or return for further work.
 
+When the RMO accepts a report and defines a mitigation solution, the ticket moves to **Under Audit Review** and is routed to the Audit Officer (see below) before any implementation begins.
+
 Officer actions are recorded in the IT Administrator **Report history** log (`/admin/logs/reports`).
+
+## Audit Officer
+
+Sign in as `audit-officer` / `a3c2026` to open the **Audit Officer** console at http://localhost:8080/audit:
+
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview | `/audit` | Dashboard stats and quick links |
+| Audit queue | `/audit/review` | Mitigation solutions awaiting audit review (Under Audit Review) |
+| All tickets | `/audit/tickets` | Organization-wide submitted tickets (read-only) |
+| Ticket detail | `/audit/tickets/:ref` | Review the RMO solution, then approve or return to RMO |
+
+Workflow (per architecture step 4): the Audit Officer independently reviews the mitigation solution defined by the RMO **before** the department implements it.
+
+- **Approve** — confirm the implementation due date and release the ticket for implementation (status becomes **Implementation Required**).
+- **Return to RMO** — record audit notes explaining why the solution is insufficient; the ticket returns to the RMO review queue (**Returned by Audit**) for a revised solution, which loops back through audit.
+
+Audit actions are recorded in the IT Administrator **Report history** log (`/admin/logs/reports`).
 
 ## Security notes
 
@@ -83,8 +103,9 @@ Officer actions are recorded in the IT Administrator **Report history** log (`/a
 
 | Path | Purpose |
 |------|---------|
-| `docker/web/server.js` | Routes: `/login`, `/dashboard`, `/logout`, `/supervisor`, `/officer`, `/admin` |
+| `docker/web/server.js` | Routes: `/login`, `/dashboard`, `/logout`, `/supervisor`, `/officer`, `/audit`, `/admin` |
 | `docker/web/lib/templates/officer.js` | Risk Management Officer HTML templates |
+| `docker/web/lib/templates/audit.js` | Audit Officer HTML templates |
 | `docker/web/config/users.js` | Account definitions |
 | `docker/web/public/css/login.css` | Login and dashboard styles |
 | `docker/web/lib/auth.js` | Session guards and authentication |

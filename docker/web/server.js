@@ -7,6 +7,7 @@ const {
   requireAdmin,
   requireSupervisor,
   requireRmOfficer,
+  requireAuditOfficer,
   sessionUser,
 } = require('./lib/auth');
 const { loginPage, dashboardPage } = require('./lib/templates');
@@ -34,6 +35,12 @@ const {
   renderOfficerTicketPage,
 } = require('./lib/templates/officer');
 const {
+  auditOverviewPage,
+  auditReviewQueuePage,
+  allTicketsPage: auditAllTicketsPage,
+  renderAuditTicketPage,
+} = require('./lib/templates/audit');
+const {
   getSupervisorStats,
   listTicketsForSupervisor,
   getTicketByRef,
@@ -60,6 +67,13 @@ const {
   acceptAndAssignMitigation,
   closeTicketAsOfficer,
   returnAccomplishmentForRevision,
+  getTicketByRefForAudit,
+  listTicketsForAudit,
+  listAuditReviewQueue,
+  getAuditStats,
+  findAttachmentForAudit,
+  approveSolutionByAudit,
+  returnSolutionToRmo,
   publicTicket,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
@@ -114,10 +128,12 @@ function flashFromQuery(query) {
     evidence_added: 'Evidence reference added.',
     accomplishment_submitted: 'Accomplishment report submitted for audit review.',
     mitigation_assigned: 'Mitigation assignment simulated (development).',
-    rmo_accepted: 'Mitigation plan assigned. Department may begin implementation.',
+    rmo_accepted: 'Mitigation solution submitted to the Audit Officer for review.',
     rmo_rejected: 'Report returned to department for revision.',
     rmo_closed: 'Ticket closed after final validation.',
     rmo_returned: 'Accomplishment returned for further implementation.',
+    audit_approved: 'Solution approved. Department may begin implementation.',
+    audit_returned: 'Solution returned to the RMO for revision.',
     not_found: 'Ticket not found.',
     invalid: null,
   };
@@ -128,6 +144,7 @@ function dashboardPath(user) {
   if (user?.role === 'admin') return '/admin';
   if (user?.role === 'supervisor') return '/supervisor';
   if (user?.role === 'rm_officer') return '/officer';
+  if (user?.role === 'audit_officer') return '/audit';
   return '/dashboard';
 }
 
@@ -214,6 +231,9 @@ app.get('/dashboard', requireAuth, (req, res) => {
   }
   if (req.session.user.role === 'rm_officer') {
     return res.redirect('/officer');
+  }
+  if (req.session.user.role === 'audit_officer') {
+    return res.redirect('/audit');
   }
   res.type('html').send(dashboardPage(req.session.user));
 });
@@ -570,6 +590,79 @@ app.post('/officer/tickets/:ref/return-accomplishment', requireRmOfficer, (req, 
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect('/officer/monitoring?flash=rmo_returned');
+});
+
+/* —— Audit Officer —— */
+
+app.get('/audit', requireAuditOfficer, (req, res) => {
+  res.type('html').send(
+    auditOverviewPage(req.session.user, getAuditStats(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/audit/review', requireAuditOfficer, (req, res) => {
+  res.type('html').send(
+    auditReviewQueuePage(
+      req.session.user,
+      listAuditReviewQueue(),
+      flashFromQuery(req.query),
+      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+    ),
+  );
+});
+
+app.get('/audit/tickets', requireAuditOfficer, (req, res) => {
+  res.type('html').send(
+    auditAllTicketsPage(req.session.user, listTicketsForAudit(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/audit/tickets/:ref', requireAuditOfficer, (req, res) => {
+  const raw = getTicketByRefForAudit(req.params.ref);
+  if (!raw) {
+    return res.redirect('/audit/tickets?flash=not_found');
+  }
+  const ticket = { ...raw, ...publicTicket(raw) };
+  res.type('html').send(
+    renderAuditTicketPage(req.session.user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+    }),
+  );
+});
+
+app.get('/audit/attachments/:id', requireAuditOfficer, (req, res) => {
+  const found = findAttachmentForAudit(req.params.id);
+  if (!found?.attachment?.storageKey) {
+    return res.status(404).send('Attachment not found.');
+  }
+  const { readFileStream } = require('./lib/attachments');
+  const file = readFileStream(found.attachment.storageKey);
+  if (!file) return res.status(404).send('File not found on disk.');
+  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
+  );
+  file.stream.pipe(res);
+});
+
+app.post('/audit/tickets/:ref/approve', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = approveSolutionByAudit(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/audit/review?flash=audit_approved');
+});
+
+app.post('/audit/tickets/:ref/return', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = returnSolutionToRmo(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/audit/review?flash=audit_returned');
 });
 
 /* —— IT Administrator —— */

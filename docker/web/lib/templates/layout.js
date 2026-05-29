@@ -5,6 +5,7 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isAdmin = user.role === 'admin' || navVariant === 'admin';
   const isSupervisor = user.role === 'supervisor' || navVariant === 'supervisor';
   const isOfficer = user.role === 'rm_officer' || navVariant === 'officer';
+  const isAudit = user.role === 'audit_officer' || navVariant === 'audit';
   let nav;
   if (isAdmin) {
     nav = adminNav(activeNav);
@@ -12,12 +13,23 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
     nav = supervisorNav(activeNav);
   } else if (isOfficer) {
     nav = officerNav(activeNav);
+  } else if (isAudit) {
+    nav = auditNav(activeNav);
   } else {
     nav = `<nav class="app-nav"><a href="/dashboard" class="${activeNav === 'home' ? 'active' : ''}">Overview</a></nav>`;
   }
-  const shellClass = isAdmin || isSupervisor || isOfficer ? 'app-shell app-shell--admin' : 'app-shell';
-  const bodyClass = isAdmin || isSupervisor || isOfficer ? 'app-body app-body--admin' : 'app-body';
-  const homeHref = isAdmin ? '/admin' : isSupervisor ? '/supervisor' : isOfficer ? '/officer' : '/dashboard';
+  const hasSidebar = isAdmin || isSupervisor || isOfficer || isAudit;
+  const shellClass = hasSidebar ? 'app-shell app-shell--admin' : 'app-shell';
+  const bodyClass = hasSidebar ? 'app-body app-body--admin' : 'app-body';
+  const homeHref = isAdmin
+    ? '/admin'
+    : isSupervisor
+      ? '/supervisor'
+      : isOfficer
+        ? '/officer'
+        : isAudit
+          ? '/audit'
+          : '/dashboard';
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
 
   return `<!DOCTYPE html>
@@ -81,6 +93,21 @@ function officerNav(active) {
     { id: 'final', href: '/officer/final-validation', label: 'Final validation' },
     { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
     { id: 'tickets', href: '/officer/tickets', label: 'All tickets' },
+  ];
+  const links = items
+    .map(
+      (i) =>
+        `<a href="${i.href}" class="${active === i.id ? 'active' : ''}">${escapeHtml(i.label)}</a>`,
+    )
+    .join('');
+  return `<nav class="app-nav app-nav--admin">${links}</nav>`;
+}
+
+function auditNav(active) {
+  const items = [
+    { id: 'overview', href: '/audit', label: 'Overview' },
+    { id: 'review', href: '/audit/review', label: 'Audit queue' },
+    { id: 'tickets', href: '/audit/tickets', label: 'All tickets' },
   ];
   const links = items
     .map(

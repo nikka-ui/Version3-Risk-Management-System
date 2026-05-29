@@ -5,6 +5,7 @@ const {
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
+  AUDIT_REVIEW_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,
@@ -61,6 +62,8 @@ function publicTicket(ticket) {
     fiveW1H: ticket.fiveW1H,
     evidenceCount: (ticket.evidence || []).length,
     hasAccomplishment: Boolean(ticket.accomplishmentId),
+    officerNotes: ticket.officerNotes || null,
+    auditNotes: ticket.auditNotes || null,
     mitigationDueAt: ticket.mitigationDueAt || null,
     isOverdue: ticket.mitigationDueAt
       ? new Date(ticket.mitigationDueAt) < new Date() && SUPERVISOR_ACTION_STATUSES.includes(ticket.status)
@@ -384,6 +387,7 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
     accomplishmentId: null,
     mitigationDueAt: null,
     officerNotes: null,
+    auditNotes: null,
   };
   ticket.riskScore = ticket.likelihood * ticket.impact;
   store.riskTickets.push(ticket);
@@ -642,12 +646,15 @@ function acceptAndAssignMitigation(reference, username, body) {
   }
 
   const now = new Date().toISOString();
-  ticket.status = 'in_mitigation';
+  // Architecture step 4: the RMO solution must be reviewed by the Audit Officer
+  // before the department begins implementation. The due date is a proposal that
+  // the Audit Officer confirms (or adjusts) on approval.
+  ticket.status = 'under_audit';
   ticket.officerNotes = plan;
   ticket.mitigationDueAt = due.toISOString();
   ticket.updatedAt = now;
   saveStore();
-  logOfficerAction(ticket, username, 'mitigation_assigned');
+  logOfficerAction(ticket, username, 'solution_submitted_for_audit');
   return { ticket: publicTicket(ticket) };
 }
 
@@ -690,6 +697,111 @@ function returnAccomplishmentForRevision(reference, username, body) {
   ticket.updatedAt = now;
   saveStore();
   logOfficerAction(ticket, username, 'accomplishment_returned');
+  return { ticket: publicTicket(ticket) };
+}
+
+/* —— Audit Officer ——
+ * The Audit Officer reviews the mitigation solution defined by the RMO before
+ * implementation (architecture step 4). They either approve it (department may
+ * begin implementation) or return it to the RMO as insufficient.
+ */
+
+function getTicketByRefForAudit(reference) {
+  const { store } = getStore();
+  const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
+  if (!ticket || ticket.status === 'draft') return null;
+  return ticket;
+}
+
+function listTicketsForAudit() {
+  const { store } = getStore();
+  return (store.riskTickets || [])
+    .filter((t) => t.status !== 'draft')
+    .map(publicTicket)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function listAuditReviewQueue() {
+  return listTicketsForAudit().filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status));
+}
+
+function getAuditStats() {
+  const tickets = listTicketsForAudit();
+  return {
+    awaitingReview: tickets.filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status)).length,
+    inImplementation: tickets.filter((t) => t.status === 'in_mitigation').length,
+    returnedToRmo: tickets.filter((t) => t.status === 'audit_returned').length,
+    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+    open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+  };
+}
+
+function findAttachmentForAudit(attachmentId) {
+  const { store } = getStore();
+  for (const ticket of store.riskTickets || []) {
+    const att = findAttachmentOnTicket(ticket, attachmentId);
+    if (att) return { ticket, attachment: att };
+  }
+  return null;
+}
+
+function logAuditAction(ticket, username, action) {
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: username,
+    submitterRole: 'audit_officer',
+    status: getStatusLabel(ticket.status),
+    action,
+  });
+}
+
+function approveSolutionByAudit(reference, username, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForAudit(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!AUDIT_REVIEW_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting audit review.' };
+  }
+
+  // The Audit Officer may confirm or adjust the implementation due date.
+  const dueRaw = String(body.mitigationDueAt || '').trim();
+  if (dueRaw) {
+    const due = new Date(dueRaw);
+    if (Number.isNaN(due.getTime())) return { error: 'Invalid implementation due date.' };
+    ticket.mitigationDueAt = due.toISOString();
+  } else if (!ticket.mitigationDueAt) {
+    const due = new Date();
+    due.setDate(due.getDate() + 14);
+    ticket.mitigationDueAt = due.toISOString();
+  }
+
+  const notes = String(body.auditNotes || '').trim();
+  ticket.auditNotes = notes || 'Solution approved by Audit Officer.';
+  ticket.status = 'in_mitigation';
+  ticket.updatedAt = new Date().toISOString();
+  saveStore();
+  logAuditAction(ticket, username, 'solution_approved');
+  return { ticket: publicTicket(ticket) };
+}
+
+function returnSolutionToRmo(reference, username, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForAudit(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!AUDIT_REVIEW_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting audit review.' };
+  }
+
+  const notes = String(body.auditNotes || '').trim();
+  if (!notes) return { error: 'Audit notes are required when returning a solution to the RMO.' };
+
+  ticket.auditNotes = notes;
+  ticket.status = 'audit_returned';
+  ticket.updatedAt = new Date().toISOString();
+  saveStore();
+  logAuditAction(ticket, username, 'solution_returned_to_rmo');
   return { ticket: publicTicket(ticket) };
 }
 
@@ -770,4 +882,11 @@ module.exports = {
   acceptAndAssignMitigation,
   closeTicketAsOfficer,
   returnAccomplishmentForRevision,
+  getTicketByRefForAudit,
+  listTicketsForAudit,
+  listAuditReviewQueue,
+  getAuditStats,
+  findAttachmentForAudit,
+  approveSolutionByAudit,
+  returnSolutionToRmo,
 };
