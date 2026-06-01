@@ -1,7 +1,7 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
-const { appLayout, flashMessage } = require('./layout');
+const { appLayout, flashMessage, commentsSection } = require('./layout');
 
 function statusPill(status, overdue) {
   const cls = overdue ? 'pill pill--bad' : 'pill';
@@ -250,6 +250,7 @@ function ticketReviewPage(user, ticket, { flash, error } = {}) {
       <a href="/officer/review" class="btn-outline">Back to review queue</a>
     </div>
     ${ticketReadonlySections(t)}
+    ${commentsSection(t.comments, { postAction: `/officer/tickets/${escapeHtml(ref)}/comment` })}
     <section class="card card--accent">
       <h2>RMO decision</h2>
       <p class="text-muted">Per workflow step 3: accept the report and define a mitigation plan, or return it to the department for revision.</p>
@@ -319,6 +320,7 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error 
       <a href="/officer/final-validation" class="btn-outline">Back to final validation</a>
     </div>
     ${ticketReadonlySections(t)}
+    ${commentsSection(t.comments, { postAction: `/officer/tickets/${escapeHtml(ref)}/comment` })}
     ${accBlock}
     <section class="card card--accent">
       <h2>Final validation</h2>
@@ -362,7 +364,8 @@ function ticketViewPage(user, ticket, { flash } = {}) {
       </div>
       <a href="/officer/tickets" class="btn-outline">Back to all tickets</a>
     </div>
-    ${ticketReadonlySections(t)}`;
+    ${ticketReadonlySections(t)}
+    ${commentsSection(t.comments, { postAction: `/officer/tickets/${escapeHtml(t.reference)}/comment` })}`;
 
   return appLayout({
     title: t.reference,

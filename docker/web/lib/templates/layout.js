@@ -1,4 +1,4 @@
-const { escapeHtml } = require('../html');
+const { escapeHtml, formatDate } = require('../html');
 const { FONT_LINKS } = require('./head');
 
 function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
@@ -140,4 +140,44 @@ function flashMessage(msg, type = 'success') {
   return `<div class="${cls}" role="status">${escapeHtml(msg)}</div>`;
 }
 
-module.exports = { appLayout, flashMessage };
+/**
+ * Shared comments / suggestions thread for a ticket (RMS flowchart: Audit
+ * Officer and RMO can comment on a risk report). Pass `postAction` to render an
+ * "add comment" form; omit it for a read-only thread.
+ */
+function commentsSection(comments, { postAction, placeholder } = {}) {
+  const items = (comments || []).length
+    ? comments
+        .map(
+          (c) => `<li class="comment">
+            <div class="comment-meta">
+              <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
+              <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
+              <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
+            </div>
+            <p class="comment-body">${escapeHtml(c.body)}</p>
+          </li>`,
+        )
+        .join('')
+    : '<li class="comment comment--empty text-muted">No comments yet.</li>';
+
+  const form = postAction
+    ? `<form method="post" action="${postAction}" class="stack-form comment-form">
+        <div class="field">
+          <label for="comment">Add comment / suggestion</label>
+          <textarea id="comment" name="comment" rows="3" required placeholder="${escapeHtml(
+            placeholder || 'Write a comment or suggestion about this risk report…',
+          )}"></textarea>
+        </div>
+        <button type="submit" class="btn-primary btn-primary--auto">Post comment</button>
+      </form>`
+    : '';
+
+  return `<section class="card">
+    <h2>Comments &amp; suggestions</h2>
+    <ul class="comment-list">${items}</ul>
+    ${form}
+  </section>`;
+}
+
+module.exports = { appLayout, flashMessage, commentsSection };

@@ -64,6 +64,7 @@ function publicTicket(ticket) {
     hasAccomplishment: Boolean(ticket.accomplishmentId),
     officerNotes: ticket.officerNotes || null,
     auditNotes: ticket.auditNotes || null,
+    comments: ticket.comments || [],
     mitigationDueAt: ticket.mitigationDueAt || null,
     isOverdue: ticket.mitigationDueAt
       ? new Date(ticket.mitigationDueAt) < new Date() && SUPERVISOR_ACTION_STATUSES.includes(ticket.status)
@@ -388,6 +389,7 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
     mitigationDueAt: null,
     officerNotes: null,
     auditNotes: null,
+    comments: [],
   };
   ticket.riskScore = ticket.likelihood * ticket.impact;
   store.riskTickets.push(ticket);
@@ -805,6 +807,49 @@ function returnSolutionToRmo(reference, username, body) {
   return { ticket: publicTicket(ticket) };
 }
 
+/* —— Comments / Audit trail ——
+ * A shared comment thread on a ticket. Per the RMS flowchart, the Audit Officer
+ * (and RMO) can leave comments / suggestions on a risk report; every comment is
+ * recorded in the Report history (Audit Trail).
+ */
+
+function addTicketComment(reference, user, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+
+  const text = String(body.comment || body.body || '').trim();
+  if (!text) return { error: 'Comment cannot be empty.' };
+  if (text.length > 2000) return { error: 'Comment is too long (max 2000 characters).' };
+
+  if (!ticket.comments) ticket.comments = [];
+  const now = new Date().toISOString();
+  const record = {
+    id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    authorUsername: user.username,
+    authorName: user.displayName || user.username,
+    authorRole: user.role,
+    roleLabel: user.roleLabel || user.role,
+    body: text,
+    at: now,
+  };
+  ticket.comments.push(record);
+  ticket.updatedAt = now;
+  saveStore();
+
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: user.username,
+    submitterRole: user.role,
+    status: getStatusLabel(ticket.status),
+    action: 'comment_added',
+  });
+
+  return { ticket: publicTicket(ticket) };
+}
+
 function submitAccomplishment(reference, username, displayName, body) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
@@ -889,4 +934,5 @@ module.exports = {
   findAttachmentForAudit,
   approveSolutionByAudit,
   returnSolutionToRmo,
+  addTicketComment,
 };

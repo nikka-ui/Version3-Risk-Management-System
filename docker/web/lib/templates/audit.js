@@ -1,6 +1,6 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
-const { appLayout, flashMessage } = require('./layout');
+const { appLayout, flashMessage, commentsSection } = require('./layout');
 
 function statusPill(status, overdue) {
   const cls = overdue ? 'pill pill--bad' : 'pill';
@@ -228,6 +228,7 @@ function ticketAuditPage(user, ticket, { flash, error } = {}) {
       <a href="/audit/review" class="btn-outline">Back to audit queue</a>
     </div>
     ${ticketReadonlySections(t)}
+    ${commentsSection(t.comments, { postAction: `/audit/tickets/${escapeHtml(ref)}/comment` })}
     <section class="card card--accent">
       <h2>Audit decision</h2>
       <p class="text-muted">Per workflow step 4: approve the mitigation solution so the department can begin implementation, or return it to the RMO if it is insufficient.</p>
@@ -246,7 +247,7 @@ function ticketAuditPage(user, ticket, { flash, error } = {}) {
       <form method="post" action="/audit/tickets/${escapeHtml(ref)}/return" class="stack-form" style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border, #e2e8f0)">
         <h2 class="section-sub">Return to RMO</h2>
         <div class="field">
-          <label for="returnNotes">Audit notes *</label>
+          <label for="returnNotes">Comments / suggestions *</label>
           <textarea id="returnNotes" name="auditNotes" rows="3" required placeholder="Explain why the solution is insufficient and what the RMO should revise…"></textarea>
         </div>
         <button type="submit" class="btn-danger">Return to RMO</button>
@@ -274,7 +275,8 @@ function ticketViewPage(user, ticket, { flash } = {}) {
       </div>
       <a href="/audit/tickets" class="btn-outline">Back to all tickets</a>
     </div>
-    ${ticketReadonlySections(t)}`;
+    ${ticketReadonlySections(t)}
+    ${commentsSection(t.comments, { postAction: `/audit/tickets/${escapeHtml(t.reference)}/comment` })}`;
 
   return appLayout({
     title: t.reference,

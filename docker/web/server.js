@@ -74,6 +74,7 @@ const {
   findAttachmentForAudit,
   approveSolutionByAudit,
   returnSolutionToRmo,
+  addTicketComment,
   publicTicket,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
@@ -134,6 +135,7 @@ function flashFromQuery(query) {
     rmo_returned: 'Accomplishment returned for further implementation.',
     audit_approved: 'Solution approved. Department may begin implementation.',
     audit_returned: 'Solution returned to the RMO for revision.',
+    comment_added: 'Comment posted.',
     not_found: 'Ticket not found.',
     invalid: null,
   };
@@ -592,6 +594,15 @@ app.post('/officer/tickets/:ref/return-accomplishment', requireRmOfficer, (req, 
   return res.redirect('/officer/monitoring?flash=rmo_returned');
 });
 
+app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = addTicketComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/tickets/${ref}?flash=comment_added`);
+});
+
 /* —— Audit Officer —— */
 
 app.get('/audit', requireAuditOfficer, (req, res) => {
@@ -663,6 +674,15 @@ app.post('/audit/tickets/:ref/return', requireAuditOfficer, (req, res) => {
     return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect('/audit/review?flash=audit_returned');
+});
+
+app.post('/audit/tickets/:ref/comment', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = addTicketComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/audit/tickets/${ref}?flash=comment_added`);
 });
 
 /* —— IT Administrator —— */
