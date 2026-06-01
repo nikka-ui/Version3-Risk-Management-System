@@ -145,7 +145,7 @@ function flashMessage(msg, type = 'success') {
  * Officer and RMO can comment on a risk report). Pass `postAction` to render an
  * "add comment" form; omit it for a read-only thread.
  */
-function commentsSection(comments, { postAction, placeholder } = {}) {
+function commentsSection(comments, { postAction, placeholder, compact, wrapClass } = {}) {
   const items = (comments || []).length
     ? comments
         .map(
@@ -162,20 +162,26 @@ function commentsSection(comments, { postAction, placeholder } = {}) {
     : '<li class="comment comment--empty text-muted">No comments yet.</li>';
 
   const form = postAction
-    ? `<form method="post" action="${postAction}" class="stack-form comment-form">
+    ? `<form method="post" action="${postAction}" class="stack-form comment-form${compact ? ' comment-form--compact' : ''}">
         <div class="field">
-          <label for="comment">Add comment / suggestion</label>
-          <textarea id="comment" name="comment" rows="3" required placeholder="${escapeHtml(
+          <label for="comment">${compact ? 'Add comment' : 'Add comment / suggestion'}</label>
+          <textarea id="comment" name="comment" rows="${compact ? 2 : 3}" required placeholder="${escapeHtml(
             placeholder || 'Write a comment or suggestion about this risk report…',
           )}"></textarea>
         </div>
-        <button type="submit" class="btn-primary btn-primary--auto">Post comment</button>
+        <button type="submit" class="btn-primary btn-primary--auto">${compact ? 'Post' : 'Post comment'}</button>
       </form>`
     : '';
 
-  return `<section class="card">
-    <h2>Comments &amp; suggestions</h2>
-    <ul class="comment-list">${items}</ul>
+  const cardClass = ['card', wrapClass, compact ? 'card--compact' : ''].filter(Boolean).join(' ');
+  const hint = compact
+    ? '<p class="text-muted section-hint">Private — not visible to department.</p>'
+    : '<p class="text-muted section-hint">Not visible to the Department Supervisor.</p>';
+
+  return `<section class="${cardClass}">
+    <h2>${postAction ? 'Private comments' : 'Private comments'}</h2>
+    ${hint}
+    <ul class="comment-list${compact ? ' comment-list--scroll' : ''}">${items}</ul>
     ${form}
   </section>`;
 }

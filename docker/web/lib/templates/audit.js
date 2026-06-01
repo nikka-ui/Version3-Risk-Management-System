@@ -71,7 +71,7 @@ function ticketReadonlySections(ticket) {
 
   const solutionBlock = t.officerNotes
     ? `<section class="card card--accent">
-        <h2>RMO mitigation solution</h2>
+        <h2>RMO mitigation solution${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}</h2>
         <p>${escapeHtml(t.officerNotes)}</p>
         ${t.mitigationDueAt ? `<p class="text-muted">Proposed implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}
       </section>`
@@ -228,7 +228,10 @@ function ticketAuditPage(user, ticket, { flash, error } = {}) {
       <a href="/audit/review" class="btn-outline">Back to audit queue</a>
     </div>
     ${ticketReadonlySections(t)}
-    ${commentsSection(t.comments, { postAction: `/audit/tickets/${escapeHtml(ref)}/comment` })}
+    ${commentsSection(t.comments, {
+      postAction: `/audit/tickets/${escapeHtml(ref)}/comment`,
+      placeholder: 'Private comment for the RMO (not visible to the department)…',
+    })}
     <section class="card card--accent">
       <h2>Audit decision</h2>
       <p class="text-muted">Per workflow step 4: approve the mitigation solution so the department can begin implementation, or return it to the RMO if it is insufficient.</p>
@@ -276,7 +279,10 @@ function ticketViewPage(user, ticket, { flash } = {}) {
       <a href="/audit/tickets" class="btn-outline">Back to all tickets</a>
     </div>
     ${ticketReadonlySections(t)}
-    ${commentsSection(t.comments, { postAction: `/audit/tickets/${escapeHtml(t.reference)}/comment` })}`;
+    ${commentsSection(t.comments, {
+      postAction: `/audit/tickets/${escapeHtml(t.reference)}/comment`,
+      placeholder: 'Private comment for the RMO (not visible to the department)…',
+    })}`;
 
   return appLayout({
     title: t.reference,

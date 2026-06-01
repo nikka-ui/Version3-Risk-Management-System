@@ -6,6 +6,8 @@ const {
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
   AUDIT_REVIEW_STATUSES,
+  OFFICER_MITIGATION_EDIT_STATUSES,
+  SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,
@@ -64,8 +66,9 @@ function publicTicket(ticket) {
     hasAccomplishment: Boolean(ticket.accomplishmentId),
     officerNotes: ticket.officerNotes || null,
     auditNotes: ticket.auditNotes || null,
-    comments: ticket.comments || [],
     mitigationDueAt: ticket.mitigationDueAt || null,
+    mitigationPlanVersion: ticket.mitigationPlanVersion || 0,
+    hasMitigationPlan: Boolean(ticket.officerNotes && ticket.mitigationPlanVersion),
     isOverdue: ticket.mitigationDueAt
       ? new Date(ticket.mitigationDueAt) < new Date() && SUPERVISOR_ACTION_STATUSES.includes(ticket.status)
       : false,
@@ -389,7 +392,9 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
     mitigationDueAt: null,
     officerNotes: null,
     auditNotes: null,
-    comments: [],
+    privateComments: [],
+    mitigationPlanHistory: [],
+    mitigationPlanVersion: 0,
   };
   ticket.riskScore = ticket.likelihood * ticket.impact;
   store.riskTickets.push(ticket);
@@ -594,7 +599,7 @@ function getAccomplishmentForTicket(ticket) {
   return (store.accomplishments || []).find((a) => a.id === ticket.accomplishmentId) || null;
 }
 
-function logOfficerAction(ticket, username, action) {
+function logOfficerAction(ticket, username, action, detail) {
   const { appendReportLog } = require('./store');
   appendReportLog({
     ticketRef: ticket.reference,
@@ -603,7 +608,96 @@ function logOfficerAction(ticket, username, action) {
     submitterRole: 'rm_officer',
     status: getStatusLabel(ticket.status),
     action,
+    detail: detail || undefined,
   });
+}
+
+function ensurePrivateComments(ticket) {
+  if (!ticket.privateComments) {
+    ticket.privateComments = ticket.comments ? [...ticket.comments] : [];
+    delete ticket.comments;
+  }
+  if (!ticket.mitigationPlanHistory) ticket.mitigationPlanHistory = [];
+  if (!ticket.mitigationPlanVersion) ticket.mitigationPlanVersion = 0;
+}
+
+function canOfficerEditMitigation(ticket) {
+  return Boolean(
+    ticket?.officerNotes && OFFICER_MITIGATION_EDIT_STATUSES.includes(ticket.status),
+  );
+}
+
+function appendMitigationPlanHistory(ticket, user, { action, previous, updated }) {
+  ensurePrivateComments(ticket);
+  ticket.mitigationPlanHistory.push({
+    id: `mph-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    at: new Date().toISOString(),
+    actorUsername: user.username,
+    actorName: user.displayName || user.username,
+    actorRole: user.role || 'rm_officer',
+    action,
+    previous: {
+      plan: previous.plan ?? null,
+      dueAt: previous.dueAt ?? null,
+    },
+    updated: {
+      plan: updated.plan ?? null,
+      dueAt: updated.dueAt ?? null,
+    },
+  });
+  if (ticket.mitigationPlanHistory.length > 100) {
+    ticket.mitigationPlanHistory = ticket.mitigationPlanHistory.slice(-100);
+  }
+}
+
+function parseMitigationDueDate(raw) {
+  const dueRaw = String(raw || '').trim();
+  if (!dueRaw) {
+    const due = new Date();
+    due.setDate(due.getDate() + 14);
+    return due;
+  }
+  const due = new Date(dueRaw);
+  if (Number.isNaN(due.getTime())) return null;
+  return due;
+}
+
+function ticketForRole(ticket, role) {
+  if (!ticket) return null;
+  const merged = { ...ticket, ...publicTicket(ticket) };
+  ensurePrivateComments(ticket);
+
+  if (role === 'supervisor') {
+    merged.privateComments = undefined;
+    merged.mitigationPlanHistory = undefined;
+    merged.auditNotes = undefined;
+    if (ticket.status === 'returned' && ticket.officerNotes) {
+      merged.officerNotes = ticket.officerNotes;
+    } else if (!SUPERVISOR_MITIGATION_VISIBLE_STATUSES.includes(ticket.status)) {
+      merged.officerNotes = null;
+    } else {
+      merged.officerNotes = ticket.officerNotes;
+    }
+    merged.mitigationDueAt = SUPERVISOR_MITIGATION_VISIBLE_STATUSES.includes(ticket.status)
+      ? ticket.mitigationDueAt
+      : null;
+    return merged;
+  }
+
+  if (role === 'rm_officer' || role === 'audit_officer') {
+    merged.privateComments = ticket.privateComments || [];
+    merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
+    merged.comments = merged.privateComments;
+    return merged;
+  }
+
+  if (role === 'admin') {
+    merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
+    merged.privateComments = ticket.privateComments || [];
+    return merged;
+  }
+
+  return merged;
 }
 
 function rejectTicketForOfficer(reference, username, body) {
@@ -637,17 +731,21 @@ function acceptAndAssignMitigation(reference, username, body) {
   const plan = String(body.mitigationPlan || body.officerNotes || '').trim();
   if (!plan) return { error: 'Mitigation plan / officer notes are required.' };
 
-  const dueRaw = String(body.mitigationDueAt || '').trim();
-  let due;
-  if (dueRaw) {
-    due = new Date(dueRaw);
-    if (Number.isNaN(due.getTime())) return { error: 'Invalid mitigation due date.' };
-  } else {
-    due = new Date();
-    due.setDate(due.getDate() + 14);
-  }
+  const due = parseMitigationDueDate(body.mitigationDueAt);
+  if (!due) return { error: 'Invalid mitigation due date.' };
 
   const now = new Date().toISOString();
+  ensurePrivateComments(ticket);
+  appendMitigationPlanHistory(
+    ticket,
+    { username, displayName: username, role: 'rm_officer' },
+    {
+      action: 'created',
+      previous: { plan: null, dueAt: null },
+      updated: { plan, dueAt: due.toISOString() },
+    },
+  );
+  ticket.mitigationPlanVersion = 1;
   // Architecture step 4: the RMO solution must be reviewed by the Audit Officer
   // before the department begins implementation. The due date is a proposal that
   // the Audit Officer confirms (or adjusts) on approval.
@@ -656,7 +754,69 @@ function acceptAndAssignMitigation(reference, username, body) {
   ticket.mitigationDueAt = due.toISOString();
   ticket.updatedAt = now;
   saveStore();
-  logOfficerAction(ticket, username, 'solution_submitted_for_audit');
+  logOfficerAction(
+    ticket,
+    username,
+    'solution_submitted_for_audit',
+    `Mitigation plan v1 submitted for audit review.`,
+  );
+  return { ticket: publicTicket(ticket) };
+}
+
+function updateMitigationPlanForOfficer(reference, user, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!canOfficerEditMitigation(ticket)) {
+    return { error: 'This mitigation plan cannot be edited at the current ticket stage.' };
+  }
+
+  const plan = String(body.mitigationPlan || body.officerNotes || '').trim();
+  if (!plan) return { error: 'Mitigation plan is required.' };
+
+  const due = parseMitigationDueDate(body.mitigationDueAt);
+  if (!due) return { error: 'Invalid mitigation due date.' };
+
+  const previous = {
+    plan: ticket.officerNotes || null,
+    dueAt: ticket.mitigationDueAt || null,
+  };
+  const updated = {
+    plan,
+    dueAt: due.toISOString(),
+  };
+
+  const unchanged =
+    previous.plan === updated.plan && previous.dueAt === updated.dueAt;
+  if (unchanged) {
+    return { error: 'No changes were made to the mitigation plan.' };
+  }
+
+  ensurePrivateComments(ticket);
+  const resubmit = ticket.status === 'audit_returned' || body.resubmitForAudit === '1';
+  appendMitigationPlanHistory(ticket, user, {
+    action: resubmit ? 'updated_and_resubmitted' : 'updated',
+    previous,
+    updated,
+  });
+
+  ticket.officerNotes = plan;
+  ticket.mitigationDueAt = updated.dueAt;
+  ticket.mitigationPlanVersion = (ticket.mitigationPlanVersion || 0) + 1;
+  if (resubmit) {
+    ticket.status = 'under_audit';
+  }
+  ticket.updatedAt = new Date().toISOString();
+  saveStore();
+
+  const detail = JSON.stringify({
+    version: ticket.mitigationPlanVersion,
+    previous,
+    updated,
+    resubmittedForAudit: resubmit,
+  });
+  logOfficerAction(ticket, user.username, 'mitigation_plan_updated', detail);
+
   return { ticket: publicTicket(ticket) };
 }
 
@@ -672,9 +832,7 @@ function closeTicketAsOfficer(reference, username, body) {
   const now = new Date().toISOString();
   ticket.status = 'closed';
   if (notes) {
-    ticket.officerNotes = ticket.officerNotes
-      ? `${ticket.officerNotes}\n\nFinal validation: ${notes}`
-      : `Final validation: ${notes}`;
+    ticket.closingNotes = notes;
   }
   ticket.updatedAt = now;
   saveStore();
@@ -695,7 +853,7 @@ function returnAccomplishmentForRevision(reference, username, body) {
 
   const now = new Date().toISOString();
   ticket.status = 'in_mitigation';
-  ticket.officerNotes = notes;
+  ticket.supervisorFeedback = notes;
   ticket.updatedAt = now;
   saveStore();
   logOfficerAction(ticket, username, 'accomplishment_returned');
@@ -815,6 +973,9 @@ function returnSolutionToRmo(reference, username, body) {
 
 function addTicketComment(reference, user, body) {
   const { saveStore } = getStore();
+  if (!['rm_officer', 'audit_officer'].includes(user.role)) {
+    return { error: 'Only the RMO and Audit Officer may post private comments.' };
+  }
   const ticket = getTicketByRefForOfficer(reference);
   if (!ticket) return { error: 'Ticket not found.' };
 
@@ -822,7 +983,7 @@ function addTicketComment(reference, user, body) {
   if (!text) return { error: 'Comment cannot be empty.' };
   if (text.length > 2000) return { error: 'Comment is too long (max 2000 characters).' };
 
-  if (!ticket.comments) ticket.comments = [];
+  ensurePrivateComments(ticket);
   const now = new Date().toISOString();
   const record = {
     id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -832,8 +993,9 @@ function addTicketComment(reference, user, body) {
     roleLabel: user.roleLabel || user.role,
     body: text,
     at: now,
+    private: true,
   };
-  ticket.comments.push(record);
+  ticket.privateComments.push(record);
   ticket.updatedAt = now;
   saveStore();
 
@@ -844,7 +1006,8 @@ function addTicketComment(reference, user, body) {
     submittedBy: user.username,
     submitterRole: user.role,
     status: getStatusLabel(ticket.status),
-    action: 'comment_added',
+    action: 'private_comment_added',
+    detail: 'Private RMO/Audit comment (not visible to department supervisor).',
   });
 
   return { ticket: publicTicket(ticket) };
@@ -925,6 +1088,9 @@ module.exports = {
   getAccomplishmentForTicket,
   rejectTicketForOfficer,
   acceptAndAssignMitigation,
+  updateMitigationPlanForOfficer,
+  canOfficerEditMitigation,
+  ticketForRole,
   closeTicketAsOfficer,
   returnAccomplishmentForRevision,
   getTicketByRefForAudit,

@@ -918,6 +918,173 @@ form.inline {
   color: var(--text, #1e293b);
 }
 
+.audit-trail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.audit-trail-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.875rem 1rem;
+  background: #fafbfc;
+}
+
+.audit-trail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  margin-bottom: 0.5rem;
+}
+
+.audit-trail-action {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.audit-trail-user,
+.audit-trail-time {
+  color: var(--text-muted);
+}
+
+.audit-trail-diff summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+
+.audit-trail-current {
+  margin-top: 0.5rem;
+}
+
+/* —— Officer monitoring ticket layout —— */
+.card-head-split {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.card-head-split h2 {
+  margin: 0;
+}
+
+.risk-summary-float {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.65rem 0.875rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.07);
+  min-width: 9.5rem;
+  flex-shrink: 0;
+}
+
+.risk-summary-float__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.risk-summary-float__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.risk-summary-float__value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.detail-dl--compact {
+  margin-bottom: 0.75rem;
+}
+
+.risk-desc-snippet {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.evidence-table .evidence-name {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.officer-split-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.officer-split-col {
+  min-width: 0;
+  margin: 0;
+}
+
+.officer-split-col h2 {
+  margin-bottom: 0.75rem;
+}
+
+.officer-notes-scroll {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.officer-notes-meta {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
+.comment-list--scroll {
+  max-height: 10rem;
+  overflow-y: auto;
+}
+
+.comment-form--compact {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.stack-form--compact .field {
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 960px) {
+  .officer-split-row {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-summary-float {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
+  }
+}
+
 .enterprise-grid {
   display: grid;
   gap: 1rem;

@@ -65,6 +65,8 @@ const {
   findAttachmentForOfficer,
   rejectTicketForOfficer,
   acceptAndAssignMitigation,
+  updateMitigationPlanForOfficer,
+  ticketForRole,
   closeTicketAsOfficer,
   returnAccomplishmentForRevision,
   getTicketByRefForAudit,
@@ -136,6 +138,7 @@ function flashFromQuery(query) {
     audit_approved: 'Solution approved. Department may begin implementation.',
     audit_returned: 'Solution returned to the RMO for revision.',
     comment_added: 'Comment posted.',
+    rmo_plan_updated: 'Mitigation plan updated successfully.',
     not_found: 'Ticket not found.',
     invalid: null,
   };
@@ -385,10 +388,11 @@ app.post('/supervisor/tickets/new/preview/:ref/submit', requireSupervisor, (req,
 
 app.get('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
   const user = req.session.user;
-  const ticket = getTicketByRef(req.params.ref, user.username);
-  if (!ticket) {
+  const raw = getTicketByRef(req.params.ref, user.username);
+  if (!raw) {
     return res.redirect('/supervisor/tickets?flash=not_found');
   }
+  const ticket = ticketForRole(raw, 'supervisor');
   res.type('html').send(
     ticketFormPage(user, ticket, {
       mode: 'view',
@@ -533,7 +537,7 @@ app.get('/officer/tickets/:ref', requireRmOfficer, (req, res) => {
   if (!raw) {
     return res.redirect('/officer/tickets?flash=not_found');
   }
-  const ticket = { ...raw, ...publicTicket(raw) };
+  const ticket = ticketForRole(raw, 'rm_officer');
   res.type('html').send(
     renderOfficerTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
@@ -594,6 +598,16 @@ app.post('/officer/tickets/:ref/return-accomplishment', requireRmOfficer, (req, 
   return res.redirect('/officer/monitoring?flash=rmo_returned');
 });
 
+app.post('/officer/tickets/:ref/update-mitigation', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = updateMitigationPlanForOfficer(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  const flash = result.ticket?.status === 'under_audit' ? 'rmo_plan_updated' : 'rmo_plan_updated';
+  return res.redirect(`/officer/tickets/${ref}?flash=${flash}`);
+});
+
 app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
   const result = addTicketComment(ref, req.session.user, req.body);
@@ -633,7 +647,7 @@ app.get('/audit/tickets/:ref', requireAuditOfficer, (req, res) => {
   if (!raw) {
     return res.redirect('/audit/tickets?flash=not_found');
   }
-  const ticket = { ...raw, ...publicTicket(raw) };
+  const ticket = ticketForRole(raw, 'audit_officer');
   res.type('html').send(
     renderAuditTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),

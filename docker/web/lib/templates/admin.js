@@ -207,6 +207,8 @@ function reportHistoryPage(user, logs, flash) {
         <td>${escapeHtml(log.submittedBy || '—')}</td>
         <td>${escapeHtml(log.submitterRole || '—')}</td>
         <td><span class="status">${escapeHtml(log.status || '—')}</span></td>
+        <td class="nowrap">${escapeHtml(log.action || '—')}</td>
+        <td class="text-muted">${escapeHtml(log.detail || '—')}</td>
       </tr>`,
     )
     .join('');
@@ -234,9 +236,11 @@ function reportHistoryPage(user, logs, flash) {
               <th>Submitted by</th>
               <th>Role</th>
               <th>Status</th>
+              <th>Action</th>
+              <th>Detail</th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="6" class="empty">No reports recorded</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="8" class="empty">No reports recorded</td></tr>'}</tbody>
         </table>
       </div>
     </section>

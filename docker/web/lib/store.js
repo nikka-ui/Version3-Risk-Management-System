@@ -69,7 +69,28 @@ function loadStore() {
     cache = migrateStore(cache);
     if (!cache.riskTickets) cache.riskTickets = [];
     if (!cache.accomplishments) cache.accomplishments = [];
-    if ((cache.reportLogs?.length ?? 0) !== lenBefore) {
+    let migrated = false;
+    // Migrate legacy shared comments to private RMO/Audit thread
+    for (const t of cache.riskTickets || []) {
+      if (t.comments?.length && !t.privateComments?.length) {
+        t.privateComments = t.comments.map((c) => ({ ...c, private: true }));
+        delete t.comments;
+        migrated = true;
+      }
+      if (!t.privateComments) {
+        t.privateComments = [];
+        migrated = true;
+      }
+      if (!t.mitigationPlanHistory) {
+        t.mitigationPlanHistory = [];
+        migrated = true;
+      }
+      if (!t.mitigationPlanVersion && t.officerNotes && t.status !== 'returned') {
+        t.mitigationPlanVersion = 1;
+        migrated = true;
+      }
+    }
+    if (migrated || (cache.reportLogs?.length ?? 0) !== lenBefore) {
       saveStore();
     }
     return cache;

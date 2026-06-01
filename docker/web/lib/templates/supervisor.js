@@ -234,11 +234,25 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
         </section>`
       : '';
 
-  const officerBlock = t.officerNotes
+  const officerBlock =
+    t.status === 'returned' && t.officerNotes
+      ? `<section class="card">
+          <h2>RMO feedback</h2>
+          <p>${escapeHtml(t.officerNotes)}</p>
+          <p class="text-muted">Your report was returned for revision. Update and resubmit when ready.</p>
+        </section>`
+      : t.officerNotes && ['in_mitigation', 'reopened', 'pending_audit', 'closed', 'resolved'].includes(t.status)
+        ? `<section class="card card--accent">
+            <h2>Approved mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}</h2>
+            <p>${escapeHtml(t.officerNotes)}</p>
+            ${t.mitigationDueAt ? `<p class="text-muted">Implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}
+          </section>`
+        : '';
+
+  const supervisorFeedbackBlock = t.supervisorFeedback
     ? `<section class="card">
-        <h2>Officer notes</h2>
-        <p>${escapeHtml(t.officerNotes)}</p>
-        ${t.mitigationDueAt ? `<p class="text-muted">Due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}
+        <h2>RMO implementation feedback</h2>
+        <p>${escapeHtml(t.supervisorFeedback)}</p>
       </section>`
     : '';
 
@@ -386,6 +400,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
     ${formSection}
     ${aiBlock}
     ${officerBlock}
+    ${supervisorFeedbackBlock}
     ${evidenceSection}
     ${addEvidenceForm}
     ${accomplishmentForm}

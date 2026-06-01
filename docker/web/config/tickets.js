@@ -58,6 +58,18 @@ const OFFICER_MONITORING_STATUSES = ['under_audit', 'in_mitigation', 'returned',
 /** Tickets awaiting Audit Officer review of the RMO mitigation solution. */
 const AUDIT_REVIEW_STATUSES = ['under_audit'];
 
+/** RMO may edit the mitigation solution before Audit approval or ticket closure. */
+const OFFICER_MITIGATION_EDIT_STATUSES = ['under_audit', 'audit_returned'];
+
+/** Supervisor may view the approved mitigation plan (not draft / audit-in-progress versions). */
+const SUPERVISOR_MITIGATION_VISIBLE_STATUSES = [
+  'in_mitigation',
+  'reopened',
+  'pending_audit',
+  'closed',
+  'resolved',
+];
+
 const GRACE_PERIOD_MS = 30 * 60 * 1000;
 
 function getStatusLabel(status) {
@@ -78,6 +90,8 @@ module.exports = {
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
   AUDIT_REVIEW_STATUSES,
+  OFFICER_MITIGATION_EDIT_STATUSES,
+  SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
   getCategoryLabel,
