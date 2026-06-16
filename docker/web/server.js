@@ -8,6 +8,7 @@ const {
   requireSupervisor,
   requireRmOfficer,
   requireAuditOfficer,
+  requireExecutive,
   sessionUser,
 } = require('./lib/auth');
 const { loginPage, dashboardPage } = require('./lib/templates');
@@ -40,6 +41,12 @@ const {
   allTicketsPage: auditAllTicketsPage,
   renderAuditTicketPage,
 } = require('./lib/templates/audit');
+const {
+  executiveOverviewPage,
+  allTicketsPage: executiveAllTicketsPage,
+  criticalTicketsPage,
+  ticketDetailPage: executiveTicketDetailPage,
+} = require('./lib/templates/executive');
 const {
   getSupervisorStats,
   listTicketsForSupervisor,
@@ -77,6 +84,12 @@ const {
   approveSolutionByAudit,
   returnSolutionToRmo,
   addTicketComment,
+  getExecutiveStats,
+  listTicketsForExecutive,
+  getTicketByRefForExecutive,
+  findAttachmentForExecutive,
+  addExecutiveComment,
+  replyToExecutiveComment,
   publicTicket,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
@@ -138,6 +151,8 @@ function flashFromQuery(query) {
     audit_approved: 'Solution approved. Department may begin implementation.',
     audit_returned: 'Solution returned to the RMO for revision.',
     comment_added: 'Comment posted.',
+    executive_comment_added: 'Executive comment posted.',
+    executive_reply_added: 'Reply posted.',
     rmo_plan_updated: 'Mitigation plan updated successfully.',
     not_found: 'Ticket not found.',
     invalid: null,
@@ -150,7 +165,39 @@ function dashboardPath(user) {
   if (user?.role === 'supervisor') return '/supervisor';
   if (user?.role === 'rm_officer') return '/officer';
   if (user?.role === 'audit_officer') return '/audit';
+  if (user?.role === 'executive') return '/executive';
   return '/dashboard';
+}
+
+function resolveAttachmentStorageKey(found) {
+  const att = found?.attachment;
+  const ticket = found?.ticket;
+  if (!att || !ticket) return null;
+  if (att.storageKey) return att.storageKey;
+
+  const rawName = att.originalName || att.name;
+  if (!rawName) return null;
+
+  const fs = require('fs');
+  const nodePath = require('path');
+  const { UPLOADS_ROOT, resolveStoragePath } = require('./lib/attachments');
+
+  const safeRef = String(ticket.reference || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = nodePath.basename(String(rawName)).replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (!safeRef || !safeName) return null;
+
+  const directKey = `${safeRef}/${safeName}`;
+  const directPath = resolveStoragePath(directKey);
+  if (directPath && fs.existsSync(directPath)) return directKey;
+
+  const dir = nodePath.join(UPLOADS_ROOT, safeRef);
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir);
+  const matched =
+    files.find((f) => f === safeName || f.endsWith(`-${safeName}`))
+    || (att.id ? files.find((f) => f.startsWith(`${att.id}-`)) : null);
+
+  return matched ? `${safeRef}/${matched}` : null;
 }
 
 app.get('/health', (req, res) => {
@@ -239,6 +286,9 @@ app.get('/dashboard', requireAuth, (req, res) => {
   }
   if (req.session.user.role === 'audit_officer') {
     return res.redirect('/audit');
+  }
+  if (req.session.user.role === 'executive') {
+    return res.redirect('/executive');
   }
   res.type('html').send(dashboardPage(req.session.user));
 });
@@ -617,6 +667,15 @@ app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
   return res.redirect(`/officer/tickets/${ref}?flash=comment_added`);
 });
 
+app.post('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = replyToExecutiveComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/tickets/${ref}?flash=executive_reply_added`);
+});
+
 /* —— Audit Officer —— */
 
 app.get('/audit', requireAuditOfficer, (req, res) => {
@@ -697,6 +756,87 @@ app.post('/audit/tickets/:ref/comment', requireAuditOfficer, (req, res) => {
     return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/audit/tickets/${ref}?flash=comment_added`);
+});
+
+app.post('/audit/tickets/:ref/executive-reply', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = replyToExecutiveComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/audit/tickets/${ref}?flash=executive_reply_added`);
+});
+
+/* —— Executive —— */
+
+app.get('/executive', requireExecutive, (req, res) => {
+  res.type('html').send(
+    executiveOverviewPage(
+      req.session.user,
+      getExecutiveStats(),
+      flashFromQuery(req.query),
+    ),
+  );
+});
+
+app.get('/executive/critical', requireExecutive, (req, res) => {
+  const tickets = listTicketsForExecutive({ level: 'critical' });
+  res.type('html').send(
+    criticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query)),
+  );
+});
+
+app.get('/executive/tickets', requireExecutive, (req, res) => {
+  const level = typeof req.query.level === 'string' ? req.query.level : '';
+  const category = typeof req.query.category === 'string' ? req.query.category : '';
+  const filters = { level, category };
+  const tickets = listTicketsForExecutive({
+    level: level || undefined,
+    category: category || undefined,
+  });
+  res.type('html').send(
+    executiveAllTicketsPage(req.session.user, tickets, flashFromQuery(req.query), filters),
+  );
+});
+
+app.get('/executive/tickets/:ref', requireExecutive, (req, res) => {
+  const raw = getTicketByRefForExecutive(req.params.ref);
+  if (!raw) {
+    return res.redirect('/executive/tickets?flash=not_found');
+  }
+  const ticket = ticketForRole(raw, 'executive');
+  res.type('html').send(
+    executiveTicketDetailPage(req.session.user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+    }),
+  );
+});
+
+app.get('/executive/attachments/:id', requireExecutive, (req, res) => {
+  const found = findAttachmentForExecutive(req.params.id);
+  const storageKey = resolveAttachmentStorageKey(found);
+  if (!storageKey) {
+    return res.status(404).send('Attachment not found.');
+  }
+  const { readFileStream } = require('./lib/attachments');
+  const file = readFileStream(storageKey);
+  if (!file) return res.status(404).send('File not found on disk.');
+  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
+  );
+  file.stream.pipe(res);
+});
+
+app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
+  const ref = req.params.ref;
+  const result = addExecutiveComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/executive/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/executive/tickets/${ref}?flash=executive_comment_added`);
 });
 
 /* —— IT Administrator —— */

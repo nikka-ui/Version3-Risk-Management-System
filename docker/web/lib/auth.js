@@ -49,6 +49,16 @@ function requireAuditOfficer(req, res, next) {
   return next();
 }
 
+function requireExecutive(req, res, next) {
+  if (!req.session?.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'executive') {
+    return res.status(403).send('Executive access only.');
+  }
+  return next();
+}
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.session?.user) {
@@ -93,6 +103,7 @@ module.exports = {
   requireSupervisor,
   requireRmOfficer,
   requireAuditOfficer,
+  requireExecutive,
   requireRole,
   authenticate,
   sessionUser,

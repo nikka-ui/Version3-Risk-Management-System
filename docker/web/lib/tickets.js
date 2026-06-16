@@ -393,6 +393,7 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
     officerNotes: null,
     auditNotes: null,
     privateComments: [],
+    executiveComments: [],
     mitigationPlanHistory: [],
     mitigationPlanVersion: 0,
   };
@@ -617,8 +618,28 @@ function ensurePrivateComments(ticket) {
     ticket.privateComments = ticket.comments ? [...ticket.comments] : [];
     delete ticket.comments;
   }
+  if (!ticket.executiveComments) ticket.executiveComments = [];
   if (!ticket.mitigationPlanHistory) ticket.mitigationPlanHistory = [];
   if (!ticket.mitigationPlanVersion) ticket.mitigationPlanVersion = 0;
+}
+
+function ticketRiskLevelId(ticket) {
+  if (ticket?.ai?.riskLevel?.id) return ticket.ai.riskLevel.id;
+  const sev =
+    ticket?.ai?.severity
+    || (ticket?.likelihood && ticket?.impact
+      ? Math.round((ticket.likelihood + ticket.impact) / 2)
+      : 2);
+  return riskLevelFromSeverity(sev).id;
+}
+
+const RISK_LEVEL_ORDER = { low: 1, moderate: 2, high: 3, critical: 4 };
+
+function compareTicketsByRiskLevel(a, b) {
+  const rankA = RISK_LEVEL_ORDER[ticketRiskLevelId(a)] || 0;
+  const rankB = RISK_LEVEL_ORDER[ticketRiskLevelId(b)] || 0;
+  if (rankA !== rankB) return rankA - rankB;
+  return new Date(b.updatedAt) - new Date(a.updatedAt);
 }
 
 function canOfficerEditMitigation(ticket) {
@@ -669,6 +690,7 @@ function ticketForRole(ticket, role) {
 
   if (role === 'supervisor') {
     merged.privateComments = undefined;
+    merged.executiveComments = undefined;
     merged.mitigationPlanHistory = undefined;
     merged.auditNotes = undefined;
     if (ticket.status === 'returned' && ticket.officerNotes) {
@@ -686,14 +708,30 @@ function ticketForRole(ticket, role) {
 
   if (role === 'rm_officer' || role === 'audit_officer') {
     merged.privateComments = ticket.privateComments || [];
+    merged.executiveComments = ticket.executiveComments || [];
     merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
+    merged.evidence = ticket.evidence || [];
     merged.comments = merged.privateComments;
+    return merged;
+  }
+
+  if (role === 'executive') {
+    merged.privateComments = undefined;
+    merged.executiveComments = ticket.executiveComments || [];
+    merged.mitigationPlanHistory = undefined;
+    merged.auditNotes = undefined;
+    merged.officerNotes = ticket.officerNotes || null;
+    merged.mitigationDueAt = ticket.mitigationDueAt || null;
+    merged.description = ticket.description;
+    merged.evidence = ticket.evidence || [];
     return merged;
   }
 
   if (role === 'admin') {
     merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
     merged.privateComments = ticket.privateComments || [];
+    merged.executiveComments = ticket.executiveComments || [];
+    merged.evidence = ticket.evidence || [];
     return merged;
   }
 
@@ -917,6 +955,162 @@ function logAuditAction(ticket, username, action) {
   });
 }
 
+function getTicketByRefForExecutive(reference) {
+  const { store } = getStore();
+  const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
+  if (!ticket || ticket.status === 'draft') return null;
+  return ticket;
+}
+
+function listTicketsForExecutive({ level, category } = {}) {
+  const { store } = getStore();
+  let tickets = (store.riskTickets || [])
+    .filter((t) => t.status !== 'draft')
+    .map((t) => {
+      const pub = publicTicket(t);
+      pub.riskLevel = ticketRiskLevelId(t);
+      pub.riskLevelLabel = riskLevelFromSeverity(
+        t.ai?.severity
+          || (t.likelihood && t.impact ? Math.round((t.likelihood + t.impact) / 2) : 2),
+      ).label;
+      pub.executiveCommentCount = (t.executiveComments || []).length;
+      return pub;
+    });
+
+  if (level) {
+    tickets = tickets.filter((t) => t.riskLevel === level);
+  }
+  if (category) {
+    tickets = tickets.filter((t) => t.category === category);
+  }
+
+  return tickets.sort(compareTicketsByRiskLevel);
+}
+
+function getExecutiveStats() {
+  const tickets = listTicketsForExecutive();
+  const byLevel = { low: 0, moderate: 0, high: 0, critical: 0 };
+  const byCategory = {};
+  for (const t of tickets) {
+    byLevel[t.riskLevel] = (byLevel[t.riskLevel] || 0) + 1;
+    byCategory[t.category] = (byCategory[t.category] || 0) + 1;
+  }
+  const criticalTickets = tickets
+    .filter((t) => t.riskLevel === 'critical')
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+  return {
+    total: tickets.length,
+    byLevel,
+    byCategory,
+    criticalCount: byLevel.critical,
+    criticalTickets,
+    open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+  };
+}
+
+function findAttachmentForExecutive(attachmentId) {
+  const { store } = getStore();
+  for (const ticket of store.riskTickets || []) {
+    if (ticket.status === 'draft') continue;
+    const att = findAttachmentOnTicket(ticket, attachmentId);
+    if (att) return { ticket, attachment: att };
+  }
+  return null;
+}
+
+function addExecutiveComment(reference, user, body) {
+  const { saveStore } = getStore();
+  if (user.role !== 'executive') {
+    return { error: 'Only the Executive may post oversight comments.' };
+  }
+  const ticket = getTicketByRefForExecutive(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+
+  const text = String(body.comment || body.body || '').trim();
+  if (!text) return { error: 'Comment cannot be empty.' };
+  if (text.length > 2000) return { error: 'Comment is too long (max 2000 characters).' };
+
+  ensurePrivateComments(ticket);
+  const now = new Date().toISOString();
+  const record = {
+    id: `excmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    authorUsername: user.username,
+    authorName: user.displayName || user.username,
+    authorRole: user.role,
+    roleLabel: user.roleLabel || user.role,
+    body: text,
+    at: now,
+    parentId: null,
+  };
+  ticket.executiveComments.push(record);
+  ticket.updatedAt = now;
+  saveStore();
+
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: user.username,
+    submitterRole: 'executive',
+    status: getStatusLabel(ticket.status),
+    action: 'executive_comment_added',
+    detail: 'Executive oversight comment posted.',
+  });
+
+  return { ticket: publicTicket(ticket) };
+}
+
+function replyToExecutiveComment(reference, user, body) {
+  const { saveStore } = getStore();
+  if (!['rm_officer', 'audit_officer'].includes(user.role)) {
+    return { error: 'Only the RMO or Audit Officer may reply to executive comments.' };
+  }
+  const ticket = user.role === 'audit_officer'
+    ? getTicketByRefForAudit(reference)
+    : getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+
+  const text = String(body.comment || body.body || '').trim();
+  if (!text) return { error: 'Reply cannot be empty.' };
+  if (text.length > 2000) return { error: 'Reply is too long (max 2000 characters).' };
+
+  const parentId = String(body.parentId || '').trim();
+  if (!parentId) return { error: 'Select an executive comment to reply to.' };
+
+  ensurePrivateComments(ticket);
+  const parent = ticket.executiveComments.find((c) => c.id === parentId && !c.parentId);
+  if (!parent) return { error: 'Executive comment not found.' };
+
+  const now = new Date().toISOString();
+  const record = {
+    id: `excmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    authorUsername: user.username,
+    authorName: user.displayName || user.username,
+    authorRole: user.role,
+    roleLabel: user.roleLabel || user.role,
+    body: text,
+    at: now,
+    parentId,
+  };
+  ticket.executiveComments.push(record);
+  ticket.updatedAt = now;
+  saveStore();
+
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: user.username,
+    submitterRole: user.role,
+    status: getStatusLabel(ticket.status),
+    action: 'executive_comment_reply',
+    detail: 'Reply to executive oversight comment.',
+  });
+
+  return { ticket: publicTicket(ticket) };
+}
+
 function approveSolutionByAudit(reference, username, body) {
   const { saveStore } = getStore();
   const ticket = getTicketByRefForAudit(reference);
@@ -1101,4 +1295,11 @@ module.exports = {
   approveSolutionByAudit,
   returnSolutionToRmo,
   addTicketComment,
+  ticketRiskLevelId,
+  getTicketByRefForExecutive,
+  listTicketsForExecutive,
+  getExecutiveStats,
+  findAttachmentForExecutive,
+  addExecutiveComment,
+  replyToExecutiveComment,
 };

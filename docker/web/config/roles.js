@@ -17,7 +17,7 @@ const ROLES = {
   executive: {
     id: 'executive',
     label: 'Executive',
-    description: 'Monitor risks; comment on critical/high',
+    description: 'Monitor risks by level and category; comment on all reports',
   },
   employee: {
     id: 'employee',

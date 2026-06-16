@@ -1,10 +1,17 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
-const { appLayout, flashMessage, commentsSection } = require('./layout');
+const { appLayout, flashMessage, commentsSection, executiveCommentsSection } = require('./layout');
 
 function statusPill(status, overdue) {
   const cls = overdue ? 'pill pill--bad' : 'pill';
   return `<span class="${cls}">${escapeHtml(getStatusLabel(status))}</span>`;
+}
+
+function executiveCommentsBlock(ticket, ref) {
+  return executiveCommentsSection(ticket.executiveComments || [], {
+    replyAction: `/audit/tickets/${escapeHtml(ref)}/executive-reply`,
+    canReply: true,
+  });
 }
 
 function ticketTableRows(tickets, { linkPrefix = '/audit/tickets/' } = {}) {
@@ -232,6 +239,7 @@ function ticketAuditPage(user, ticket, { flash, error } = {}) {
       postAction: `/audit/tickets/${escapeHtml(ref)}/comment`,
       placeholder: 'Private comment for the RMO (not visible to the department)…',
     })}
+    ${executiveCommentsBlock(t, ref)}
     <section class="card card--accent">
       <h2>Audit decision</h2>
       <p class="text-muted">Per workflow step 4: approve the mitigation solution so the department can begin implementation, or return it to the RMO if it is insufficient.</p>
@@ -282,7 +290,8 @@ function ticketViewPage(user, ticket, { flash } = {}) {
     ${commentsSection(t.comments, {
       postAction: `/audit/tickets/${escapeHtml(t.reference)}/comment`,
       placeholder: 'Private comment for the RMO (not visible to the department)…',
-    })}`;
+    })}
+    ${executiveCommentsBlock(t, t.reference)}`;
 
   return appLayout({
     title: t.reference,

@@ -6,6 +6,7 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isSupervisor = user.role === 'supervisor' || navVariant === 'supervisor';
   const isOfficer = user.role === 'rm_officer' || navVariant === 'officer';
   const isAudit = user.role === 'audit_officer' || navVariant === 'audit';
+  const isExecutive = user.role === 'executive' || navVariant === 'executive';
   let nav;
   if (isAdmin) {
     nav = adminNav(activeNav);
@@ -15,10 +16,12 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
     nav = officerNav(activeNav);
   } else if (isAudit) {
     nav = auditNav(activeNav);
+  } else if (isExecutive) {
+    nav = executiveNav(activeNav);
   } else {
     nav = `<nav class="app-nav"><a href="/dashboard" class="${activeNav === 'home' ? 'active' : ''}">Overview</a></nav>`;
   }
-  const hasSidebar = isAdmin || isSupervisor || isOfficer || isAudit;
+  const hasSidebar = isAdmin || isSupervisor || isOfficer || isAudit || isExecutive;
   const shellClass = hasSidebar ? 'app-shell app-shell--admin' : 'app-shell';
   const bodyClass = hasSidebar ? 'app-body app-body--admin' : 'app-body';
   const homeHref = isAdmin
@@ -29,7 +32,9 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
         ? '/officer'
         : isAudit
           ? '/audit'
-          : '/dashboard';
+          : isExecutive
+            ? '/executive'
+            : '/dashboard';
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
 
   return `<!DOCTYPE html>
@@ -118,6 +123,21 @@ function auditNav(active) {
   return `<nav class="app-nav app-nav--admin">${links}</nav>`;
 }
 
+function executiveNav(active) {
+  const items = [
+    { id: 'overview', href: '/executive', label: 'Overview' },
+    { id: 'critical', href: '/executive/critical', label: 'Critical risks' },
+    { id: 'tickets', href: '/executive/tickets', label: 'All reports' },
+  ];
+  const links = items
+    .map(
+      (i) =>
+        `<a href="${i.href}" class="${active === i.id ? 'active' : ''}">${escapeHtml(i.label)}</a>`,
+    )
+    .join('');
+  return `<nav class="app-nav app-nav--admin">${links}</nav>`;
+}
+
 function adminNav(active) {
   const items = [
     { id: 'overview', href: '/admin', label: 'Overview' },
@@ -186,4 +206,65 @@ function commentsSection(comments, { postAction, placeholder, compact, wrapClass
   </section>`;
 }
 
-module.exports = { appLayout, flashMessage, commentsSection };
+/**
+ * Executive oversight thread — top-level executive comments with officer replies.
+ */
+function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact } = {}) {
+  const all = comments || [];
+  const tops = all.filter((c) => !c.parentId);
+
+  const renderComment = (c, { isReply } = {}) => {
+    const roleCls = c.authorRole === 'executive' ? ' comment--executive' : '';
+    const replyForm = canReply && replyAction && !isReply
+      ? `<form method="post" action="${replyAction}" class="stack-form comment-form comment-form--reply">
+          <input type="hidden" name="parentId" value="${escapeHtml(c.id)}">
+          <div class="field">
+            <label for="reply-${escapeHtml(c.id)}">Reply to executive</label>
+            <textarea id="reply-${escapeHtml(c.id)}" name="comment" rows="2" required placeholder="Write your reply to the executive comment…"></textarea>
+          </div>
+          <button type="submit" class="btn-primary btn-primary--auto">Post reply</button>
+        </form>`
+      : '';
+
+    const replies = all
+      .filter((r) => r.parentId === c.id)
+      .map((r) => renderComment(r, { isReply: true }))
+      .join('');
+
+    return `<li class="comment${roleCls}${isReply ? ' comment--reply' : ''}">
+      <div class="comment-meta">
+        <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
+        <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
+        <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
+      </div>
+      <p class="comment-body">${escapeHtml(c.body)}</p>
+      ${replyForm}
+      ${replies ? `<ul class="comment-list comment-list--replies">${replies}</ul>` : ''}
+    </li>`;
+  };
+
+  const items = tops.length
+    ? tops.map((c) => renderComment(c)).join('')
+    : '<li class="comment comment--empty text-muted">No executive comments yet.</li>';
+
+  const postForm = canPost && postAction
+    ? `<form method="post" action="${postAction}" class="stack-form comment-form${compact ? ' comment-form--compact' : ''}">
+        <div class="field">
+          <label for="executive-comment">${compact ? 'Add comment' : 'Add executive comment'}</label>
+          <textarea id="executive-comment" name="comment" rows="${compact ? 2 : 3}" required placeholder="Share oversight guidance on this risk report…"></textarea>
+        </div>
+        <button type="submit" class="btn-primary btn-primary--auto">${compact ? 'Post' : 'Post comment'}</button>
+      </form>`
+    : '';
+
+  const cardClass = ['card', 'card--executive-comments', compact ? 'card--compact' : ''].filter(Boolean).join(' ');
+
+  return `<section class="${cardClass}">
+    <h2>Executive oversight comments</h2>
+    <p class="text-muted section-hint">Visible to the RMO and Audit Officer, who may reply. Not visible to the Department Supervisor.</p>
+    <ul class="comment-list${compact ? ' comment-list--scroll' : ''}">${items}</ul>
+    ${postForm}
+  </section>`;
+}
+
+module.exports = { appLayout, flashMessage, commentsSection, executiveCommentsSection };

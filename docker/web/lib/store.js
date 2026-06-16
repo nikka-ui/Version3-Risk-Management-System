@@ -81,6 +81,10 @@ function loadStore() {
         t.privateComments = [];
         migrated = true;
       }
+      if (!t.executiveComments) {
+        t.executiveComments = [];
+        migrated = true;
+      }
       if (!t.mitigationPlanHistory) {
         t.mitigationPlanHistory = [];
         migrated = true;

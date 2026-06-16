@@ -60,7 +60,7 @@ function dashboardPage(user) {
     supervisor: 'Submit and track risk reports, upload evidence, and record accomplishments.',
     rm_officer: 'Review and validate risk reports, define mitigation plans, and close tickets.',
     audit_officer: 'Review solutions and action plans before implementation proceeds.',
-    executive: 'Monitor risk levels and categories; comment on critical and high risks.',
+    executive: 'Monitor all risk reports by level and category; critical risks are highlighted. Comment on any report.',
     admin: 'Manage accounts, roles, and system logs.',
     employee: 'Access assigned risk workflows and departmental tasks.',
   };
@@ -73,10 +73,14 @@ function dashboardPage(user) {
         ? `<p style="margin-top:1rem"><a href="/officer" class="btn-enterprise-primary btn-primary--auto">Open RMO dashboard</a></p>`
         : user.role === 'supervisor'
           ? `<p style="margin-top:1rem"><a href="/supervisor" class="btn-enterprise-primary btn-primary--auto">Open supervisor dashboard</a></p>`
-          : '';
+          : user.role === 'audit_officer'
+            ? `<p style="margin-top:1rem"><a href="/audit" class="btn-enterprise-primary btn-primary--auto">Open audit dashboard</a></p>`
+            : user.role === 'executive'
+              ? `<p style="margin-top:1rem"><a href="/executive" class="btn-enterprise-primary btn-primary--auto">Open executive dashboard</a></p>`
+              : '';
 
   const placeholder =
-    user.role === 'rm_officer' || user.role === 'supervisor' || user.role === 'admin'
+    user.role === 'rm_officer' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'audit_officer' || user.role === 'executive'
       ? ''
       : `<p class="text-muted" style="margin-top:1.5rem;font-size:0.8125rem">
         Risk ticket modules will appear here for your role in upcoming releases.
@@ -89,7 +93,11 @@ function dashboardPage(user) {
         ? 'supervisor'
         : user.role === 'rm_officer'
           ? 'officer'
-          : undefined;
+          : user.role === 'audit_officer'
+            ? 'audit'
+            : user.role === 'executive'
+              ? 'executive'
+              : undefined;
 
   const body = `
     <div class="page-head">
