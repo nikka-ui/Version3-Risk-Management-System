@@ -169,35 +169,9 @@ function dashboardPath(user) {
   return '/dashboard';
 }
 
-function resolveAttachmentStorageKey(found) {
-  const att = found?.attachment;
-  const ticket = found?.ticket;
-  if (!att || !ticket) return null;
-  if (att.storageKey) return att.storageKey;
-
-  const rawName = att.originalName || att.name;
-  if (!rawName) return null;
-
-  const fs = require('fs');
-  const nodePath = require('path');
-  const { UPLOADS_ROOT, resolveStoragePath } = require('./lib/attachments');
-
-  const safeRef = String(ticket.reference || '').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const safeName = nodePath.basename(String(rawName)).replace(/[^a-zA-Z0-9._-]/g, '_');
-  if (!safeRef || !safeName) return null;
-
-  const directKey = `${safeRef}/${safeName}`;
-  const directPath = resolveStoragePath(directKey);
-  if (directPath && fs.existsSync(directPath)) return directKey;
-
-  const dir = nodePath.join(UPLOADS_ROOT, safeRef);
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir);
-  const matched =
-    files.find((f) => f === safeName || f.endsWith(`-${safeName}`))
-    || (att.id ? files.find((f) => f.startsWith(`${att.id}-`)) : null);
-
-  return matched ? `${safeRef}/${matched}` : null;
+function sendAttachment(res, found) {
+  const { streamAttachmentToResponse } = require('./lib/attachments');
+  streamAttachmentToResponse(res, found);
 }
 
 app.get('/health', (req, res) => {
@@ -384,18 +358,7 @@ app.post('/supervisor/tickets/:ref/delete', requireSupervisor, (req, res) => {
 
 app.get('/supervisor/attachments/:id', requireSupervisor, (req, res) => {
   const found = findAttachmentForUser(req.params.id, req.session.user.username);
-  if (!found?.attachment?.storageKey) {
-    return res.status(404).send('Attachment not found.');
-  }
-  const { readFileStream } = require('./lib/attachments');
-  const file = readFileStream(found.attachment.storageKey);
-  if (!file) return res.status(404).send('File not found on disk.');
-  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
-  );
-  file.stream.pipe(res);
+  sendAttachment(res, found);
 });
 
 app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, (req, res) => {
@@ -488,9 +451,12 @@ app.post('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
   return res.redirect(`/supervisor/tickets/${ref}?flash=draft_saved`);
 });
 
-app.post('/supervisor/tickets/:ref/evidence', requireSupervisor, (req, res) => {
+app.post('/supervisor/tickets/:ref/evidence', requireSupervisor, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
-  const result = addEvidence(ref, req.session.user.username, req.body);
+  if (req.uploadError) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = addEvidence(ref, req.session.user.username, req.body, { uploadedFiles: req.files });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
@@ -598,18 +564,7 @@ app.get('/officer/tickets/:ref', requireRmOfficer, (req, res) => {
 
 app.get('/officer/attachments/:id', requireRmOfficer, (req, res) => {
   const found = findAttachmentForOfficer(req.params.id);
-  if (!found?.attachment?.storageKey) {
-    return res.status(404).send('Attachment not found.');
-  }
-  const { readFileStream } = require('./lib/attachments');
-  const file = readFileStream(found.attachment.storageKey);
-  if (!file) return res.status(404).send('File not found on disk.');
-  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
-  );
-  file.stream.pipe(res);
+  sendAttachment(res, found);
 });
 
 app.post('/officer/tickets/:ref/accept', requireRmOfficer, (req, res) => {
@@ -717,18 +672,7 @@ app.get('/audit/tickets/:ref', requireAuditOfficer, (req, res) => {
 
 app.get('/audit/attachments/:id', requireAuditOfficer, (req, res) => {
   const found = findAttachmentForAudit(req.params.id);
-  if (!found?.attachment?.storageKey) {
-    return res.status(404).send('Attachment not found.');
-  }
-  const { readFileStream } = require('./lib/attachments');
-  const file = readFileStream(found.attachment.storageKey);
-  if (!file) return res.status(404).send('File not found on disk.');
-  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
-  );
-  file.stream.pipe(res);
+  sendAttachment(res, found);
 });
 
 app.post('/audit/tickets/:ref/approve', requireAuditOfficer, (req, res) => {
@@ -815,19 +759,7 @@ app.get('/executive/tickets/:ref', requireExecutive, (req, res) => {
 
 app.get('/executive/attachments/:id', requireExecutive, (req, res) => {
   const found = findAttachmentForExecutive(req.params.id);
-  const storageKey = resolveAttachmentStorageKey(found);
-  if (!storageKey) {
-    return res.status(404).send('Attachment not found.');
-  }
-  const { readFileStream } = require('./lib/attachments');
-  const file = readFileStream(storageKey);
-  if (!file) return res.status(404).send('File not found on disk.');
-  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
-  );
-  file.stream.pipe(res);
+  sendAttachment(res, found);
 });
 
 app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {

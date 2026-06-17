@@ -141,6 +141,67 @@ function readFileStream(storageKey) {
   return { path: p, stream: fs.createReadStream(p) };
 }
 
+/** Resolve storage key from metadata or on-disk layout (e.g. after container restore). */
+function resolveAttachmentStorageKey(found) {
+  const att = found?.attachment;
+  const ticket = found?.ticket;
+  if (!att || !ticket) return null;
+  if (att.storageKey) return att.storageKey;
+
+  const rawName = att.originalName || att.name;
+  if (!rawName) return null;
+
+  const safeRef = String(ticket.reference || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = path.basename(String(rawName)).replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (!safeRef || !safeName) return null;
+
+  const directKey = `${safeRef}/${safeName}`;
+  const directPath = resolveStoragePath(directKey);
+  if (directPath && fs.existsSync(directPath)) return directKey;
+
+  const dir = ticketDir(ticket.reference);
+  if (!fs.existsSync(dir)) return null;
+  const files = fs.readdirSync(dir);
+  const matched =
+    files.find((f) => f === safeName || f.endsWith(`-${safeName}`))
+    || (att.id ? files.find((f) => f.startsWith(`${att.id}-`)) : null);
+
+  return matched ? `${safeRef}/${matched}` : null;
+}
+
+function backfillTicketEvidenceKeys(ticket) {
+  let changed = false;
+  for (const att of ticket.evidence || []) {
+    if (att.storageKey || att.legacy) continue;
+    const key = resolveAttachmentStorageKey({ ticket, attachment: att });
+    if (key) {
+      att.storageKey = key;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function streamAttachmentToResponse(res, found) {
+  const storageKey = resolveAttachmentStorageKey(found);
+  if (!storageKey || !found?.attachment) {
+    res.status(404).send('Attachment not found.');
+    return false;
+  }
+  const file = readFileStream(storageKey);
+  if (!file) {
+    res.status(404).send('File not found on disk.');
+    return false;
+  }
+  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
+  );
+  file.stream.pipe(res);
+  return true;
+}
+
 module.exports = {
   UPLOADS_ROOT,
   MAX_FILES_PER_TICKET,
@@ -150,4 +211,7 @@ module.exports = {
   removeAttachmentsFromTicket,
   readFileStream,
   resolveStoragePath,
+  resolveAttachmentStorageKey,
+  backfillTicketEvidenceKeys,
+  streamAttachmentToResponse,
 };

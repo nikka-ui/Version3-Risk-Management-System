@@ -1,6 +1,7 @@
 const { getCategoryLabel, getStatusLabel, RISK_CATEGORIES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { appLayout, flashMessage, executiveCommentsSection } = require('./layout');
+const { evidenceSection } = require('./evidence');
 
 function riskLevelBadge(riskLevelId, label) {
   const id = riskLevelId || 'low';
@@ -67,14 +68,7 @@ function ticketReadonlySections(ticket) {
       </section>`
     : '';
 
-  const evidenceList = (t.evidence || [])
-    .map((e) => {
-      const label = e.id
-        ? `<a href="/executive/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener">${escapeHtml(e.name || e.originalName)}</a>`
-        : escapeHtml(e.name || '—');
-      return `<li>${label} <span class="text-muted">(${escapeHtml(formatDate(e.uploadedAt))})</span></li>`;
-    })
-    .join('');
+  const evidenceBlock = evidenceSection(t, { attachmentBasePath: '/executive/attachments' });
 
   const solutionBlock = t.officerNotes
     ? `<section class="card card--accent">
@@ -103,10 +97,7 @@ function ticketReadonlySections(ticket) {
       ${fiveW1HReadonly(t)}
     </section>
     ${aiBlock}
-    <section class="card">
-      <h2>Evidence</h2>
-      <ul class="evidence-list">${evidenceList || '<li class="text-muted">No evidence uploaded.</li>'}</ul>
-    </section>
+    ${evidenceBlock}
     ${solutionBlock}`;
 }
 

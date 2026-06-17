@@ -16,6 +16,7 @@ const {
   saveUploadedFiles,
   deleteTicketUploads,
   removeAttachmentsFromTicket,
+  backfillTicketEvidenceKeys,
 } = require('./attachments');
 
 function getStore() {
@@ -685,6 +686,10 @@ function parseMitigationDueDate(raw) {
 
 function ticketForRole(ticket, role) {
   if (!ticket) return null;
+  const { saveStore } = getStore();
+  if (backfillTicketEvidenceKeys(ticket)) {
+    saveStore();
+  }
   const merged = { ...ticket, ...publicTicket(ticket) };
   ensurePrivateComments(ticket);
 
@@ -693,6 +698,7 @@ function ticketForRole(ticket, role) {
     merged.executiveComments = undefined;
     merged.mitigationPlanHistory = undefined;
     merged.auditNotes = undefined;
+    merged.evidence = ticket.evidence || [];
     if (ticket.status === 'returned' && ticket.officerNotes) {
       merged.officerNotes = ticket.officerNotes;
     } else if (!SUPERVISOR_MITIGATION_VISIBLE_STATUSES.includes(ticket.status)) {

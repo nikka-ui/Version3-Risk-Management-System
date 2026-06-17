@@ -49,6 +49,10 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: "3000"
+      UPLOADS_DIR: /app/uploads
+    volumes:
+      - rms_web_data:/app/data
+      - rms_web_uploads:/app/uploads
     networks:
       - rms_app
     expose:
@@ -211,6 +215,10 @@ volumes:
     name: rms_postgres_data
   rms_redis_data:
     name: rms_redis_data
+  rms_web_data:
+    name: rms_web_data
+  rms_web_uploads:
+    name: rms_web_uploads
 
 secrets:
   db_password:

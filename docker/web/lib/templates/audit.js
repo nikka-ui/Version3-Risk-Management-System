@@ -1,6 +1,7 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { appLayout, flashMessage, commentsSection, executiveCommentsSection } = require('./layout');
+const { evidenceSection } = require('./evidence');
 
 function statusPill(status, overdue) {
   const cls = overdue ? 'pill pill--bad' : 'pill';
@@ -67,14 +68,7 @@ function ticketReadonlySections(ticket) {
       </section>`
     : '';
 
-  const evidenceList = (t.evidence || [])
-    .map((e) => {
-      const label = e.storageKey
-        ? `<a href="/audit/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener">${escapeHtml(e.name || e.originalName)}</a>`
-        : escapeHtml(e.name || '—');
-      return `<li>${label} <span class="text-muted">(${escapeHtml(formatDate(e.uploadedAt))})</span></li>`;
-    })
-    .join('');
+  const evidenceBlock = evidenceSection(t, { attachmentBasePath: '/audit/attachments' });
 
   const solutionBlock = t.officerNotes
     ? `<section class="card card--accent">
@@ -107,7 +101,7 @@ function ticketReadonlySections(ticket) {
       <h2>5W1H</h2>
       ${fiveW1HReadonly(t)}
     </section>
-    ${evidenceList ? `<section class="card"><h2>Evidence</h2><ul class="evidence-list">${evidenceList}</ul></section>` : ''}
+    ${evidenceBlock}
     ${aiBlock}
     ${solutionBlock}
     ${auditBlock}`;

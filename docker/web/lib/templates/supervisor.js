@@ -2,6 +2,7 @@ const { RISK_CATEGORIES, DEPARTMENTS, getCategoryLabel, getStatusLabel } = requi
 const { escapeHtml, formatDate } = require('../html');
 const { canSupervisorEdit } = require('../tickets');
 const { appLayout, flashMessage } = require('./layout');
+const { evidenceSection } = require('./evidence');
 
 function categoryOptions(selected) {
   return RISK_CATEGORIES.map(
@@ -256,15 +257,6 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
       </section>`
     : '';
 
-  const evidenceList = (t.evidence || [])
-    .map((e) => {
-      const label = e.storageKey
-        ? `<a href="/supervisor/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener">${escapeHtml(e.name || e.originalName)}</a>`
-        : escapeHtml(e.name || '—');
-      return `<li>${label} <span class="text-muted">(${escapeHtml(formatDate(e.uploadedAt))})</span></li>`;
-    })
-    .join('');
-
   const formSection = editable
     ? `<form method="post" action="${isNew ? '/supervisor/tickets' : `/supervisor/tickets/${escapeHtml(ref)}`}" class="stack-form ticket-form">
         <section class="card">
@@ -337,21 +329,21 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
         ${fiveW1HFields(t, false)}
       </section>`;
 
-  const evidenceSection =
-    !editable && evidenceList
-      ? `<section class="card"><h2>Evidence</h2><ul class="evidence-list">${evidenceList}</ul></section>`
-      : '';
+  const evidenceSectionHtml = !editable
+    ? evidenceSection(t, { attachmentBasePath: '/supervisor/attachments' })
+    : '';
 
   const addEvidenceForm =
     !editable && ['under_review', 'in_mitigation', 'returned', 'pending_audit', 'reopened'].includes(t.status)
       ? `<section class="card">
           <h2>Add evidence</h2>
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form">
+          <p class="text-muted">Upload PDF, PNG, or JPG files (max 20MB each).</p>
+          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form" enctype="multipart/form-data">
             <div class="field">
-              <label for="evidenceFiles">New references (one per line)</label>
-              <textarea id="evidenceFiles" name="evidenceFiles" rows="2" required></textarea>
+              <label for="addEvidenceFiles">Files</label>
+              <input id="addEvidenceFiles" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" required>
             </div>
-            <button type="submit" class="btn-sm">Upload reference</button>
+            <button type="submit" class="btn-sm">Upload files</button>
           </form>
         </section>`
       : '';
@@ -401,7 +393,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
     ${aiBlock}
     ${officerBlock}
     ${supervisorFeedbackBlock}
-    ${evidenceSection}
+    ${evidenceSectionHtml}
     ${addEvidenceForm}
     ${accomplishmentForm}
     ${devMitigation}`;

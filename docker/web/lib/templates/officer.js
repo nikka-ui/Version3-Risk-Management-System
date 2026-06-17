@@ -2,6 +2,7 @@ const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket, canOfficerEditMitigation } = require('../tickets');
 const { appLayout, flashMessage, commentsSection, executiveCommentsSection } = require('./layout');
+const { evidenceSection } = require('./evidence');
 
 function statusPill(status, overdue) {
   const cls = overdue ? 'pill pill--bad' : 'pill';
@@ -86,41 +87,7 @@ function fiveW1HReadonly(ticket) {
 }
 
 function evidenceCompactSection(ticket) {
-  const items = ticket?.evidence || [];
-  if (!items.length) return '';
-
-  const rows = items
-    .map((e) => {
-      const name = escapeHtml(e.name || e.originalName || 'File');
-      const sizeMb = e.size ? `${(e.size / 1024 / 1024).toFixed(1)} MB` : '—';
-      const viewBtn = e.storageKey
-        ? `<a href="/officer/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener" class="btn-sm btn-outline">View</a>`
-        : '<span class="text-muted">—</span>';
-      return `<tr>
-        <td class="evidence-name" title="${name}">${name}</td>
-        <td class="nowrap text-muted">${escapeHtml(formatDate(e.uploadedAt))}</td>
-        <td class="nowrap text-muted">${sizeMb}</td>
-        <td class="col-actions">${viewBtn}</td>
-      </tr>`;
-    })
-    .join('');
-
-  return `<section class="card card--compact">
-    <h2>Evidence <span class="text-muted">(${items.length})</span></h2>
-    <div class="table-wrap">
-      <table class="data-table data-table--compact evidence-table">
-        <thead>
-          <tr>
-            <th>File</th>
-            <th>Uploaded</th>
-            <th>Size</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  </section>`;
+  return evidenceSection(ticket, { attachmentBasePath: '/officer/attachments', compact: true });
 }
 
 function officerNotesCard(ticket) {
@@ -181,14 +148,9 @@ function ticketReadonlySections(ticket, { monitoring = false } = {}) {
       </section>`
     : '';
 
-  const evidenceList = (t.evidence || [])
-    .map((e) => {
-      const label = e.storageKey
-        ? `<a href="/officer/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener">${escapeHtml(e.name || e.originalName)}</a>`
-        : escapeHtml(e.name || '—');
-      return `<li>${label} <span class="text-muted">(${escapeHtml(formatDate(e.uploadedAt))})</span></li>`;
-    })
-    .join('');
+  const evidenceBlock = monitoring
+    ? evidenceCompactSection(t)
+    : evidenceSection(t, { attachmentBasePath: '/officer/attachments' });
 
   const officerBlock = t.officerNotes
     ? `<section class="card card--accent">
@@ -245,7 +207,7 @@ function ticketReadonlySections(ticket, { monitoring = false } = {}) {
       <h2>5W1H</h2>
       ${fiveW1HReadonly(t)}
     </section>
-    ${evidenceList ? `<section class="card"><h2>Evidence</h2><ul class="evidence-list">${evidenceList}</ul></section>` : ''}
+    ${evidenceBlock}
     ${aiBlock}
     ${officerBlock}
     ${auditFeedbackBlock}`;
