@@ -1,7 +1,7 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket, canOfficerEditMitigation } = require('../tickets');
-const { appLayout, flashMessage, commentsSection, executiveCommentsSection } = require('./layout');
+const { appLayout, flashMessage } = require('./layout');
 const { evidenceSection } = require('./evidence');
 
 function statusPill(status, overdue) {
@@ -99,38 +99,24 @@ function officerNotesCard(ticket) {
     : '';
 
   if (!ticket.officerNotes) {
-    return `<section class="card card--accent officer-split-col">
+    return `<section class="card card--accent">
       <h2>Solution / mitigation plan</h2>
       <p class="text-muted">No mitigation plan on record.</p>
     </section>`;
   }
 
-  return `<section class="card card--accent officer-split-col">
+  return `<section class="card card--accent">
     <h2>Solution / mitigation plan${version}</h2>
     <div class="officer-notes-scroll">${escapeHtml(ticket.officerNotes)}</div>
     ${due}
   </section>`;
 }
 
-function officerPlanCommentsRow(ticket, ref, { editable = false } = {}) {
-  const left = editable
-    ? editMitigationPlanSection(ticket, { inSplitRow: true })
-    : officerNotesCard(ticket);
-  const right = commentsSection(ticket.comments || [], {
-    postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-    placeholder: 'Private comment for the Audit Officer…',
-    compact: true,
-    wrapClass: 'officer-split-col',
-  });
-
-  return `<div class="officer-split-row">${left}${right}</div>`;
-}
-
-function executiveCommentsBlock(ticket, ref) {
-  return executiveCommentsSection(ticket.executiveComments || [], {
-    replyAction: `/officer/tickets/${escapeHtml(ref)}/executive-reply`,
-    canReply: true,
-  });
+function officerPlanSection(ticket, ref, { editable = false } = {}) {
+  if (editable) {
+    return editMitigationPlanSection(ticket);
+  }
+  return officerNotesCard(ticket);
 }
 
 function ticketReadonlySections(ticket, { monitoring = false } = {}) {
@@ -439,8 +425,7 @@ function ticketMitigationPage(user, ticket, { flash, error } = {}) {
       <a href="${backHref}" class="btn-outline">Back</a>
     </div>
     ${ticketReadonlySections(t, { monitoring: true })}
-    ${officerPlanCommentsRow(t, ref, { editable })}
-    ${executiveCommentsBlock(t, ref)}
+    ${officerPlanSection(t, ref, { editable })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
 
   return appLayout({
@@ -471,11 +456,6 @@ function ticketReviewPage(user, ticket, { flash, error } = {}) {
       <a href="/officer/review" class="btn-outline">Back to review queue</a>
     </div>
     ${ticketReadonlySections(t)}
-    ${commentsSection(t.comments, {
-      postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-      placeholder: 'Private comment for the Audit Officer (not visible to the department)…',
-    })}
-    ${executiveCommentsBlock(t, ref)}
     <section class="card card--accent">
       <h2>RMO decision</h2>
       <p class="text-muted">Per workflow step 3: accept the report and define a mitigation plan, or return it to the department for revision.</p>
@@ -545,12 +525,7 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error 
       <a href="/officer/final-validation" class="btn-outline">Back to final validation</a>
     </div>
     ${ticketReadonlySections(t)}
-    ${mitigationPlanHistorySection(t.mitigationPlanHistory)}
-    ${commentsSection(t.comments, {
-      postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-      placeholder: 'Private comment for the Audit Officer…',
-    })}
-    ${executiveCommentsBlock(t, ref)}
+    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
     ${accBlock}
     <section class="card card--accent">
       <h2>Final validation</h2>
@@ -602,8 +577,7 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout } = {
       <a href="${back}" class="btn-outline">${backLabel}</a>
     </div>
     ${ticketReadonlySections(t, { monitoring: true })}
-    ${officerPlanCommentsRow(t, ref, { editable: canOfficerEditMitigation(t) })}
-    ${executiveCommentsBlock(t, ref)}
+    ${officerPlanSection(t, ref, { editable: canOfficerEditMitigation(t) })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`
     : `
     ${flashMessage(flash)}
@@ -616,12 +590,7 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout } = {
     </div>
     ${ticketReadonlySections(t)}
     ${canOfficerEditMitigation(t) ? editMitigationPlanSection(t) : ''}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
-    ${commentsSection(t.comments, {
-      postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-      placeholder: 'Private comment for the Audit Officer…',
-    })}
-    ${executiveCommentsBlock(t, ref)}`;
+    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
 
   return appLayout({
     title: t.reference,

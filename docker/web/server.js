@@ -513,6 +513,13 @@ app.get('/supervisor/accomplishments', requireSupervisor, (req, res) => {
 
 /* —— Risk Management Officer —— */
 
+function officerNoCache(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  return next();
+}
+
+app.use('/officer', officerNoCache);
+
 app.get('/officer', requireRmOfficer, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
@@ -623,22 +630,12 @@ app.post('/officer/tickets/:ref/update-mitigation', requireRmOfficer, (req, res)
   return res.redirect(`/officer/tickets/${ref}?flash=${flash}`);
 });
 
-app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = addTicketComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=comment_added`);
+app.all('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
+  res.status(404).type('text').send('Comment feature is not available for the RMO console.');
 });
 
-app.post('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = replyToExecutiveComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=executive_reply_added`);
+app.all('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
+  res.status(404).type('text').send('Comment feature is not available for the RMO console.');
 });
 
 /* —— Audit Officer —— */

@@ -165,7 +165,9 @@ function flashMessage(msg, type = 'success') {
  * Officer and RMO can comment on a risk report). Pass `postAction` to render an
  * "add comment" form; omit it for a read-only thread.
  */
-function commentsSection(comments, { postAction, placeholder, compact, wrapClass } = {}) {
+function commentsSection(comments, { postAction, placeholder, compact, wrapClass, enabled = true } = {}) {
+  if (!enabled) return '';
+
   const items = (comments || []).length
     ? comments
         .map(
@@ -209,7 +211,9 @@ function commentsSection(comments, { postAction, placeholder, compact, wrapClass
 /**
  * Executive oversight thread — top-level executive comments with officer replies.
  */
-function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact } = {}) {
+function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact, enabled = true } = {}) {
+  if (!enabled) return '';
+
   const all = comments || [];
   const tops = all.filter((c) => !c.parentId);
 

@@ -730,7 +730,16 @@ async function ticketForRole(ticket, role) {
     return merged;
   }
 
-  if (role === 'rm_officer' || role === 'audit_officer') {
+  if (role === 'rm_officer') {
+    merged.privateComments = undefined;
+    merged.executiveComments = undefined;
+    merged.comments = undefined;
+    merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
+    merged.evidence = ticket.evidence || [];
+    return merged;
+  }
+
+  if (role === 'audit_officer') {
     merged.privateComments = ticket.privateComments || [];
     merged.executiveComments = ticket.executiveComments || [];
     merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
