@@ -94,6 +94,9 @@ const {
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { handleEvidenceUpload } = require('./lib/upload');
+const { initializeAttachmentStorage, hydrateTicketEvidence } = require('./lib/attachments');
+const { migrateLegacyEvidenceFromStore } = require('./lib/attachmentRepository');
+const { loadStore, saveStore } = require('./lib/store');
 const {
   listUsers,
   createUser,
@@ -101,7 +104,6 @@ const {
   deleteUser,
   getCredentialLogs,
   getReportLogs,
-  loadStore,
 } = require('./lib/store');
 const { ROLES } = require('./config/roles');
 
@@ -169,9 +171,15 @@ function dashboardPath(user) {
   return '/dashboard';
 }
 
-function sendAttachment(res, found) {
+function asyncRoute(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
+async function sendAttachment(res, found) {
   const { streamAttachmentToResponse } = require('./lib/attachments');
-  streamAttachmentToResponse(res, found);
+  await streamAttachmentToResponse(res, found);
 }
 
 app.get('/health', (req, res) => {
@@ -300,14 +308,14 @@ app.get('/supervisor/tickets/new', requireSupervisor, (req, res) => {
 });
 
 // Step 1 -> Step 2 (AI preview)
-app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpload, (req, res) => {
+app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpload, asyncRoute(async (req, res) => {
   const user = req.session.user;
   if (req.uploadError) {
     return res.redirect(`/supervisor/tickets/new?error=${encodeURIComponent(req.uploadError)}`);
   }
   const referenceOverride = req.body.referenceOverride;
 
-  const result = createTicket(user.username, user.displayName, req.body, {
+  const result = await createTicket(user.username, user.displayName, req.body, {
     referenceOverride,
     uploadedFiles: req.files,
   });
@@ -317,14 +325,15 @@ app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpl
   }
 
   return res.redirect(`/supervisor/tickets/new/preview/${result.ticket.reference}?flash=preview_generated`);
-});
+}));
 
-app.get('/supervisor/tickets/:ref/edit', requireSupervisor, (req, res) => {
+app.get('/supervisor/tickets/:ref/edit', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ticket = getTicketByRef(req.params.ref, user.username);
   if (!ticket || !canSupervisorDraftCrud(ticket)) {
     return res.redirect('/supervisor/tickets?error=' + encodeURIComponent('Only draft tickets can be edited.'));
   }
+  await hydrateTicketEvidence(ticket);
   return res.type('html').send(
     newRiskReportStep1Page(user, ticket.reference, {
       mode: 'edit',
@@ -333,47 +342,48 @@ app.get('/supervisor/tickets/:ref/edit', requireSupervisor, (req, res) => {
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
     }),
   );
-});
+}));
 
-app.post('/supervisor/tickets/:ref/edit', requireSupervisor, handleEvidenceUpload, (req, res) => {
+app.post('/supervisor/tickets/:ref/edit', requireSupervisor, handleEvidenceUpload, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ref = req.params.ref;
   if (req.uploadError) {
     return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(req.uploadError)}`);
   }
-  const result = updateTicketDraft(ref, user.username, req.body, { uploadedFiles: req.files });
+  const result = await updateTicketDraft(ref, user.username, req.body, { uploadedFiles: req.files });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/supervisor/tickets/new/preview/${ref}?flash=draft_updated`);
-});
+}));
 
-app.post('/supervisor/tickets/:ref/delete', requireSupervisor, (req, res) => {
-  const result = deleteDraftTicket(req.params.ref, req.session.user.username);
+app.post('/supervisor/tickets/:ref/delete', requireSupervisor, asyncRoute(async (req, res) => {
+  const result = await deleteDraftTicket(req.params.ref, req.session.user.username);
   if (result.error) {
     return res.redirect('/supervisor/tickets?error=' + encodeURIComponent(result.error));
   }
   return res.redirect('/supervisor/tickets?flash=draft_deleted');
-});
+}));
 
-app.get('/supervisor/attachments/:id', requireSupervisor, (req, res) => {
-  const found = findAttachmentForUser(req.params.id, req.session.user.username);
-  sendAttachment(res, found);
-});
+app.get('/supervisor/attachments/:id', requireSupervisor, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForUser(req.params.id, req.session.user.username);
+  await sendAttachment(res, found);
+}));
 
-app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, (req, res) => {
+app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ticket = getTicketByRef(req.params.ref, user.username);
   if (!ticket) {
     return res.redirect('/supervisor/tickets/new?flash=not_found');
   }
+  await hydrateTicketEvidence(ticket);
   res.type('html').send(
     newRiskReportPreviewPage(user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
     }),
   );
-});
+}));
 
 app.post('/supervisor/tickets/new/preview/:ref/save', requireSupervisor, (req, res) => {
   // Draft was already created during NEXT; nothing else to save in the placeholder build.
@@ -399,13 +409,13 @@ app.post('/supervisor/tickets/new/preview/:ref/submit', requireSupervisor, (req,
   return res.redirect(`/supervisor/tickets/${ref}?flash=submitted`);
 });
 
-app.get('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
+app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const raw = getTicketByRef(req.params.ref, user.username);
   if (!raw) {
     return res.redirect('/supervisor/tickets?flash=not_found');
   }
-  const ticket = ticketForRole(raw, 'supervisor');
+  const ticket = await ticketForRole(raw, 'supervisor');
   res.type('html').send(
     ticketFormPage(user, ticket, {
       mode: 'view',
@@ -414,11 +424,11 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
       devMode: isDev,
     }),
   );
-});
+}));
 
-app.post('/supervisor/tickets', requireSupervisor, (req, res) => {
+app.post('/supervisor/tickets', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
-  const result = createTicket(user.username, user.displayName, req.body);
+  const result = await createTicket(user.username, user.displayName, req.body);
   if (result.error) {
     return res.redirect('/supervisor/tickets/new?error=' + encodeURIComponent(result.error));
   }
@@ -432,12 +442,12 @@ app.post('/supervisor/tickets', requireSupervisor, (req, res) => {
     return res.redirect(`/supervisor/tickets/${result.ticket.reference}?flash=submitted`);
   }
   return res.redirect(`/supervisor/tickets/${result.ticket.reference}?flash=draft_saved`);
-});
+}));
 
-app.post('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
+app.post('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ref = req.params.ref;
-  const result = updateTicketDraft(ref, user.username, req.body);
+  const result = await updateTicketDraft(ref, user.username, req.body);
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
@@ -449,19 +459,19 @@ app.post('/supervisor/tickets/:ref', requireSupervisor, (req, res) => {
     return res.redirect(`/supervisor/tickets/${ref}?flash=submitted`);
   }
   return res.redirect(`/supervisor/tickets/${ref}?flash=draft_saved`);
-});
+}));
 
-app.post('/supervisor/tickets/:ref/evidence', requireSupervisor, handleEvidenceUpload, (req, res) => {
+app.post('/supervisor/tickets/:ref/evidence', requireSupervisor, handleEvidenceUpload, asyncRoute(async (req, res) => {
   const ref = req.params.ref;
   if (req.uploadError) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
   }
-  const result = addEvidence(ref, req.session.user.username, req.body, { uploadedFiles: req.files });
+  const result = await addEvidence(ref, req.session.user.username, req.body, { uploadedFiles: req.files });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/supervisor/tickets/${ref}?flash=evidence_added`);
-});
+}));
 
 app.post('/supervisor/tickets/:ref/accomplishment', requireSupervisor, (req, res) => {
   const user = req.session.user;
@@ -548,24 +558,24 @@ app.get('/officer/tickets', requireRmOfficer, (req, res) => {
   );
 });
 
-app.get('/officer/tickets/:ref', requireRmOfficer, (req, res) => {
+app.get('/officer/tickets/:ref', requireRmOfficer, asyncRoute(async (req, res) => {
   const raw = getTicketByRefForOfficer(req.params.ref);
   if (!raw) {
     return res.redirect('/officer/tickets?flash=not_found');
   }
-  const ticket = ticketForRole(raw, 'rm_officer');
+  const ticket = await ticketForRole(raw, 'rm_officer');
   res.type('html').send(
     renderOfficerTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
     }),
   );
-});
+}));
 
-app.get('/officer/attachments/:id', requireRmOfficer, (req, res) => {
-  const found = findAttachmentForOfficer(req.params.id);
-  sendAttachment(res, found);
-});
+app.get('/officer/attachments/:id', requireRmOfficer, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForOfficer(req.params.id);
+  await sendAttachment(res, found);
+}));
 
 app.post('/officer/tickets/:ref/accept', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
@@ -656,24 +666,24 @@ app.get('/audit/tickets', requireAuditOfficer, (req, res) => {
   );
 });
 
-app.get('/audit/tickets/:ref', requireAuditOfficer, (req, res) => {
+app.get('/audit/tickets/:ref', requireAuditOfficer, asyncRoute(async (req, res) => {
   const raw = getTicketByRefForAudit(req.params.ref);
   if (!raw) {
     return res.redirect('/audit/tickets?flash=not_found');
   }
-  const ticket = ticketForRole(raw, 'audit_officer');
+  const ticket = await ticketForRole(raw, 'audit_officer');
   res.type('html').send(
     renderAuditTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
     }),
   );
-});
+}));
 
-app.get('/audit/attachments/:id', requireAuditOfficer, (req, res) => {
-  const found = findAttachmentForAudit(req.params.id);
-  sendAttachment(res, found);
-});
+app.get('/audit/attachments/:id', requireAuditOfficer, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForAudit(req.params.id);
+  await sendAttachment(res, found);
+}));
 
 app.post('/audit/tickets/:ref/approve', requireAuditOfficer, (req, res) => {
   const ref = req.params.ref;
@@ -743,24 +753,24 @@ app.get('/executive/tickets', requireExecutive, (req, res) => {
   );
 });
 
-app.get('/executive/tickets/:ref', requireExecutive, (req, res) => {
+app.get('/executive/tickets/:ref', requireExecutive, asyncRoute(async (req, res) => {
   const raw = getTicketByRefForExecutive(req.params.ref);
   if (!raw) {
     return res.redirect('/executive/tickets?flash=not_found');
   }
-  const ticket = ticketForRole(raw, 'executive');
+  const ticket = await ticketForRole(raw, 'executive');
   res.type('html').send(
     executiveTicketDetailPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
     }),
   );
-});
+}));
 
-app.get('/executive/attachments/:id', requireExecutive, (req, res) => {
-  const found = findAttachmentForExecutive(req.params.id);
-  sendAttachment(res, found);
-});
+app.get('/executive/attachments/:id', requireExecutive, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForExecutive(req.params.id);
+  await sendAttachment(res, found);
+}));
 
 app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
   const ref = req.params.ref;
@@ -870,6 +880,27 @@ app.get('/', (req, res) => {
   return res.redirect('/login');
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`rms-web listening on ${port}`);
+app.use((err, req, res, _next) => {
+  console.error(err);
+  if (res.headersSent) return;
+  res.status(500).send('An unexpected error occurred.');
+});
+
+async function startServer() {
+  await initializeAttachmentStorage();
+  const store = loadStore();
+  const migrated = await migrateLegacyEvidenceFromStore(store.riskTickets);
+  if (migrated) {
+    saveStore();
+    console.log(`Migrated ${migrated} legacy evidence record(s) to PostgreSQL.`);
+  }
+
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`rms-web listening on ${port} (files: MinIO, metadata: PostgreSQL)`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Failed to start rms-web:', err);
+  process.exit(1);
 });

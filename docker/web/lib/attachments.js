@@ -1,11 +1,9 @@
 /**
- * Evidence file storage (filesystem) — separate from store.json ticket metadata.
- * Metadata (id, storageKey, name, size, mimeType) lives on each ticket.evidence[] entry.
+ * Evidence storage: file bytes in MinIO/S3 (separate container), metadata in PostgreSQL.
  */
-const fs = require('fs');
-const path = require('path');
+const attachmentRepo = require('./attachmentRepository');
+const objectStorage = require('./objectStorage');
 
-const UPLOADS_ROOT = process.env.UPLOADS_DIR || path.join(__dirname, '..', 'uploads');
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_FILES_PER_TICKET = 10;
 const ALLOWED_EXT = new Set(['pdf', 'png', 'jpg', 'jpeg']);
@@ -15,20 +13,14 @@ const ALLOWED_MIME = new Set([
   'image/jpeg',
 ]);
 
-function ensureUploadsRoot() {
-  if (!fs.existsSync(UPLOADS_ROOT)) {
-    fs.mkdirSync(UPLOADS_ROOT, { recursive: true });
-  }
-}
-
-function ticketDir(ticketRef) {
-  const safe = String(ticketRef || '').replace(/[^a-zA-Z0-9._-]/g, '_');
-  return path.join(UPLOADS_ROOT, safe);
-}
-
 function sanitizeFilename(name) {
+  const path = require('path');
   const base = path.basename(String(name || 'file'));
   return base.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || 'file';
+}
+
+function safeTicketRef(ticketRef) {
+  return String(ticketRef || '').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 function extFromName(name) {
@@ -53,165 +45,143 @@ function validateUpload(file) {
   return { ok: true };
 }
 
-function saveUploadedFiles(ticketRef, files) {
-  ensureUploadsRoot();
-  const dir = ticketDir(ticketRef);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
+async function saveUploadedFiles(ticketRef, files, { uploadedBy } = {}) {
   const saved = [];
   const list = Array.isArray(files) ? files : [];
+  const ref = safeTicketRef(ticketRef);
+
   for (const file of list.slice(0, MAX_FILES_PER_TICKET)) {
     const check = validateUpload(file);
     if (!check.ok) {
       return { error: check.error };
     }
+
     const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const safeName = sanitizeFilename(file.originalname);
-    const storedName = `${id}-${safeName}`;
-    const storageKey = `${path.basename(dir)}/${storedName}`;
-    const fullPath = path.join(dir, storedName);
-    fs.writeFileSync(fullPath, file.buffer);
+    const storageKey = `${ref}/${id}-${safeName}`;
+    const mimeType = file.mimetype || 'application/octet-stream';
 
-    saved.push({
+    await objectStorage.putObject(storageKey, file.buffer, mimeType);
+    const record = await attachmentRepo.insertAttachment({
       id,
-      name: file.originalname,
+      ticketRef: ticketRef,
       originalName: file.originalname,
-      mimeType: file.mimetype || 'application/octet-stream',
+      mimeType,
       size: file.size,
       storageKey,
-      uploadedAt: new Date().toISOString(),
+      uploadedBy: uploadedBy || null,
+      legacy: false,
     });
+    saved.push(record);
   }
+
   return { attachments: saved };
 }
 
-function resolveStoragePath(storageKey) {
-  if (!storageKey) return null;
-  const normalized = String(storageKey).replace(/\\/g, '/');
-  if (normalized.includes('..')) return null;
-  const full = path.join(UPLOADS_ROOT, normalized);
-  const root = path.resolve(UPLOADS_ROOT);
-  const resolved = path.resolve(full);
-  if (!resolved.startsWith(root + path.sep) && resolved !== root) {
-    return null;
+async function saveLegacyEvidenceReferences(ticketRef, items, { uploadedBy } = {}) {
+  const saved = [];
+  for (const item of items || []) {
+    const record = await attachmentRepo.insertAttachment({
+      id: item.id,
+      ticketRef,
+      originalName: item.name || item.originalName || 'reference',
+      mimeType: item.mimeType || 'application/octet-stream',
+      size: item.size || 0,
+      storageKey: item.storageKey || `legacy/${safeTicketRef(ticketRef)}/${item.id}`,
+      uploadedBy: uploadedBy || null,
+      legacy: true,
+      uploadedAt: item.uploadedAt || null,
+    });
+    saved.push(record);
   }
-  return resolved;
+  return saved;
 }
 
-function deleteStoredFile(storageKey) {
-  const p = resolveStoragePath(storageKey);
-  if (!p || !fs.existsSync(p)) return;
-  try {
-    fs.unlinkSync(p);
-  } catch {
-    /* ignore */
+async function deleteStoredFile(storageKey) {
+  if (!storageKey || storageKey.startsWith('legacy/')) return;
+  await objectStorage.deleteObject(storageKey);
+}
+
+async function deleteTicketUploads(ticketRef) {
+  const keys = await attachmentRepo.deleteByTicketRef(ticketRef);
+  const objectKeys = keys.filter((k) => k && !k.startsWith('legacy/'));
+  if (objectKeys.length) {
+    await objectStorage.deleteObjects(objectKeys);
   }
 }
 
-function deleteTicketUploads(ticketRef) {
-  const dir = ticketDir(ticketRef);
-  if (!fs.existsSync(dir)) return;
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
-  }
-}
-
-function removeAttachmentsFromTicket(ticket, attachmentIds) {
+async function removeAttachmentsFromTicket(ticket, attachmentIds) {
   const ids = new Set(Array.isArray(attachmentIds) ? attachmentIds : []);
   if (!ids.size) return [];
-  const removed = [];
-  ticket.evidence = (ticket.evidence || []).filter((a) => {
-    if (ids.has(a.id)) {
-      removed.push(a);
-      if (a.storageKey) deleteStoredFile(a.storageKey);
-      return false;
-    }
-    return true;
-  });
-  return removed;
-}
 
-function readFileStream(storageKey) {
-  const p = resolveStoragePath(storageKey);
-  if (!p || !fs.existsSync(p)) return null;
-  return { path: p, stream: fs.createReadStream(p) };
-}
-
-/** Resolve storage key from metadata or on-disk layout (e.g. after container restore). */
-function resolveAttachmentStorageKey(found) {
-  const att = found?.attachment;
-  const ticket = found?.ticket;
-  if (!att || !ticket) return null;
-  if (att.storageKey) return att.storageKey;
-
-  const rawName = att.originalName || att.name;
-  if (!rawName) return null;
-
-  const safeRef = String(ticket.reference || '').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const safeName = path.basename(String(rawName)).replace(/[^a-zA-Z0-9._-]/g, '_');
-  if (!safeRef || !safeName) return null;
-
-  const directKey = `${safeRef}/${safeName}`;
-  const directPath = resolveStoragePath(directKey);
-  if (directPath && fs.existsSync(directPath)) return directKey;
-
-  const dir = ticketDir(ticket.reference);
-  if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir);
-  const matched =
-    files.find((f) => f === safeName || f.endsWith(`-${safeName}`))
-    || (att.id ? files.find((f) => f.startsWith(`${att.id}-`)) : null);
-
-  return matched ? `${safeRef}/${matched}` : null;
-}
-
-function backfillTicketEvidenceKeys(ticket) {
-  let changed = false;
-  for (const att of ticket.evidence || []) {
-    if (att.storageKey || att.legacy) continue;
-    const key = resolveAttachmentStorageKey({ ticket, attachment: att });
-    if (key) {
-      att.storageKey = key;
-      changed = true;
-    }
+  const removedRows = await attachmentRepo.deleteByIds([...ids]);
+  const keys = removedRows.map((r) => r.storage_key).filter((k) => k && !k.startsWith('legacy/'));
+  if (keys.length) {
+    await objectStorage.deleteObjects(keys);
   }
-  return changed;
+
+  if (ticket?.evidence) {
+    ticket.evidence = ticket.evidence.filter((a) => !ids.has(a.id));
+  }
+  return removedRows;
 }
 
-function streamAttachmentToResponse(res, found) {
+async function hydrateTicketEvidence(ticket) {
+  if (!ticket?.reference) {
+    ticket.evidence = [];
+    return ticket;
+  }
+  ticket.evidence = await attachmentRepo.listByTicketRef(ticket.reference);
+  ticket.evidenceCount = ticket.evidence.length;
+  return ticket;
+}
+
+function resolveAttachmentStorageKey(found) {
+  return found?.attachment?.storageKey || null;
+}
+
+async function streamAttachmentToResponse(res, found) {
   const storageKey = resolveAttachmentStorageKey(found);
-  if (!storageKey || !found?.attachment) {
+  const att = found?.attachment;
+  if (!storageKey || !att) {
     res.status(404).send('Attachment not found.');
     return false;
   }
-  const file = readFileStream(storageKey);
-  if (!file) {
-    res.status(404).send('File not found on disk.');
+  if (att.legacy && storageKey.startsWith('legacy/')) {
+    res.status(404).send('This evidence reference has no stored file.');
     return false;
   }
-  res.setHeader('Content-Type', found.attachment.mimeType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename="${encodeURIComponent(found.attachment.originalName || found.attachment.name)}"`,
-  );
-  file.stream.pipe(res);
-  return true;
+
+  try {
+    const stream = await objectStorage.getObjectStream(storageKey);
+    res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(att.originalName || att.name)}"`,
+    );
+    stream.pipe(res);
+    return true;
+  } catch {
+    res.status(404).send('File not found in object storage.');
+    return false;
+  }
+}
+
+async function initializeAttachmentStorage() {
+  const { ensureSchema } = require('./db');
+  await ensureSchema();
+  await objectStorage.ensureBucket();
 }
 
 module.exports = {
-  UPLOADS_ROOT,
   MAX_FILES_PER_TICKET,
   saveUploadedFiles,
+  saveLegacyEvidenceReferences,
   deleteStoredFile,
   deleteTicketUploads,
   removeAttachmentsFromTicket,
-  readFileStream,
-  resolveStoragePath,
+  hydrateTicketEvidence,
   resolveAttachmentStorageKey,
-  backfillTicketEvidenceKeys,
   streamAttachmentToResponse,
+  initializeAttachmentStorage,
 };

@@ -14,10 +14,12 @@ const {
 } = require('../config/tickets');
 const {
   saveUploadedFiles,
+  saveLegacyEvidenceReferences,
   deleteTicketUploads,
   removeAttachmentsFromTicket,
-  backfillTicketEvidenceKeys,
+  hydrateTicketEvidence,
 } = require('./attachments');
+const attachmentRepo = require('./attachmentRepository');
 
 function getStore() {
   const { loadStore, saveStore } = require('./store');
@@ -63,7 +65,7 @@ function publicTicket(ticket) {
     submittedAt: ticket.submittedAt,
     ai: ticket.ai || null,
     fiveW1H: ticket.fiveW1H,
-    evidenceCount: (ticket.evidence || []).length,
+    evidenceCount: ticket.evidenceCount ?? (ticket.evidence || []).length,
     hasAccomplishment: Boolean(ticket.accomplishmentId),
     officerNotes: ticket.officerNotes || null,
     auditNotes: ticket.auditNotes || null,
@@ -200,21 +202,22 @@ function findAttachmentOnTicket(ticket, attachmentId) {
   return (ticket?.evidence || []).find((a) => a.id === attachmentId) || null;
 }
 
-function findAttachmentForUser(attachmentId, username) {
-  const { store } = getStore();
-  for (const ticket of store.riskTickets || []) {
-    if (ticket.submittedBy !== username) continue;
-    const att = findAttachmentOnTicket(ticket, attachmentId);
-    if (att) return { ticket, attachment: att };
-  }
-  return null;
+async function findAttachmentForUser(attachmentId, username) {
+  const attachment = await attachmentRepo.findById(attachmentId);
+  if (!attachment) return null;
+  const ticket = getTicketByRef(attachment.ticketRef, username);
+  if (!ticket) return null;
+  return { ticket, attachment };
 }
 
-function mergeUploadedEvidence(ticket, uploadedFiles) {
+async function mergeUploadedEvidence(ticket, uploadedFiles, uploadedBy) {
   if (!uploadedFiles?.length) return null;
-  const result = saveUploadedFiles(ticket.reference, uploadedFiles);
+  const result = await saveUploadedFiles(ticket.reference, uploadedFiles, {
+    uploadedBy: uploadedBy || ticket.submittedBy,
+  });
   if (result.error) return result;
   ticket.evidence = [...(ticket.evidence || []), ...result.attachments];
+  ticket.evidenceCount = ticket.evidence.length;
   return null;
 }
 
@@ -302,7 +305,7 @@ function mockAiClassification(ticket) {
   const riskLevel = riskLevelFromSeverity(Math.round((ticket.likelihood + ticket.impact) / 2));
   const confidence = Math.max(
     0.55,
-    Math.min(0.98, 0.68 + (ticket.evidence?.length ? 0.1 : 0) + (String(ticket.description || '').length > 200 ? 0.06 : 0)),
+    Math.min(0.98, 0.68 + ((ticket.evidenceCount ?? ticket.evidence?.length) ? 0.1 : 0) + (String(ticket.description || '').length > 200 ? 0.06 : 0)),
   );
   return {
     summary: `AI analysis: ${getCategoryLabel(ticket.category)} risk with likelihood ${ticket.likelihood}/5 and impact ${ticket.impact}/5 (confidence ${Math.round(
@@ -319,7 +322,7 @@ function mockAiClassification(ticket) {
   };
 }
 
-function createTicket(username, displayName, body, { referenceOverride, uploadedFiles } = {}) {
+async function createTicket(username, displayName, body, { referenceOverride, uploadedFiles } = {}) {
   const { store, saveStore } = getStore();
   if (!store.riskTickets) store.riskTickets = [];
   const ref = referenceOverride || nextTicketRef(store);
@@ -342,10 +345,20 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
   }
 
   const evidenceFromUpload = [];
-  const uploadResult = uploadedFiles?.length ? saveUploadedFiles(ref, uploadedFiles) : { attachments: [] };
+  const uploadResult = uploadedFiles?.length
+    ? await saveUploadedFiles(ref, uploadedFiles, { uploadedBy: username })
+    : { attachments: [] };
   if (uploadResult.error) return { error: uploadResult.error };
   evidenceFromUpload.push(...(uploadResult.attachments || []));
-  const legacyEvidence = uploadedFiles?.length ? [] : parseEvidenceList(body.evidenceFiles);
+
+  let legacyEvidence = [];
+  if (!uploadedFiles?.length && body.evidenceFiles) {
+    legacyEvidence = parseEvidenceList(body.evidenceFiles);
+    if (legacyEvidence.length) {
+      legacyEvidence = await saveLegacyEvidenceReferences(ref, legacyEvidence, { uploadedBy: username });
+    }
+  }
+
   const evidenceFiles = [...evidenceFromUpload, ...legacyEvidence];
   if (!evidenceFiles.length) {
     return { error: 'At least one evidence file is required.' };
@@ -374,14 +387,13 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
     description,
     department: String(body.department || DEFAULT_DEPARTMENT).trim(),
     location: String(body.location || '').trim(),
-    // AI preview values (used for risk analysis badges and submission workflow).
     category: ai.riskCategory,
     likelihood: ai.likelihood,
     impact: ai.impact,
     riskScore: null,
     mitigationApproach: String(body.mitigationApproach || '').trim(),
     fiveW1H,
-    evidence: evidenceFiles,
+    evidenceCount: evidenceFiles.length,
     status: 'draft',
     submittedBy: username,
     submittedByName: displayName,
@@ -401,10 +413,11 @@ function createTicket(username, displayName, body, { referenceOverride, uploaded
   ticket.riskScore = ticket.likelihood * ticket.impact;
   store.riskTickets.push(ticket);
   saveStore();
+  ticket.evidence = evidenceFiles;
   return { ticket: publicTicket(ticket) };
 }
 
-function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly = true } = {}) {
+async function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly = true } = {}) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
@@ -415,6 +428,8 @@ function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly
     return { error: 'This ticket can no longer be edited.' };
   }
 
+  await hydrateTicketEvidence(ticket);
+
   const fiveW1H = parseFiveW1H(body);
   const title = String(body.title || '').trim();
   if (!title) return { error: 'Risk title is required.' };
@@ -422,7 +437,7 @@ function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly
     return { error: 'What happened and why are required (5W1H).' };
   }
 
-  removeAttachmentsFromTicket(ticket, parseRemoveAttachmentIds(body));
+  await removeAttachmentsFromTicket(ticket, parseRemoveAttachmentIds(body));
 
   ticket.title = title;
   ticket.description =
@@ -435,17 +450,21 @@ function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly
   ticket.mitigationApproach = String(body.mitigationApproach || '').trim();
   ticket.fiveW1H = fiveW1H;
 
-  const uploadErr = mergeUploadedEvidence(ticket, uploadedFiles);
+  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
   if (uploadErr) return uploadErr;
 
   if (!uploadedFiles?.length && body.evidenceFiles) {
     const added = parseEvidenceList(body.evidenceFiles);
-    ticket.evidence = [...(ticket.evidence || []), ...added];
+    if (added.length) {
+      const saved = await saveLegacyEvidenceReferences(ticket.reference, added, { uploadedBy: username });
+      ticket.evidence = [...(ticket.evidence || []), ...saved];
+    }
   }
 
   if (!(ticket.evidence || []).length) {
     return { error: 'At least one evidence file is required.' };
   }
+  ticket.evidenceCount = ticket.evidence.length;
 
   const ai = generateAiAnalysisFromReport({
     title: ticket.title,
@@ -464,7 +483,7 @@ function updateTicketDraft(reference, username, body, { uploadedFiles, draftOnly
   return { ticket: publicTicket(ticket) };
 }
 
-function deleteDraftTicket(reference, username) {
+async function deleteDraftTicket(reference, username) {
   const { store, saveStore } = getStore();
   const idx = (store.riskTickets || []).findIndex(
     (t) => t.reference === reference && t.submittedBy === username,
@@ -474,7 +493,7 @@ function deleteDraftTicket(reference, username) {
   if (!canSupervisorDraftCrud(ticket)) {
     return { error: 'Only draft tickets can be deleted.' };
   }
-  deleteTicketUploads(ticket.reference);
+  await deleteTicketUploads(ticket.reference);
   store.riskTickets.splice(idx, 1);
   saveStore();
   return { reference: ticket.reference };
@@ -515,17 +534,20 @@ function submitTicket(reference, username, displayName) {
   return { ticket: publicTicket(ticket) };
 }
 
-function addEvidence(reference, username, body, { uploadedFiles } = {}) {
-  const { store, saveStore } = getStore();
+async function addEvidence(reference, username, body, { uploadedFiles } = {}) {
+  const { saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
-  const uploadErr = mergeUploadedEvidence(ticket, uploadedFiles);
+  await hydrateTicketEvidence(ticket);
+  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
   if (uploadErr) return uploadErr;
   if (!uploadedFiles?.length) {
     const added = parseEvidenceList(body.evidenceFiles);
     if (!added.length) return { error: 'Upload at least one evidence file.' };
-    ticket.evidence = [...(ticket.evidence || []), ...added];
+    const saved = await saveLegacyEvidenceReferences(ticket.reference, added, { uploadedBy: username });
+    ticket.evidence = [...(ticket.evidence || []), ...saved];
   }
+  ticket.evidenceCount = (ticket.evidence || []).length;
   ticket.updatedAt = new Date().toISOString();
   saveStore();
   return { ticket: publicTicket(ticket) };
@@ -586,13 +608,12 @@ function getOfficerStats() {
   };
 }
 
-function findAttachmentForOfficer(attachmentId) {
-  const { store } = getStore();
-  for (const ticket of store.riskTickets || []) {
-    const att = findAttachmentOnTicket(ticket, attachmentId);
-    if (att) return { ticket, attachment: att };
-  }
-  return null;
+async function findAttachmentForOfficer(attachmentId) {
+  const attachment = await attachmentRepo.findById(attachmentId);
+  if (!attachment) return null;
+  const ticket = getTicketByRefForOfficer(attachment.ticketRef);
+  if (!ticket) return null;
+  return { ticket, attachment };
 }
 
 function getAccomplishmentForTicket(ticket) {
@@ -684,12 +705,9 @@ function parseMitigationDueDate(raw) {
   return due;
 }
 
-function ticketForRole(ticket, role) {
+async function ticketForRole(ticket, role) {
   if (!ticket) return null;
-  const { saveStore } = getStore();
-  if (backfillTicketEvidenceKeys(ticket)) {
-    saveStore();
-  }
+  await hydrateTicketEvidence(ticket);
   const merged = { ...ticket, ...publicTicket(ticket) };
   ensurePrivateComments(ticket);
 
@@ -940,13 +958,12 @@ function getAuditStats() {
   };
 }
 
-function findAttachmentForAudit(attachmentId) {
-  const { store } = getStore();
-  for (const ticket of store.riskTickets || []) {
-    const att = findAttachmentOnTicket(ticket, attachmentId);
-    if (att) return { ticket, attachment: att };
-  }
-  return null;
+async function findAttachmentForAudit(attachmentId) {
+  const attachment = await attachmentRepo.findById(attachmentId);
+  if (!attachment) return null;
+  const ticket = getTicketByRefForAudit(attachment.ticketRef);
+  if (!ticket) return null;
+  return { ticket, attachment };
 }
 
 function logAuditAction(ticket, username, action) {
@@ -1015,14 +1032,12 @@ function getExecutiveStats() {
   };
 }
 
-function findAttachmentForExecutive(attachmentId) {
-  const { store } = getStore();
-  for (const ticket of store.riskTickets || []) {
-    if (ticket.status === 'draft') continue;
-    const att = findAttachmentOnTicket(ticket, attachmentId);
-    if (att) return { ticket, attachment: att };
-  }
-  return null;
+async function findAttachmentForExecutive(attachmentId) {
+  const attachment = await attachmentRepo.findById(attachmentId);
+  if (!attachment) return null;
+  const ticket = getTicketByRefForExecutive(attachment.ticketRef);
+  if (!ticket) return null;
+  return { ticket, attachment };
 }
 
 function addExecutiveComment(reference, user, body) {

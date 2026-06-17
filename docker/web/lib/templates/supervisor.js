@@ -170,7 +170,7 @@ function ticketsListPage(user, tickets, flash, { filter, error } = {}) {
         </table>
       </div>
     </section>
-    <p class="text-muted storage-note">Evidence files are stored separately under <code>docker/web/uploads/</code> (Docker volume) and linked to each ticket by reference number.</p>`;
+    <p class="text-muted storage-note">Evidence files (PDF, PNG, JPG) are stored in the MinIO object-storage container; attachment metadata is stored in PostgreSQL (<code>risk_attachments</code>).</p>`;
 
   return appLayout({
     title: 'My tickets',
@@ -806,7 +806,7 @@ function newRiskReportPreviewPage(user, ticket, { flash, error }) {
       <section class="enterprise-card">
         <div class="enterprise-section-head">
           <h2>EVIDENCE ATTACHMENTS</h2>
-          <p class="section-hint">Files are stored in secure upload storage and linked to this ticket.</p>
+          <p class="section-hint">Files are stored in MinIO; metadata is recorded in PostgreSQL and linked to this ticket.</p>
         </div>
         ${renderExistingAttachments(ticket) || '<p class="text-muted">No attachments on file.</p>'}
       </section>

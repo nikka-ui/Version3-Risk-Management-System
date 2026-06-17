@@ -107,6 +107,12 @@ function loadStore() {
 
 function saveStore() {
   ensureDataDir();
+  for (const ticket of cache.riskTickets || []) {
+    if (Array.isArray(ticket.evidence)) {
+      ticket.evidenceCount = ticket.evidence.length;
+      delete ticket.evidence;
+    }
+  }
   fs.writeFileSync(STORE_PATH, JSON.stringify(cache, null, 2), 'utf8');
 }
 
