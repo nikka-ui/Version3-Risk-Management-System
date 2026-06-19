@@ -1,7 +1,9 @@
 const { getCategoryLabel, getStatusLabel } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket, canOfficerEditMitigation } = require('../tickets');
-const { appLayout, flashMessage } = require('./layout');
+const { flashMessage } = require('./layout');
+const { officerAppLayout } = require('./officer-layout');
+const { matrixCellTier } = require('../tickets');
 const { evidenceSection } = require('./evidence');
 
 function statusPill(status, overdue) {
@@ -275,90 +277,213 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
   </section>`;
 }
 
-function officerOverviewPage(user, stats, flash) {
+function officerPageLayout(opts) {
+  const { stats: _stats, ...rest } = opts;
+  return officerAppLayout(rest);
+}
+
+function quickActionIcon(name) {
+  const icons = {
+    review: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+    final: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`,
+    monitoring: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    tickets: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`,
+  };
+  return icons[name] || '';
+}
+
+function quickActionsBar(stats) {
+  const actions = [
+    { href: '/officer/review', label: 'Review queue', count: stats.awaitingReview, icon: 'review' },
+    { href: '/officer/final-validation', label: 'Final validation', count: stats.awaitingFinalValidation, icon: 'final' },
+    { href: '/officer/monitoring', label: 'Monitoring', count: stats.inMitigation, icon: 'monitoring' },
+    { href: '/officer/tickets', label: 'All reports', count: stats.total, icon: 'tickets' },
+  ];
+
+  return `<section class="officer-quick-bar">
+    <span class="officer-quick-bar__title">Quick actions</span>
+    <div class="officer-quick-bar__items">
+      ${actions
+        .map(
+          (a) => `<a href="${a.href}" class="officer-quick-bar__item">
+            <span class="officer-quick-bar__icon">${quickActionIcon(a.icon)}</span>
+            <span class="officer-quick-bar__label">${escapeHtml(a.label)}</span>
+            <span class="officer-quick-bar__count">${a.count}</span>
+          </a>`,
+        )
+        .join('')}
+    </div>
+  </section>`;
+}
+
+function kpiIcon(name) {
+  const icons = {
+    total: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`,
+    pending: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+    final: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`,
+    mitigation: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+    overdue: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>`,
+    closed: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
+  };
+  return icons[name] || '';
+}
+
+function kpiCard({ value, label, icon, variant = 'default', href }) {
+  const inner = `<div class="officer-kpi__icon">${kpiIcon(icon)}</div>
+    <div class="officer-kpi__body">
+      <span class="officer-kpi__value">${value}</span>
+      <span class="officer-kpi__label">${escapeHtml(label)}</span>
+    </div>`;
+  const cls = `officer-kpi officer-kpi--${variant}`;
+  if (href) {
+    return `<a href="${href}" class="${cls}">${inner}</a>`;
+  }
+  return `<div class="${cls}">${inner}</div>`;
+}
+
+function departmentTiles(departments) {
+  if (!departments.length) {
+    return `<p class="officer-empty">No risk reports submitted yet.</p>`;
+  }
+  const palette = ['#B7DBE1', '#FFEFAD', '#FFADC0', '#69B5A6'];
+  return `<div class="officer-dept-grid">
+    ${departments
+      .map((d, i) => {
+        const color = palette[i % palette.length];
+        const initial = d.name.trim().charAt(0).toUpperCase();
+        return `<div class="officer-dept-tile">
+          <span class="officer-dept-tile__icon" style="--dept-color:${color}">${escapeHtml(initial)}</span>
+          <div class="officer-dept-tile__meta">
+            <span class="officer-dept-tile__name">${escapeHtml(d.name)}</span>
+            <span class="officer-dept-tile__count">${d.count} report${d.count === 1 ? '' : 's'}</span>
+          </div>
+        </div>`;
+      })
+      .join('')}
+  </div>`;
+}
+
+const IMPACT_LABELS = ['Negligible', 'Minor', 'Moderate', 'Major', 'Severe'];
+const LIKELIHOOD_LABELS = ['Almost certain', 'Likely', 'Possible', 'Unlikely', 'Rare'];
+
+function riskMatrixGrid(matrix) {
+  const header = `<div class="rm-matrix__corner"></div>
+    ${IMPACT_LABELS.map((l) => `<div class="rm-matrix__col-head">${escapeHtml(l)}</div>`).join('')}`;
+
+  const rows = matrix
+    .map((row, rowIdx) => {
+      const likelihood = 5 - rowIdx;
+      const rowHead = `<div class="rm-matrix__row-head">${escapeHtml(LIKELIHOOD_LABELS[rowIdx])}</div>`;
+      const cells = row
+        .map((count, colIdx) => {
+          const impact = colIdx + 1;
+          const tier = matrixCellTier(likelihood, impact);
+          return `<div class="rm-matrix__cell rm-matrix__cell--${tier}" title="Likelihood ${likelihood} × Impact ${impact}">
+            <span class="rm-matrix__count">${count || ''}</span>
+          </div>`;
+        })
+        .join('');
+      return rowHead + cells;
+    })
+    .join('');
+
+  return `<div class="rm-matrix" role="img" aria-label="Risk incident matrix by likelihood and impact">
+    <div class="rm-matrix__axis rm-matrix__axis--x">Impact →</div>
+    <div class="rm-matrix__axis rm-matrix__axis--y">Likelihood →</div>
+    <div class="rm-matrix__grid">${header}${rows}</div>
+    <div class="rm-matrix__legend">
+      <span class="rm-matrix__legend-item rm-matrix__legend-item--low">Low</span>
+      <span class="rm-matrix__legend-item rm-matrix__legend-item--moderate">Moderate</span>
+      <span class="rm-matrix__legend-item rm-matrix__legend-item--high">High</span>
+      <span class="rm-matrix__legend-item rm-matrix__legend-item--critical">Critical</span>
+    </div>
+  </div>`;
+}
+
+function officerOverviewPage(user, dashboard, flash) {
+  const { stats, departments, matrix } = dashboard;
   const body = `
     ${flashMessage(flash)}
-    <div class="page-head">
-      <h1>RMO dashboard</h1>
-      <p class="page-desc">Validate risk reports, define mitigation plans, and perform final validation before closing tickets.</p>
-    </div>
-    <div class="stat-grid">
-      <div class="stat-card">
-        <span class="stat-value">${stats.awaitingReview}</span>
-        <span class="stat-label">Awaiting review</span>
+    <div class="officer-dashboard">
+      <header class="officer-dashboard__head">
+        <h1 class="officer-dashboard__title">Dashboard</h1>
+        <p class="officer-dashboard__greeting">Welcome, Risk Management Officer!</p>
+      </header>
+
+      <div class="officer-kpi-grid">
+        ${kpiCard({ value: stats.total, label: 'Total risk reports', icon: 'total', variant: 'highlight', href: '/officer/tickets' })}
+        ${kpiCard({ value: stats.awaitingReview, label: 'Pending reports', icon: 'pending', href: '/officer/review' })}
+        ${kpiCard({ value: stats.awaitingFinalValidation, label: 'Final validation', icon: 'final', href: '/officer/final-validation' })}
+        ${kpiCard({ value: stats.inMitigation, label: 'Mitigation', icon: 'mitigation', href: '/officer/monitoring' })}
+        ${kpiCard({ value: stats.overdueMitigation, label: 'Overdue mitigation', icon: 'overdue', variant: stats.overdueMitigation ? 'warn' : 'default', href: '/officer/monitoring' })}
+        ${kpiCard({ value: stats.closed, label: 'Closed', icon: 'closed' })}
       </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.awaitingFinalValidation}</span>
-        <span class="stat-label">Final validation</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.inMitigation}</span>
-        <span class="stat-label">In mitigation</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.overdueMitigation}</span>
-        <span class="stat-label">Overdue mitigation</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.closed}</span>
-        <span class="stat-label">Closed</span>
-      </div>
-    </div>
-    <div class="card" style="margin-top:1.5rem">
-      <h2>Quick actions</h2>
-      <div class="action-row">
-        <a href="/officer/review" class="btn-outline">Review queue (${stats.awaitingReview})</a>
-        <a href="/officer/final-validation" class="btn-outline">Final validation (${stats.awaitingFinalValidation})</a>
-        <a href="/officer/monitoring" class="btn-outline">Implementation monitoring</a>
-        <a href="/officer/tickets" class="btn-outline">All tickets</a>
+
+      ${quickActionsBar(stats)}
+
+      <div class="officer-dashboard-grid">
+        <section class="officer-panel">
+          <div class="officer-panel__head">
+            <h2>Risk reports per department</h2>
+            <a href="/officer/tickets" class="officer-panel__link">View all</a>
+          </div>
+          ${departmentTiles(departments)}
+        </section>
+
+        <section class="officer-panel">
+          <div class="officer-panel__head">
+            <h2>Risk incident matrix</h2>
+          </div>
+          ${riskMatrixGrid(matrix)}
+        </section>
       </div>
     </div>`;
 
-  return appLayout({
-    title: 'RMO dashboard',
+  return officerPageLayout({
+    title: 'Dashboard',
     user,
-    activeNav: 'overview',
+    activeNav: 'dashboard',
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 
-function queueListPage(user, { title, desc, tickets, flash, error, activeNav, emptyMessage }) {
+function queueListPage(user, { title, desc, tickets, flash, error, activeNav, emptyMessage, stats }) {
   const rows = ticketTableRows(tickets);
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
-    <div class="page-head">
-      <h1>${escapeHtml(title)}</h1>
-      <p class="page-desc">${escapeHtml(desc)}</p>
-    </div>
-    <section class="card card--table">
-      <div class="table-wrap">
-        <table class="data-table data-table--compact tickets-table">
-          <thead>
-            <tr>
-              <th>Reference</th>
-              <th>Title</th>
-              <th>Submitter</th>
-              <th>Department</th>
-              <th>Category</th>
-              <th>Status</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>${rows || `<tr><td colspan="7" class="empty">${emptyMessage}</td></tr>`}</tbody>
-        </table>
-      </div>
-    </section>`;
+    <div class="officer-page">
+      <header class="officer-page__head">
+        <h1 class="officer-page__title">${escapeHtml(title)}</h1>
+        <p class="officer-page__desc">${escapeHtml(desc)}</p>
+      </header>
+      <section class="officer-panel officer-panel--table">
+        <div class="table-wrap">
+          <table class="data-table data-table--compact tickets-table">
+            <thead>
+              <tr>
+                <th>Reference</th>
+                <th>Title</th>
+                <th>Submitter</th>
+                <th>Department</th>
+                <th>Category</th>
+                <th>Status</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>${rows || `<tr><td colspan="7" class="empty">${emptyMessage}</td></tr>`}</tbody>
+          </table>
+        </div>
+      </section>
+    </div>`;
 
-  return appLayout({
+  return officerPageLayout({
     title,
     user,
     activeNav,
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 
@@ -369,8 +494,9 @@ function reviewQueuePage(user, tickets, flash, opts = {}) {
     tickets,
     flash,
     error: opts.error,
-    activeNav: 'review',
+    activeNav: 'reports',
     emptyMessage: 'No tickets awaiting RMO review.',
+    stats: opts.stats,
   });
 }
 
@@ -383,10 +509,11 @@ function finalValidationQueuePage(user, tickets, flash, opts = {}) {
     error: opts.error,
     activeNav: 'final',
     emptyMessage: 'No tickets awaiting final validation.',
+    stats: opts.stats,
   });
 }
 
-function monitoringQueuePage(user, tickets, flash) {
+function monitoringQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
     title: 'Implementation monitoring',
     desc: 'Tickets with approved mitigation plans currently with departments for implementation.',
@@ -394,21 +521,23 @@ function monitoringQueuePage(user, tickets, flash) {
     flash,
     activeNav: 'monitoring',
     emptyMessage: 'No tickets currently in mitigation.',
+    stats: opts.stats,
   });
 }
 
-function allTicketsPage(user, tickets, flash) {
+function allTicketsPage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
-    title: 'All tickets',
+    title: 'Risk Reports',
     desc: 'Organization-wide risk tickets (excluding drafts).',
     tickets,
     flash,
-    activeNav: 'tickets',
+    activeNav: 'reports',
     emptyMessage: 'No submitted tickets yet.',
+    stats: opts.stats,
   });
 }
 
-function ticketMitigationPage(user, ticket, { flash, error } = {}) {
+function ticketMitigationPage(user, ticket, { flash, error, stats } = {}) {
   const t = ticket;
   const ref = t.reference;
   const backHref = t.status === 'audit_returned' ? '/officer/review' : '/officer/monitoring';
@@ -428,17 +557,16 @@ function ticketMitigationPage(user, ticket, { flash, error } = {}) {
     ${officerPlanSection(t, ref, { editable })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
 
-  return appLayout({
+  return officerPageLayout({
     title: `Mitigation plan ${ref}`,
     user,
-    activeNav: t.status === 'audit_returned' ? 'review' : 'monitoring',
+    activeNav: t.status === 'audit_returned' ? 'reports' : 'monitoring',
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 
-function ticketReviewPage(user, ticket, { flash, error } = {}) {
+function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
   const t = ticket;
   const ref = t.reference;
   const defaultDue = new Date();
@@ -481,17 +609,16 @@ function ticketReviewPage(user, ticket, { flash, error } = {}) {
       </form>
     </section>`;
 
-  return appLayout({
+  return officerPageLayout({
     title: `Review ${ref}`,
     user,
-    activeNav: 'review',
+    activeNav: 'reports',
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 
-function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error } = {}) {
+function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error, stats } = {}) {
   const t = ticket;
   const ref = t.reference;
   const acc = accomplishment;
@@ -548,23 +675,22 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error 
       </form>
     </section>`;
 
-  return appLayout({
+  return officerPageLayout({
     title: `Final validation ${ref}`,
     user,
     activeNav: 'final',
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 
-function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout } = {}) {
+function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout, stats } = {}) {
   const t = ticket;
   const ref = t.reference;
   const monitoring = layout === 'monitoring';
-  const nav = activeNav || 'tickets';
+  const nav = activeNav || 'reports';
   const back = backHref || '/officer/tickets';
-  const backLabel = monitoring ? 'Back to monitoring' : 'Back to all tickets';
+  const backLabel = monitoring ? 'Back to monitoring' : 'Back to risk reports';
 
   const body = monitoring
     ? `
@@ -592,13 +718,12 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout } = {
     ${canOfficerEditMitigation(t) ? editMitigationPlanSection(t) : ''}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
 
-  return appLayout({
+  return officerPageLayout({
     title: t.reference,
     user,
     activeNav: nav,
     body,
-    wide: true,
-    navVariant: 'officer',
+    stats,
   });
 }
 

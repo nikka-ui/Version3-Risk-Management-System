@@ -64,6 +64,7 @@ const {
   findAttachmentForUser,
   canSupervisorDraftCrud,
   getOfficerStats,
+  getOfficerDashboardData,
   listTicketsForOfficer,
   listOfficerReviewQueue,
   listOfficerFinalValidationQueue,
@@ -523,7 +524,7 @@ app.use('/officer', officerNoCache);
 app.get('/officer', requireRmOfficer, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
-    officerOverviewPage(user, getOfficerStats(), flashFromQuery(req.query)),
+    officerOverviewPage(user, getOfficerDashboardData(), flashFromQuery(req.query)),
   );
 });
 
@@ -533,7 +534,10 @@ app.get('/officer/review', requireRmOfficer, (req, res) => {
       req.session.user,
       listOfficerReviewQueue(),
       flashFromQuery(req.query),
-      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+      {
+        error: req.query.error ? decodeURIComponent(req.query.error) : null,
+        stats: getOfficerStats(),
+      },
     ),
   );
 });
@@ -544,7 +548,10 @@ app.get('/officer/final-validation', requireRmOfficer, (req, res) => {
       req.session.user,
       listOfficerFinalValidationQueue(),
       flashFromQuery(req.query),
-      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+      {
+        error: req.query.error ? decodeURIComponent(req.query.error) : null,
+        stats: getOfficerStats(),
+      },
     ),
   );
 });
@@ -555,13 +562,16 @@ app.get('/officer/monitoring', requireRmOfficer, (req, res) => {
       req.session.user,
       listOfficerMonitoringQueue(),
       flashFromQuery(req.query),
+      { stats: getOfficerStats() },
     ),
   );
 });
 
 app.get('/officer/tickets', requireRmOfficer, (req, res) => {
   res.type('html').send(
-    allTicketsPage(req.session.user, listTicketsForOfficer(), flashFromQuery(req.query)),
+    allTicketsPage(req.session.user, listTicketsForOfficer(), flashFromQuery(req.query), {
+      stats: getOfficerStats(),
+    }),
   );
 });
 
@@ -575,6 +585,7 @@ app.get('/officer/tickets/:ref', requireRmOfficer, asyncRoute(async (req, res) =
     renderOfficerTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: getOfficerStats(),
     }),
   );
 }));

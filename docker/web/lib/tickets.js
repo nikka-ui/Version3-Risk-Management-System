@@ -597,6 +597,7 @@ function getOfficerStats() {
   const tickets = listTicketsForOfficer();
   const monitoring = tickets.filter((t) => OFFICER_MONITORING_STATUSES.includes(t.status));
   return {
+    total: tickets.length,
     awaitingReview: tickets.filter((t) => OFFICER_REVIEW_STATUSES.includes(t.status)).length,
     awaitingFinalValidation: tickets.filter((t) => OFFICER_FINAL_VALIDATION_STATUSES.includes(t.status))
       .length,
@@ -606,6 +607,37 @@ function getOfficerStats() {
     overdueMitigation: monitoring.filter((t) => t.isOverdue).length,
     open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
   };
+}
+
+function matrixCellTier(likelihood, impact) {
+  const score = likelihood * impact;
+  if (score <= 4) return 'low';
+  if (score <= 9) return 'moderate';
+  if (score <= 15) return 'high';
+  return 'critical';
+}
+
+function getOfficerDashboardData() {
+  const tickets = listTicketsForOfficer();
+  const stats = getOfficerStats();
+
+  const deptMap = {};
+  for (const t of tickets) {
+    const dept = (t.department || 'Unassigned').trim() || 'Unassigned';
+    deptMap[dept] = (deptMap[dept] || 0) + 1;
+  }
+  const departments = Object.entries(deptMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+  const matrix = Array.from({ length: 5 }, () => Array(5).fill(0));
+  for (const t of tickets) {
+    const likelihood = Math.max(1, Math.min(5, Number(t.likelihood) || 1));
+    const impact = Math.max(1, Math.min(5, Number(t.impact) || 1));
+    matrix[5 - likelihood][impact - 1] += 1;
+  }
+
+  return { stats, departments, matrix };
 }
 
 async function findAttachmentForOfficer(attachmentId) {
@@ -1308,6 +1340,8 @@ module.exports = {
   listOfficerFinalValidationQueue,
   listOfficerMonitoringQueue,
   getOfficerStats,
+  getOfficerDashboardData,
+  matrixCellTier,
   findAttachmentForOfficer,
   getAccomplishmentForTicket,
   rejectTicketForOfficer,
