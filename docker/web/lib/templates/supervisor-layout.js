@@ -2,18 +2,20 @@ const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 
 const NAV_ITEMS = [
-  { id: 'dashboard', href: '/officer', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'reports', href: '/officer/tickets', label: 'Risk reports', icon: 'reports', statKey: 'awaitingReview' },
-  { id: 'final', href: '/officer/final-validation', label: 'Final validation', icon: 'final', statKey: 'awaitingFinalValidation' },
-  { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring', icon: 'monitoring', statKey: 'inMitigation' },
+  { id: 'overview', href: '/supervisor', label: 'Overview', icon: 'overview' },
+  { id: 'tickets', href: '/supervisor/tickets', label: 'My tickets', icon: 'tickets' },
+  { id: 'new', href: '/supervisor/tickets/new', label: 'New report', icon: 'new' },
+  { id: 'actions', href: '/supervisor/actions', label: 'Action required', icon: 'actions', statKey: 'actionRequired' },
+  { id: 'accomplishments', href: '/supervisor/accomplishments', label: 'Accomplishments', icon: 'accomplishments' },
 ];
 
 function navIcon(name) {
   const icons = {
-    dashboard: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
-    reports: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
-    final: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`,
-    monitoring: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    overview: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
+    tickets: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
+    new: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>`,
+    actions: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`,
+    accomplishments: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
   };
   return icons[name] || '';
 }
@@ -34,8 +36,9 @@ function sidebarNav(activeNav, stats = {}) {
   }).join('');
 }
 
-function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
+function supervisorAppLayout({ title, user, activeNav, body, stats = {} }) {
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
+  const roleLabel = user.roleLabel || 'Department Supervisor';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -46,7 +49,7 @@ function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>
-<body class="supervisor-shell officer-console">
+<body class="supervisor-shell">
   <aside class="supervisor-sidebar">
     <div class="supervisor-sidebar__brand">
       <div class="supervisor-sidebar__logo" aria-hidden="true">
@@ -58,11 +61,11 @@ function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
       </div>
       <div class="supervisor-sidebar__titles">
         <span class="supervisor-sidebar__system">Risk Management</span>
-        <span class="supervisor-sidebar__role">Risk Management Officer</span>
+        <span class="supervisor-sidebar__role">${escapeHtml(roleLabel)}</span>
       </div>
     </div>
     <p class="supervisor-sidebar__section">Menu</p>
-    <nav class="supervisor-sidebar__nav" aria-label="Officer navigation">
+    <nav class="supervisor-sidebar__nav" aria-label="Supervisor navigation">
       ${sidebarNav(activeNav, stats)}
     </nav>
     <div class="supervisor-sidebar__user">
@@ -80,7 +83,7 @@ function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
     <header class="console-topbar" aria-label="Page toolbar">
       <div class="console-topbar__title">${escapeHtml(title)}</div>
       <div class="console-topbar__actions">
-        <span class="console-topbar__role-pill">Risk Management Officer</span>
+        <span class="console-topbar__role-pill">${escapeHtml(roleLabel)}</span>
       </div>
     </header>
     <main class="supervisor-main">${body}</main>
@@ -89,4 +92,4 @@ function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
 </html>`;
 }
 
-module.exports = { officerAppLayout };
+module.exports = { supervisorAppLayout };

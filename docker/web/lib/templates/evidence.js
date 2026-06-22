@@ -5,12 +5,19 @@ const { escapeHtml, formatDate } = require('../html');
  * @param {object} ticket
  * @param {{ attachmentBasePath: string, compact?: boolean }} opts
  */
-function evidenceSection(ticket, { attachmentBasePath, compact = false } = {}) {
+function evidenceSection(ticket, { attachmentBasePath, compact = false, theme = 'default' } = {}) {
+  const isConsole = theme === 'console';
+  const cardClass = isConsole
+    ? `sup-card${compact ? ' sup-card--compact' : ''}`
+    : `card${compact ? ' card--compact' : ''}`;
+  const headClass = isConsole ? 'sup-card__head' : '';
+  const bodyClass = isConsole ? 'sup-card__body' : '';
   const items = ticket?.evidence || [];
   if (!items.length) {
-    return `<section class="card${compact ? ' card--compact' : ''}">
-      <h2>Evidence</h2>
+    return `<section class="${cardClass}">
+      ${isConsole ? '<div class="sup-card__head"><h2>Evidence</h2></div><div class="sup-card__body">' : '<h2>Evidence</h2>'}
       <p class="text-muted">No evidence uploaded.</p>
+      ${isConsole ? '</div>' : ''}
     </section>`;
   }
 
@@ -21,7 +28,7 @@ function evidenceSection(ticket, { attachmentBasePath, compact = false } = {}) {
       const uploaded = escapeHtml(formatDate(e.uploadedAt));
       const viewable = Boolean(e.id && (e.storageKey || !e.legacy));
       const viewBtn = viewable
-        ? `<a href="${attachmentBasePath}/${escapeHtml(e.id)}" target="_blank" rel="noopener" class="btn-sm btn-outline">View</a>`
+        ? `<a href="${attachmentBasePath}/${escapeHtml(e.id)}" target="_blank" rel="noopener" class="sup-btn-outline sup-btn-outline--sm">View</a>`
         : '<span class="text-muted" title="Reference only — no file stored">—</span>';
       const fileCell = viewable
         ? `<a href="${attachmentBasePath}/${escapeHtml(e.id)}" target="_blank" rel="noopener">${name}</a>`
@@ -40,26 +47,28 @@ function evidenceSection(ticket, { attachmentBasePath, compact = false } = {}) {
     })
     .join('');
 
-  if (compact) {
-    return `<section class="card card--compact">
-      <h2>Evidence <span class="text-muted">(${items.length})</span></h2>
-      <div class="table-wrap">
-        <table class="data-table data-table--compact evidence-table">
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Uploaded</th>
-              <th>Size</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+  if (compact || isConsole) {
+    return `<section class="${cardClass}">
+      <div class="${headClass || 'sup-card__head'}"><h2>Evidence <span class="text-muted">(${items.length})</span></h2></div>
+      <div class="${bodyClass || 'sup-card__body'}">
+        <div class="table-wrap">
+          <table class="data-table data-table--compact evidence-table sup-table">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Uploaded</th>
+                <th>Size</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
     </section>`;
   }
 
-  return `<section class="card">
+  return `<section class="${cardClass}">
     <h2>Evidence <span class="text-muted">(${items.length})</span></h2>
     <ul class="evidence-list">${rows}</ul>
   </section>`;

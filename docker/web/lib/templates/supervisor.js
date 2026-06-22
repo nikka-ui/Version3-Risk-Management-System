@@ -1,7 +1,8 @@
-const { RISK_CATEGORIES, DEPARTMENTS, getCategoryLabel, getStatusLabel } = require('../../config/tickets');
+const { RISK_CATEGORIES, DEPARTMENTS, getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
-const { canSupervisorEdit } = require('../tickets');
-const { appLayout, flashMessage } = require('./layout');
+const { canSupervisorSubmitAccomplishment } = require('../tickets');
+const { supervisorAppLayout } = require('./supervisor-layout');
+const { flashMessage } = require('./layout');
 const { evidenceSection } = require('./evidence');
 
 function categoryOptions(selected) {
@@ -18,8 +19,26 @@ function likelihoodOptions(selected) {
 }
 
 function statusPill(status, overdue) {
-  const cls = overdue ? 'pill pill--bad' : 'pill';
-  return `<span class="${cls}">${escapeHtml(getStatusLabel(status))}</span>`;
+  const tone = overdue ? 'bad' : getStatusTone(status);
+  return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
+}
+
+const KPI_ICONS = {
+  tickets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
+  drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  action: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`,
+  overdue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  done: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
+};
+
+function kpiCard(href, icon, value, label, variant = '') {
+  return `<a href="${href}" class="sup-kpi${variant ? ` ${variant}` : ''}">
+    <span class="sup-kpi__icon">${icon}</span>
+    <span class="sup-kpi__body">
+      <span class="sup-kpi__value">${value}</span>
+      <span class="sup-kpi__label">${escapeHtml(label)}</span>
+    </span>
+  </a>`;
 }
 
 /** Red asterisk for required field labels. */
@@ -28,7 +47,7 @@ function reqLabel(text, { required = false } = {}) {
   return `${escapeHtml(text)}${star}`;
 }
 
-function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showActions = false } = {}) {
+function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showActions = false, scoreColumn = false } = {}) {
   return tickets
     .map((t) => {
       const isDraft = t.status === 'draft';
@@ -41,20 +60,29 @@ function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showAct
             <button type="submit" class="btn-link btn-link--danger">Delete</button>
           </form>
         </div>`;
+      } else if (showActions && t.status === 'returned') {
+        actions = `<a href="/supervisor/tickets/${escapeHtml(t.reference)}/edit" class="btn-link">Revise</a>`;
       } else if (showActions && !isDraft) {
         actions = `<a href="${linkPrefix}${escapeHtml(t.reference)}" class="btn-link">View</a>`;
       }
+      const metricCell = scoreColumn
+        ? `<td class="nowrap mono">${t.riskScore || t.likelihood * t.impact}</td>`
+        : `<td class="nowrap">${t.evidenceCount || 0}</td>`;
       return `<tr>
         <td class="mono nowrap"><a href="${linkPrefix}${escapeHtml(t.reference)}">${escapeHtml(t.reference)}</a></td>
         <td>${escapeHtml(t.title)}</td>
         <td class="nowrap">${escapeHtml(t.categoryLabel)}</td>
         <td>${statusPill(t.status, t.isOverdue)}</td>
-        <td class="nowrap">${t.evidenceCount || 0}</td>
+        ${metricCell}
         <td class="nowrap">${escapeHtml(formatDate(t.updatedAt))}</td>
         ${showActions ? `<td class="col-actions">${actions}</td>` : ''}
       </tr>`;
     })
     .join('');
+}
+
+function supervisorPage(title, user, activeNav, body, stats) {
+  return supervisorAppLayout({ title, user, activeNav, body, stats });
 }
 
 function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
@@ -79,56 +107,50 @@ function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
   return `<ul class="upload-preview upload-preview--saved">${rows}</ul>`;
 }
 
-function supervisorOverviewPage(user, stats, flash) {
+function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
+  const recentRows = ticketTableRows(recentTickets.slice(0, 5));
   const body = `
     ${flashMessage(flash)}
-    <div class="page-head">
-      <h1>Supervisor dashboard</h1>
-      <p class="page-desc">Submit risk reports, track tickets, and record accomplishments for your department.</p>
+    <div class="sup-page-head">
+      <div>
+        <h1>Overview</h1>
+        <p class="sup-page-desc">Track risk reports, pending actions, and accomplishments for your department.</p>
+      </div>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ New report</a>
     </div>
-    <div class="stat-grid">
-      <div class="stat-card">
-        <span class="stat-value">${stats.total}</span>
-        <span class="stat-label">My tickets</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.drafts}</span>
-        <span class="stat-label">Drafts</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.actionRequired}</span>
-        <span class="stat-label">Action required</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.overdue}</span>
-        <span class="stat-label">Overdue</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">${stats.accomplishments}</span>
-        <span class="stat-label">Accomplishments</span>
-      </div>
+    <div class="sup-kpi-grid">
+      ${kpiCard('/supervisor/tickets', KPI_ICONS.tickets, stats.total, 'My tickets')}
+      ${kpiCard('/supervisor/tickets?filter=draft', KPI_ICONS.drafts, stats.drafts, 'Drafts')}
+      ${kpiCard('/supervisor/actions', KPI_ICONS.action, stats.actionRequired, 'Action required', 'sup-kpi--accent')}
+      ${kpiCard('/supervisor/tickets', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue > 0 ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/supervisor/accomplishments', KPI_ICONS.done, stats.accomplishments, 'Accomplishments')}
     </div>
-    <div class="card" style="margin-top:1.5rem">
-      <h2>Quick actions</h2>
-      <div class="action-row">
-        <a href="/supervisor/tickets/new" class="btn-outline">Submit new risk report</a>
-        <a href="/supervisor/tickets" class="btn-outline">View my tickets</a>
-        <a href="/supervisor/actions" class="btn-outline">Action required</a>
-        <a href="/supervisor/accomplishments" class="btn-outline">Accomplishment history</a>
+    <section class="sup-card sup-card--table">
+      <div class="sup-card__head">
+        <h2>Recent tickets</h2>
+        <a href="/supervisor/tickets" class="sup-link">View all</a>
       </div>
-    </div>`;
+      <div class="table-wrap">
+        <table class="data-table data-table--compact sup-table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Files</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>${recentRows || '<tr><td colspan="6" class="empty">No tickets yet. <a href="/supervisor/tickets/new">Create your first report</a>.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>`;
 
-  return appLayout({
-    title: 'Supervisor dashboard',
-    user,
-    activeNav: 'overview',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage('Overview', user, 'overview', body, stats);
 }
 
-function ticketsListPage(user, tickets, flash, { filter, error } = {}) {
+function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {}) {
   const filtered =
     filter === 'draft'
       ? tickets.filter((t) => t.status === 'draft')
@@ -140,21 +162,21 @@ function ticketsListPage(user, tickets, flash, { filter, error } = {}) {
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(decodeURIComponent(error), 'error') : ''}
-    <div class="page-head page-head--row">
+    <div class="sup-page-head">
       <div>
         <h1>My tickets</h1>
-        <p class="page-desc">Manage draft reports (create, edit, delete) before submission. Submitted tickets are read-only.</p>
+        <p class="sup-page-desc">Manage draft reports (create, edit, delete) before submission. Submitted tickets are read-only.</p>
       </div>
-      <a href="/supervisor/tickets/new" class="btn-enterprise-primary btn-primary--auto">+ New report</a>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ New report</a>
     </div>
-    <div class="ticket-filters">
-      <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All (${tickets.length})</a>
-      <a href="/supervisor/tickets?filter=draft" class="filter-pill ${filter === 'draft' ? 'active' : ''}">Drafts (${draftCount})</a>
-      <a href="/supervisor/tickets?filter=submitted" class="filter-pill ${filter === 'submitted' ? 'active' : ''}">Submitted (${tickets.length - draftCount})</a>
+    <div class="ticket-filters console-quick-actions">
+      <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All <span class="filter-pill__count">${tickets.length}</span></a>
+      <a href="/supervisor/tickets?filter=draft" class="filter-pill ${filter === 'draft' ? 'active' : ''}">Drafts <span class="filter-pill__count">${draftCount}</span></a>
+      <a href="/supervisor/tickets?filter=submitted" class="filter-pill ${filter === 'submitted' ? 'active' : ''}">Submitted <span class="filter-pill__count">${tickets.length - draftCount}</span></a>
     </div>
-    <section class="card card--table">
+    <section class="sup-card sup-card--table">
       <div class="table-wrap">
-        <table class="data-table data-table--compact tickets-table tickets-table--crud">
+        <table class="data-table data-table--compact sup-table tickets-table tickets-table--crud">
           <thead>
             <tr>
               <th>Reference</th>
@@ -169,17 +191,9 @@ function ticketsListPage(user, tickets, flash, { filter, error } = {}) {
           <tbody>${rows || '<tr><td colspan="7" class="empty">No tickets yet. <a href="/supervisor/tickets/new">Create your first risk report</a>.</td></tr>'}</tbody>
         </table>
       </div>
-    </section>
-    <p class="text-muted storage-note">Evidence files (PDF, PNG, JPG) are stored in the MinIO object-storage container; attachment metadata is stored in PostgreSQL (<code>risk_attachments</code>).</p>`;
+    </section>`;
 
-  return appLayout({
-    title: 'My tickets',
-    user,
-    activeNav: 'tickets',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage('My tickets', user, 'tickets', body, stats);
 }
 
 function fiveW1HFields(ticket, editable) {
@@ -216,14 +230,12 @@ function fiveW1HFields(ticket, editable) {
   </div>`;
 }
 
-function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
-  const isNew = mode === 'new';
-  const editable = isNew || (ticket && canSupervisorEdit(ticket));
+function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} }) {
   const t = ticket || {};
   const ref = t.reference || '';
 
   const aiBlock =
-    t.ai && !editable
+    t.ai
       ? `<section class="card card--ai">
           <h2>AI classification</h2>
           <p class="text-muted">${escapeHtml(t.ai.summary)}</p>
@@ -240,7 +252,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
       ? `<section class="card">
           <h2>RMO feedback</h2>
           <p>${escapeHtml(t.officerNotes)}</p>
-          <p class="text-muted">Your report was returned for revision. Update and resubmit when ready.</p>
+          <p class="text-muted">Your report was returned for revision. Use <strong>Revise</strong> from My tickets to update and resubmit.</p>
         </section>`
       : t.officerNotes && ['in_mitigation', 'reopened', 'pending_audit', 'closed', 'resolved'].includes(t.status)
         ? `<section class="card card--accent">
@@ -257,63 +269,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
       </section>`
     : '';
 
-  const formSection = editable
-    ? `<form method="post" action="${isNew ? '/supervisor/tickets' : `/supervisor/tickets/${escapeHtml(ref)}`}" class="stack-form ticket-form">
-        <section class="card">
-          <h2>Risk details</h2>
-          <div class="form-grid">
-            <div class="field">
-              <label for="title">Risk title *</label>
-              <input id="title" name="title" type="text" required value="${escapeHtml(t.title || '')}">
-            </div>
-            <div class="field">
-              <label for="department">Department</label>
-              <input id="department" name="department" type="text" value="${escapeHtml(t.department || 'Operations')}">
-            </div>
-            <div class="field">
-              <label for="location">Location</label>
-              <input id="location" name="location" type="text" value="${escapeHtml(t.location || '')}" placeholder="Building, floor, area">
-            </div>
-            <div class="field">
-              <label for="category">Category</label>
-              <select id="category" name="category">${categoryOptions(t.category || 'operational')}</select>
-            </div>
-            <div class="field">
-              <label for="likelihood">Likelihood (1–5)</label>
-              <select id="likelihood" name="likelihood">${likelihoodOptions(t.likelihood || 3)}</select>
-            </div>
-            <div class="field">
-              <label for="impact">Impact (1–5)</label>
-              <select id="impact" name="impact">${likelihoodOptions(t.impact || 3)}</select>
-            </div>
-          </div>
-          <div class="field">
-            <label for="description">Detailed description</label>
-            <textarea id="description" name="description" rows="4">${escapeHtml(t.description || '')}</textarea>
-          </div>
-          <div class="field">
-            <label for="mitigationApproach">Preferred mitigation (optional)</label>
-            <input id="mitigationApproach" name="mitigationApproach" type="text" value="${escapeHtml(t.mitigationApproach || '')}">
-          </div>
-        </section>
-        <section class="card">
-          <h2>5W1H</h2>
-          ${fiveW1HFields(t, true)}
-        </section>
-        <section class="card">
-          <h2>Evidence references</h2>
-          <p class="text-muted">Enter one file name or reference per line (full upload via API in production).</p>
-          <div class="field">
-            <label for="evidenceFiles">Attachments</label>
-            <textarea id="evidenceFiles" name="evidenceFiles" rows="3" placeholder="e.g. incident-photo.jpg"></textarea>
-          </div>
-        </section>
-        <div class="form-actions">
-          ${isNew ? '' : `<button type="submit" name="intent" value="save" class="btn-outline">Save draft</button>`}
-          <button type="submit" name="intent" value="submit" class="btn-primary btn-primary--auto">${isNew ? 'Save &amp; submit' : 'Save &amp; resubmit'}</button>
-        </div>
-      </form>`
-    : `<section class="card">
+  const formSection = `<section class="card">
         <h2>Risk details</h2>
         <dl class="detail-dl">
           <dt>Title</dt><dd>${escapeHtml(t.title)}</dd>
@@ -329,12 +285,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
         ${fiveW1HFields(t, false)}
       </section>`;
 
-  const evidenceSectionHtml = !editable
-    ? evidenceSection(t, { attachmentBasePath: '/supervisor/attachments' })
-    : '';
+  const evidenceSectionHtml = evidenceSection(t, { attachmentBasePath: '/supervisor/attachments' });
 
   const addEvidenceForm =
-    !editable && ['under_review', 'in_mitigation', 'returned', 'pending_audit', 'reopened'].includes(t.status)
+    ['under_review', 'in_mitigation', 'returned', 'pending_audit', 'reopened'].includes(t.status)
       ? `<section class="card">
           <h2>Add evidence</h2>
           <p class="text-muted">Upload PDF, PNG, or JPG files (max 20MB each).</p>
@@ -348,8 +302,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
         </section>`
       : '';
 
-  const accomplishmentForm =
-    ['in_mitigation', 'returned', 'reopened'].includes(t.status)
+  const accomplishmentForm = canSupervisorSubmitAccomplishment(t)
       ? `<section class="card card--accent">
           <h2>Submit accomplishment report</h2>
           <p class="text-muted">Document mitigation implementation and outcomes.</p>
@@ -384,10 +337,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
     ${error ? flashMessage(error, 'error') : ''}
     <div class="page-head page-head--row">
       <div>
-        <h1>${isNew ? 'New risk report' : escapeHtml(t.title || 'Ticket')}</h1>
-        <p class="page-desc">${isNew ? 'Structured 5W1H report with evidence references.' : `<span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}`}</p>
+        <h1>${escapeHtml(t.title || 'Ticket')}</h1>
+        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
       </div>
-      ${isNew ? '<a href="/supervisor/tickets" class="btn-outline">Back to tickets</a>' : ''}
+      <a href="/supervisor/tickets" class="btn-outline">Back to tickets</a>
     </div>
     ${formSection}
     ${aiBlock}
@@ -398,14 +351,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode }) {
     ${accomplishmentForm}
     ${devMitigation}`;
 
-  return appLayout({
-    title: isNew ? 'New risk report' : ref,
-    user,
-    activeNav: isNew ? 'new' : 'tickets',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage(ref, user, 'tickets', body, stats);
 }
 
 function progressSteps(step) {
@@ -437,22 +383,34 @@ function riskLevelFromSeverityLocal(severity1to5) {
   return { id: 'critical', label: 'Extreme/Critical' };
 }
 
-function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, mode = 'new' } = {}) {
-  const isEdit = mode === 'edit' && ticket;
+function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, mode = 'new', stats = {} } = {}) {
+  const isRevise = mode === 'revise' && ticket?.status === 'returned';
+  const isEdit = (mode === 'edit' && ticket?.status === 'draft') || isRevise;
   const t = ticket || {};
   const w = t.fiveW1H || {};
   const formAction = isEdit
     ? `/supervisor/tickets/${escapeHtml(t.reference)}/edit`
     : '/supervisor/tickets/new/preview';
-  const pageTitle = isEdit ? 'EDIT DRAFT REPORT' : 'NEW RISK REPORT';
-  const pageDesc = isEdit
-    ? 'Update your draft report. Only drafts can be edited or deleted before submission.'
-    : 'Submit a structured incident report. AI will generate the risk analysis preview.';
+  const pageTitle = isRevise ? 'REVISE RISK REPORT' : isEdit ? 'EDIT DRAFT REPORT' : 'NEW RISK REPORT';
+  const pageDesc = isRevise
+    ? 'Your report was returned by the RMO. Update the details and evidence, then resubmit for review.'
+    : isEdit
+      ? 'Update your draft report. Only drafts can be edited or deleted before submission.'
+      : 'Submit a structured incident report. AI will generate the risk analysis preview.';
   const deptOptions = DEPARTMENTS.map((d) => {
     const selected = (isEdit ? t.department : d === 'Operations') === d ? 'selected' : '';
     return `<option value="${escapeHtml(d)}" ${selected}>${escapeHtml(d)}</option>`;
   }).join('');
   const existingAttachments = isEdit ? renderExistingAttachments(t) : '';
+  const rmoFeedbackBlock = isRevise && t.officerNotes
+    ? `<section class="enterprise-card enterprise-card--warn">
+        <div class="enterprise-section-head">
+          <h2>RMO FEEDBACK</h2>
+        </div>
+        <p>${escapeHtml(t.officerNotes)}</p>
+        <p class="text-muted">Address the feedback below, then continue to the AI preview and resubmit.</p>
+      </section>`
+    : '';
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
@@ -465,6 +423,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           <p class="required-legend"><span class="req">*</span> Required field</p>
         </div>
       </div>
+      ${rmoFeedbackBlock}
 
       <form method="post" action="${formAction}" class="enterprise-form" id="riskForm" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="referenceOverride" value="${escapeHtml(isEdit ? t.reference : ticketRef)}">
@@ -558,7 +517,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         <div class="enterprise-actions enterprise-actions--split">
           ${isEdit ? '<a href="/supervisor/tickets" class="btn-enterprise-outline">Back to My Tickets</a>' : ''}
           <button type="submit" id="nextBtn" class="btn-enterprise-primary btn-enterprise-next" disabled>
-            ${isEdit ? 'UPDATE &amp; PREVIEW' : 'NEXT: SUMMARY PREVIEW'}
+            ${isRevise ? 'UPDATE &amp; PREVIEW' : isEdit ? 'UPDATE &amp; PREVIEW' : 'NEXT: SUMMARY PREVIEW'}
           </button>
         </div>
       </form>
@@ -732,17 +691,10 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
     </script>
   `;
 
-  return appLayout({
-    title: 'New Risk Report',
-    user,
-    activeNav: 'new',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage(isRevise ? 'Revise report' : isEdit ? 'Edit draft' : 'New report', user, isRevise ? 'actions' : isEdit ? 'tickets' : 'new', body, stats);
 }
 
-function newRiskReportPreviewPage(user, ticket, { flash, error }) {
+function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {} }) {
   const ai = ticket?.ai || {};
   const riskCategoryLabel = getCategoryLabel(ai.riskCategory || ticket?.category);
   const riskLevel = ai.riskLevel || riskLevelFromSeverityLocal(ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2);
@@ -806,7 +758,7 @@ function newRiskReportPreviewPage(user, ticket, { flash, error }) {
       <section class="enterprise-card">
         <div class="enterprise-section-head">
           <h2>EVIDENCE ATTACHMENTS</h2>
-          <p class="section-hint">Files are stored in MinIO; metadata is recorded in PostgreSQL and linked to this ticket.</p>
+          <p class="section-hint">Supporting files attached to this risk report.</p>
         </div>
         ${renderExistingAttachments(ticket) || '<p class="text-muted">No attachments on file.</p>'}
       </section>
@@ -857,18 +809,11 @@ function newRiskReportPreviewPage(user, ticket, { flash, error }) {
     </script>
   `;
 
-  return appLayout({
-    title: 'AI Summary Preview',
-    user,
-    activeNav: 'new',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage('AI Summary Preview', user, 'new', body, stats);
 }
 
-function actionsPage(user, tickets, flash) {
-  const rows = ticketTableRows(tickets);
+function actionsPage(user, tickets, flash, stats = {}) {
+  const rows = ticketTableRows(tickets, { scoreColumn: true });
   const body = `
     ${flashMessage(flash)}
     <div class="page-head">
@@ -893,23 +838,16 @@ function actionsPage(user, tickets, flash) {
       </div>
     </section>`;
 
-  return appLayout({
-    title: 'Action required',
-    user,
-    activeNav: 'actions',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage('Action required', user, 'actions', body, stats);
 }
 
-function accomplishmentsPage(user, accomplishments, flash) {
+function accomplishmentsPage(user, accomplishments, flash, stats = {}) {
   const rows = accomplishments
     .map(
       (a) => `<tr>
-        <td class="mono nowrap">${escapeHtml(a.ticketRef)}</td>
+        <td class="mono nowrap"><a href="/supervisor/tickets/${escapeHtml(a.ticketRef)}">${escapeHtml(a.ticketRef)}</a></td>
         <td>${escapeHtml(a.ticketTitle)}</td>
-        <td>${escapeHtml(a.summary)}</td>
+        <td class="sup-truncate" title="${escapeHtml(a.summary)}">${escapeHtml(a.summary.length > 80 ? `${a.summary.slice(0, 80)}…` : a.summary)}</td>
         <td class="nowrap">${escapeHtml(formatDate(a.submittedAt))}</td>
       </tr>`,
     )
@@ -937,14 +875,7 @@ function accomplishmentsPage(user, accomplishments, flash) {
       </div>
     </section>`;
 
-  return appLayout({
-    title: 'Accomplishments',
-    user,
-    activeNav: 'accomplishments',
-    body,
-    wide: true,
-    navVariant: 'supervisor',
-  });
+  return supervisorPage('Accomplishments', user, 'accomplishments', body, stats);
 }
 
 module.exports = {

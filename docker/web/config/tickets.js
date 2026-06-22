@@ -42,6 +42,9 @@ const TICKET_STATUSES = {
 
 const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
 
+/** Supervisor may submit an accomplishment only after RMO assigns a mitigation plan. */
+const SUPERVISOR_ACCOMPLISHMENT_STATUSES = ['in_mitigation', 'reopened'];
+
 /**
  * Tickets awaiting RMO validation. Includes solutions sent back by the Audit
  * Officer (architecture step 4: insufficient → return to RMO), so the RMO can
@@ -49,14 +52,17 @@ const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
  */
 const OFFICER_REVIEW_STATUSES = ['under_review', 'audit_returned'];
 
-/** Tickets awaiting final RMO effectiveness validation (architecture: Accomplishment Submitted). */
-const OFFICER_FINAL_VALIDATION_STATUSES = ['pending_audit'];
+/** Reserved for future RMO effectiveness validation (after audit closes accomplishment review). */
+const OFFICER_FINAL_VALIDATION_STATUSES = [];
 
 /** Tickets RMO may monitor after audit approval / during implementation. */
-const OFFICER_MONITORING_STATUSES = ['under_audit', 'in_mitigation', 'returned', 'reopened'];
+const OFFICER_MONITORING_STATUSES = ['under_audit', 'in_mitigation', 'returned', 'reopened', 'pending_audit'];
 
 /** Tickets awaiting Audit Officer review of the RMO mitigation solution. */
 const AUDIT_REVIEW_STATUSES = ['under_audit'];
+
+/** Accomplishment reports awaiting Audit Officer final review (supervisor submitted). */
+const AUDIT_FINAL_VALIDATION_STATUSES = ['pending_audit'];
 
 /** RMO may edit the mitigation solution before Audit approval or ticket closure. */
 const OFFICER_MITIGATION_EDIT_STATUSES = ['under_audit', 'audit_returned'];
@@ -76,6 +82,24 @@ function getStatusLabel(status) {
   return TICKET_STATUSES[status]?.label || status;
 }
 
+/** Maps a ticket status to a pill tone: info | warn | done | muted. */
+function getStatusTone(status) {
+  const tones = {
+    draft: 'muted',
+    submitted: 'info',
+    under_review: 'info',
+    returned: 'warn',
+    under_audit: 'info',
+    audit_returned: 'warn',
+    in_mitigation: 'warn',
+    pending_audit: 'info',
+    resolved: 'done',
+    closed: 'done',
+    reopened: 'warn',
+  };
+  return tones[status] || 'muted';
+}
+
 function getCategoryLabel(categoryId) {
   return RISK_CATEGORIES.find((c) => c.id === categoryId)?.label || categoryId;
 }
@@ -86,13 +110,16 @@ module.exports = {
   RISK_CATEGORIES,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  SUPERVISOR_ACCOMPLISHMENT_STATUSES,
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
   AUDIT_REVIEW_STATUSES,
+  AUDIT_FINAL_VALIDATION_STATUSES,
   OFFICER_MITIGATION_EDIT_STATUSES,
   SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
   GRACE_PERIOD_MS,
   getStatusLabel,
+  getStatusTone,
   getCategoryLabel,
 };

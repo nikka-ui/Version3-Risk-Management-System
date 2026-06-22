@@ -1,5 +1,5 @@
 const { escapeHtml, formatDate } = require('../html');
-const { FONT_LINKS } = require('./head');
+const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 
 function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isAdmin = user.role === 'admin' || navVariant === 'admin';
@@ -44,7 +44,7 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} — RMS</title>
   ${FONT_LINKS}
-  <link rel="stylesheet" href="/css/app.css">
+  ${STYLESHEET_LINK}
 </head>
 <body class="${shellClass}">
   <header class="app-header">
@@ -111,7 +111,8 @@ function officerNav(active) {
 function auditNav(active) {
   const items = [
     { id: 'overview', href: '/audit', label: 'Overview' },
-    { id: 'review', href: '/audit/review', label: 'Audit queue' },
+    { id: 'review', href: '/audit/review', label: 'Solution queue' },
+    { id: 'final', href: '/audit/final-validation', label: 'Accomplishment review' },
     { id: 'tickets', href: '/audit/tickets', label: 'All tickets' },
   ];
   const links = items

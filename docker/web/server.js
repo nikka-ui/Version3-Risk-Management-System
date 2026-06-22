@@ -38,6 +38,7 @@ const {
 const {
   auditOverviewPage,
   auditReviewQueuePage,
+  auditFinalValidationQueuePage,
   allTicketsPage: auditAllTicketsPage,
   renderAuditTicketPage,
 } = require('./lib/templates/audit');
@@ -63,6 +64,7 @@ const {
   assignMitigationForDemo,
   findAttachmentForUser,
   canSupervisorDraftCrud,
+  canSupervisorReviseReport,
   getOfficerStats,
   getOfficerDashboardData,
   listTicketsForOfficer,
@@ -80,10 +82,13 @@ const {
   getTicketByRefForAudit,
   listTicketsForAudit,
   listAuditReviewQueue,
+  listAuditFinalValidationQueue,
   getAuditStats,
   findAttachmentForAudit,
   approveSolutionByAudit,
   returnSolutionToRmo,
+  closeTicketAsAudit,
+  returnAccomplishmentAsAudit,
   addTicketComment,
   getExecutiveStats,
   listTicketsForExecutive,
@@ -153,6 +158,8 @@ function flashFromQuery(query) {
     rmo_returned: 'Accomplishment returned for further implementation.',
     audit_approved: 'Solution approved. Department may begin implementation.',
     audit_returned: 'Solution returned to the RMO for revision.',
+    audit_closed: 'Accomplishment approved. Ticket closed.',
+    audit_accomplishment_returned: 'Accomplishment returned to the department for further action.',
     comment_added: 'Comment posted.',
     executive_comment_added: 'Executive comment posted.',
     executive_reply_added: 'Reply posted.',
@@ -240,6 +247,7 @@ app.post('/logout', (req, res) => {
     });
   }
   req.session = null;
+  res.set('Cache-Control', 'no-store');
   res.redirect('/login');
 });
 
@@ -254,6 +262,7 @@ app.get('/logout', (req, res) => {
     });
   }
   req.session = null;
+  res.set('Cache-Control', 'no-store');
   res.redirect('/login');
 });
 
@@ -280,10 +289,20 @@ app.get('/dashboard', requireAuth, (req, res) => {
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+function supervisorStats(username) {
+  return getSupervisorStats(username);
+}
+
 app.get('/supervisor', requireSupervisor, (req, res) => {
   const user = req.session.user;
+  const stats = supervisorStats(user.username);
   res.type('html').send(
-    supervisorOverviewPage(user, getSupervisorStats(user.username), flashFromQuery(req.query)),
+    supervisorOverviewPage(
+      user,
+      stats,
+      flashFromQuery(req.query),
+      listTicketsForSupervisor(user.username),
+    ),
   );
 });
 
@@ -293,6 +312,7 @@ app.get('/supervisor/tickets', requireSupervisor, (req, res) => {
     ticketsListPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
       filter: req.query.filter,
       error: req.query.error,
+      stats: supervisorStats(user.username),
     }),
   );
 });
@@ -304,6 +324,7 @@ app.get('/supervisor/tickets/new', requireSupervisor, (req, res) => {
     newRiskReportStep1Page(user, ticketRef, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: supervisorStats(user.username),
     }),
   );
 });
@@ -331,16 +352,18 @@ app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpl
 app.get('/supervisor/tickets/:ref/edit', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ticket = getTicketByRef(req.params.ref, user.username);
-  if (!ticket || !canSupervisorDraftCrud(ticket)) {
-    return res.redirect('/supervisor/tickets?error=' + encodeURIComponent('Only draft tickets can be edited.'));
+  if (!ticket || !canSupervisorReviseReport(ticket)) {
+    return res.redirect('/supervisor/tickets?error=' + encodeURIComponent('This ticket cannot be revised.'));
   }
   await hydrateTicketEvidence(ticket);
+  const mode = ticket.status === 'returned' ? 'revise' : 'edit';
   return res.type('html').send(
     newRiskReportStep1Page(user, ticket.reference, {
-      mode: 'edit',
+      mode,
       ticket,
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: supervisorStats(user.username),
     }),
   );
 }));
@@ -351,7 +374,12 @@ app.post('/supervisor/tickets/:ref/edit', requireSupervisor, handleEvidenceUploa
   if (req.uploadError) {
     return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(req.uploadError)}`);
   }
-  const result = await updateTicketDraft(ref, user.username, req.body, { uploadedFiles: req.files });
+  const ticket = getTicketByRef(ref, user.username);
+  const draftOnly = ticket?.status === 'draft';
+  const result = await updateTicketDraft(ref, user.username, req.body, {
+    uploadedFiles: req.files,
+    draftOnly,
+  });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(result.error)}`);
   }
@@ -382,6 +410,7 @@ app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, asyncRoute(as
     newRiskReportPreviewPage(user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: supervisorStats(user.username),
     }),
   );
 }));
@@ -416,6 +445,9 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
   if (!raw) {
     return res.redirect('/supervisor/tickets?flash=not_found');
   }
+  if (raw.status === 'returned' || raw.status === 'draft') {
+    return res.redirect(`/supervisor/tickets/${raw.reference}/edit`);
+  }
   const ticket = await ticketForRole(raw, 'supervisor');
   res.type('html').send(
     ticketFormPage(user, ticket, {
@@ -423,6 +455,7 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       devMode: isDev,
+      stats: supervisorStats(user.username),
     }),
   );
 }));
@@ -497,17 +530,25 @@ app.post('/supervisor/tickets/:ref/simulate-mitigation', requireSupervisor, (req
 });
 
 app.get('/supervisor/actions', requireSupervisor, (req, res) => {
+  const user = req.session.user;
   res.type('html').send(
-    actionsPage(req.session.user, listActionTickets(req.session.user.username), flashFromQuery(req.query)),
+    actionsPage(
+      user,
+      listActionTickets(user.username),
+      flashFromQuery(req.query),
+      supervisorStats(user.username),
+    ),
   );
 });
 
 app.get('/supervisor/accomplishments', requireSupervisor, (req, res) => {
+  const user = req.session.user;
   res.type('html').send(
     accomplishmentsPage(
-      req.session.user,
-      listAccomplishments(req.session.user.username),
+      user,
+      listAccomplishments(user.username),
       flashFromQuery(req.query),
+      supervisorStats(user.username),
     ),
   );
 });
@@ -658,19 +699,33 @@ app.get('/audit', requireAuditOfficer, (req, res) => {
 });
 
 app.get('/audit/review', requireAuditOfficer, (req, res) => {
+  const stats = getAuditStats();
   res.type('html').send(
     auditReviewQueuePage(
       req.session.user,
       listAuditReviewQueue(),
       flashFromQuery(req.query),
-      { error: req.query.error ? decodeURIComponent(req.query.error) : null },
+      { error: req.query.error ? decodeURIComponent(req.query.error) : null, stats },
+    ),
+  );
+});
+
+app.get('/audit/final-validation', requireAuditOfficer, (req, res) => {
+  const stats = getAuditStats();
+  res.type('html').send(
+    auditFinalValidationQueuePage(
+      req.session.user,
+      listAuditFinalValidationQueue(),
+      flashFromQuery(req.query),
+      { error: req.query.error ? decodeURIComponent(req.query.error) : null, stats },
     ),
   );
 });
 
 app.get('/audit/tickets', requireAuditOfficer, (req, res) => {
+  const stats = getAuditStats();
   res.type('html').send(
-    auditAllTicketsPage(req.session.user, listTicketsForAudit(), flashFromQuery(req.query)),
+    auditAllTicketsPage(req.session.user, listTicketsForAudit(), flashFromQuery(req.query), { stats }),
   );
 });
 
@@ -684,6 +739,7 @@ app.get('/audit/tickets/:ref', requireAuditOfficer, asyncRoute(async (req, res) 
     renderAuditTicketPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: getAuditStats(),
     }),
   );
 }));
@@ -709,6 +765,24 @@ app.post('/audit/tickets/:ref/return', requireAuditOfficer, (req, res) => {
     return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect('/audit/review?flash=audit_returned');
+});
+
+app.post('/audit/tickets/:ref/close', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = closeTicketAsAudit(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/audit/final-validation?flash=audit_closed');
+});
+
+app.post('/audit/tickets/:ref/return-accomplishment', requireAuditOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = returnAccomplishmentAsAudit(ref, req.session.user.username, req.body);
+  if (result.error) {
+    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/audit/final-validation?flash=audit_accomplishment_returned');
 });
 
 app.post('/audit/tickets/:ref/comment', requireAuditOfficer, (req, res) => {
@@ -742,13 +816,15 @@ app.get('/executive', requireExecutive, (req, res) => {
 });
 
 app.get('/executive/critical', requireExecutive, (req, res) => {
+  const stats = getExecutiveStats();
   const tickets = listTicketsForExecutive({ level: 'critical' });
   res.type('html').send(
-    criticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query)),
+    criticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query), stats),
   );
 });
 
 app.get('/executive/tickets', requireExecutive, (req, res) => {
+  const stats = getExecutiveStats();
   const level = typeof req.query.level === 'string' ? req.query.level : '';
   const category = typeof req.query.category === 'string' ? req.query.category : '';
   const filters = { level, category };
@@ -757,7 +833,7 @@ app.get('/executive/tickets', requireExecutive, (req, res) => {
     category: category || undefined,
   });
   res.type('html').send(
-    executiveAllTicketsPage(req.session.user, tickets, flashFromQuery(req.query), filters),
+    executiveAllTicketsPage(req.session.user, tickets, flashFromQuery(req.query), filters, stats),
   );
 });
 
@@ -771,6 +847,7 @@ app.get('/executive/tickets/:ref', requireExecutive, asyncRoute(async (req, res)
     executiveTicketDetailPage(req.session.user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: getExecutiveStats(),
     }),
   );
 }));

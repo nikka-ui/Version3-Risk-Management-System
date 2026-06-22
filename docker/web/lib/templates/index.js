@@ -1,6 +1,6 @@
 const { escapeHtml } = require('../html');
 const { appLayout } = require('./layout');
-const { FONT_LINKS } = require('./head');
+const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 
 function loginPage({ error, next }) {
   const errorBlock = error
@@ -17,7 +17,7 @@ function loginPage({ error, next }) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in — RMS</title>
   ${FONT_LINKS}
-  <link rel="stylesheet" href="/css/app.css">
+  ${STYLESHEET_LINK}
 </head>
 <body>
   <div class="layout">

@@ -63,7 +63,7 @@ services:
     secrets:
       - db_password
     volumes:
-      - rms_web_data:/app/data
+      - ./web/data:/app/data
     networks:
       - rms_app
       - rms_data

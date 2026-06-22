@@ -2,10 +2,12 @@ const {
   DEFAULT_DEPARTMENT,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  SUPERVISOR_ACCOMPLISHMENT_STATUSES,
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
   AUDIT_REVIEW_STATUSES,
+  AUDIT_FINAL_VALIDATION_STATUSES,
   OFFICER_MITIGATION_EDIT_STATUSES,
   SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
   GRACE_PERIOD_MS,
@@ -182,9 +184,14 @@ function isDraftTicket(ticket) {
   return ticket?.status === 'draft';
 }
 
-/** Draft-only CRUD from My Tickets (create / edit / delete before submit). */
+/** Draft-only delete from My Tickets. */
 function canSupervisorDraftCrud(ticket) {
   return isDraftTicket(ticket);
+}
+
+/** Supervisor may revise a draft or a report returned by the RMO. */
+function canSupervisorReviseReport(ticket) {
+  return ticket?.status === 'draft' || ticket?.status === 'returned';
 }
 
 function canSupervisorEdit(ticket) {
@@ -196,6 +203,14 @@ function canSupervisorEdit(ticket) {
     return elapsed < GRACE_PERIOD_MS;
   }
   return false;
+}
+
+function canSupervisorSubmitAccomplishment(ticket) {
+  return Boolean(
+    ticket?.officerNotes?.trim()
+    && ticket?.mitigationDueAt
+    && SUPERVISOR_ACCOMPLISHMENT_STATUSES.includes(ticket.status),
+  );
 }
 
 function findAttachmentOnTicket(ticket, attachmentId) {
@@ -424,7 +439,7 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
   if (draftOnly && !canSupervisorDraftCrud(ticket)) {
     return { error: 'Only draft tickets can be edited from My Tickets.' };
   }
-  if (!draftOnly && !canSupervisorEdit(ticket)) {
+  if (!draftOnly && !canSupervisorReviseReport(ticket) && !canSupervisorEdit(ticket)) {
     return { error: 'This ticket can no longer be edited.' };
   }
 
@@ -516,7 +531,12 @@ function submitTicket(reference, username, displayName) {
     || ticket.ai.riskCategory !== ticket.category;
 
   ticket.ai = shouldRefreshAi ? mockAiClassification(ticket) : ticket.ai;
+  const wasReturned = ticket.status === 'returned';
   ticket.status = 'under_review';
+  if (wasReturned) {
+    ticket.officerNotes = null;
+    ticket.mitigationDueAt = null;
+  }
   ticket.submittedAt = ticket.submittedAt || now;
   ticket.updatedAt = now;
   saveStore();
@@ -963,6 +983,47 @@ function returnAccomplishmentForRevision(reference, username, body) {
   return { ticket: publicTicket(ticket) };
 }
 
+function closeTicketAsAudit(reference, username, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForAudit(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!AUDIT_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting accomplishment review.' };
+  }
+
+  const notes = String(body.closingNotes || body.auditNotes || '').trim();
+  const now = new Date().toISOString();
+  ticket.status = 'closed';
+  if (notes) {
+    ticket.auditNotes = notes;
+  }
+  ticket.updatedAt = now;
+  saveStore();
+  logAuditAction(ticket, username, 'accomplishment_approved_closed');
+  return { ticket: publicTicket(ticket) };
+}
+
+function returnAccomplishmentAsAudit(reference, username, body) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForAudit(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!AUDIT_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
+    return { error: 'This ticket is not awaiting accomplishment review.' };
+  }
+
+  const notes = String(body.returnNotes || body.auditNotes || '').trim();
+  if (!notes) return { error: 'Return notes are required when sending back for revision.' };
+
+  const now = new Date().toISOString();
+  ticket.status = 'in_mitigation';
+  ticket.supervisorFeedback = notes;
+  ticket.auditNotes = notes;
+  ticket.updatedAt = now;
+  saveStore();
+  logAuditAction(ticket, username, 'accomplishment_returned');
+  return { ticket: publicTicket(ticket) };
+}
+
 /* —— Audit Officer ——
  * The Audit Officer reviews the mitigation solution defined by the RMO before
  * implementation (architecture step 4). They either approve it (department may
@@ -988,14 +1049,24 @@ function listAuditReviewQueue() {
   return listTicketsForAudit().filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status));
 }
 
+function listAuditFinalValidationQueue() {
+  return listTicketsForAudit().filter((t) => AUDIT_FINAL_VALIDATION_STATUSES.includes(t.status));
+}
+
 function getAuditStats() {
   const tickets = listTicketsForAudit();
+  const recentTickets = [...tickets]
+    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
+    .slice(0, 6);
   return {
     awaitingReview: tickets.filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status)).length,
+    awaitingFinalValidation: tickets.filter((t) => AUDIT_FINAL_VALIDATION_STATUSES.includes(t.status))
+      .length,
     inImplementation: tickets.filter((t) => t.status === 'in_mitigation').length,
     returnedToRmo: tickets.filter((t) => t.status === 'audit_returned').length,
     closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
     open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+    recentTickets,
   };
 }
 
@@ -1273,7 +1344,7 @@ function submitAccomplishment(reference, username, displayName, body) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
-  if (!SUPERVISOR_ACTION_STATUSES.includes(ticket.status)) {
+  if (!canSupervisorSubmitAccomplishment(ticket)) {
     return { error: 'No active mitigation assignment for this ticket.' };
   }
 
@@ -1323,7 +1394,9 @@ module.exports = {
   listAccomplishments,
   isDraftTicket,
   canSupervisorDraftCrud,
+  canSupervisorReviseReport,
   canSupervisorEdit,
+  canSupervisorSubmitAccomplishment,
   findAttachmentForUser,
   createTicket,
   updateTicketDraft,
@@ -1354,10 +1427,13 @@ module.exports = {
   getTicketByRefForAudit,
   listTicketsForAudit,
   listAuditReviewQueue,
+  listAuditFinalValidationQueue,
   getAuditStats,
   findAttachmentForAudit,
   approveSolutionByAudit,
   returnSolutionToRmo,
+  closeTicketAsAudit,
+  returnAccomplishmentAsAudit,
   addTicketComment,
   ticketRiskLevelId,
   getTicketByRefForExecutive,
