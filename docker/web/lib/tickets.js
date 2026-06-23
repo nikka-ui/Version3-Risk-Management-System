@@ -1340,7 +1340,7 @@ function addTicketComment(reference, user, body) {
   return { ticket: publicTicket(ticket) };
 }
 
-function submitAccomplishment(reference, username, displayName, body) {
+function submitAccomplishment(reference, username, displayName, body, { uploadedFiles } = {}) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
@@ -1354,36 +1354,54 @@ function submitAccomplishment(reference, username, displayName, body) {
     return { error: 'Implementation summary and outcomes are required.' };
   }
 
-  if (!store.accomplishments) store.accomplishments = [];
-  const now = new Date().toISOString();
-  const record = {
-    id: `acc-${Date.now()}`,
-    ticketRef: ticket.reference,
-    ticketTitle: ticket.title,
-    summary,
-    outcomes,
-    evidence: parseEvidenceList(body.evidenceFiles),
-    submittedBy: username,
-    submittedByName: displayName,
-    submittedAt: now,
-  };
-  store.accomplishments.push(record);
-  ticket.accomplishmentId = record.id;
-  ticket.status = 'pending_audit';
-  ticket.updatedAt = now;
-  saveStore();
+  return hydrateTicketEvidence(ticket).then(async () => {
+    if (uploadedFiles?.length) {
+      const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
+      if (uploadErr) return uploadErr;
+    }
 
-  const { appendReportLog } = require('./store');
-  appendReportLog({
-    ticketRef: ticket.reference,
-    title: ticket.title,
-    submittedBy: username,
-    submitterRole: 'supervisor',
-    status: getStatusLabel(ticket.status),
-    action: 'accomplishment_submitted',
+    const storedFiles = (ticket.evidence || []).filter((e) => e.storageKey || !e.legacy);
+    if (!storedFiles.length) {
+      return {
+        error: 'At least one evidence file is required before submitting your accomplishment report.',
+      };
+    }
+
+    if (!store.accomplishments) store.accomplishments = [];
+    const now = new Date().toISOString();
+    const record = {
+      id: `acc-${Date.now()}`,
+      ticketRef: ticket.reference,
+      ticketTitle: ticket.title,
+      summary,
+      outcomes,
+      evidence: storedFiles.map((e) => ({
+        id: e.id,
+        name: e.name || e.originalName,
+        uploadedAt: e.uploadedAt,
+      })),
+      submittedBy: username,
+      submittedByName: displayName,
+      submittedAt: now,
+    };
+    store.accomplishments.push(record);
+    ticket.accomplishmentId = record.id;
+    ticket.status = 'pending_audit';
+    ticket.updatedAt = now;
+    saveStore();
+
+    const { appendReportLog } = require('./store');
+    appendReportLog({
+      ticketRef: ticket.reference,
+      title: ticket.title,
+      submittedBy: username,
+      submitterRole: 'supervisor',
+      status: getStatusLabel(ticket.status),
+      action: 'accomplishment_submitted',
+    });
+
+    return { accomplishment: record, ticket: publicTicket(ticket) };
   });
-
-  return { accomplishment: record, ticket: publicTicket(ticket) };
 }
 
 module.exports = {

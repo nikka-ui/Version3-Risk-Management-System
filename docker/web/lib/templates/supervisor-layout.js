@@ -88,6 +88,23 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {} }) {
     </header>
     <main class="supervisor-main">${body}</main>
   </div>
+  <div id="appToast" class="upload-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  <script>
+    (function () {
+      window.showAppToast = function (msg, type) {
+        var el = document.getElementById('appToast');
+        if (!el || !msg) return;
+        el.textContent = msg;
+        el.hidden = false;
+        el.className = 'upload-toast upload-toast--' + (type || 'success') + ' upload-toast--visible';
+        clearTimeout(window._appToastTimer);
+        window._appToastTimer = setTimeout(function () {
+          el.classList.remove('upload-toast--visible');
+          setTimeout(function () { el.hidden = true; }, 320);
+        }, 4500);
+      };
+    })();
+  </script>
 </body>
 </html>`;
 }

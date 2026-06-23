@@ -167,6 +167,10 @@ function flashFromQuery(query) {
     not_found: 'Ticket not found.',
     invalid: null,
   };
+  if (query.flash === 'evidence_uploaded') {
+    const n = parseInt(query.count, 10) || 1;
+    return n > 1 ? `${n} evidence files uploaded successfully.` : 'Evidence file uploaded successfully.';
+  }
   return map[query.flash] || null;
 }
 
@@ -383,6 +387,12 @@ app.post('/supervisor/tickets/:ref/edit', requireSupervisor, handleEvidenceUploa
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}/edit?error=${encodeURIComponent(result.error)}`);
   }
+  const uploadedCount = req.files?.length || 0;
+  if (uploadedCount > 0) {
+    return res.redirect(
+      `/supervisor/tickets/new/preview/${ref}?flash=evidence_uploaded&count=${uploadedCount}`,
+    );
+  }
   return res.redirect(`/supervisor/tickets/new/preview/${ref}?flash=draft_updated`);
 }));
 
@@ -411,6 +421,7 @@ app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, asyncRoute(as
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       stats: supervisorStats(user.username),
+      showUploadToast: req.query.flash === 'evidence_uploaded',
     }),
   );
 }));
@@ -507,15 +518,20 @@ app.post('/supervisor/tickets/:ref/evidence', requireSupervisor, handleEvidenceU
   return res.redirect(`/supervisor/tickets/${ref}?flash=evidence_added`);
 }));
 
-app.post('/supervisor/tickets/:ref/accomplishment', requireSupervisor, (req, res) => {
+app.post('/supervisor/tickets/:ref/accomplishment', requireSupervisor, handleEvidenceUpload, asyncRoute(async (req, res) => {
   const user = req.session.user;
   const ref = req.params.ref;
-  const result = submitAccomplishment(ref, user.username, user.displayName, req.body);
+  if (req.uploadError) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = await submitAccomplishment(ref, user.username, user.displayName, req.body, {
+    uploadedFiles: req.files,
+  });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect('/supervisor/accomplishments?flash=accomplishment_submitted');
-});
+}));
 
 app.post('/supervisor/tickets/:ref/simulate-mitigation', requireSupervisor, (req, res) => {
   if (!isDev) {

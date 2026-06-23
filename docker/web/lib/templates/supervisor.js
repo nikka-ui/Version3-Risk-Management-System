@@ -23,6 +23,24 @@ function statusPill(status, overdue) {
   return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
 }
 
+function rmoReturnFeedbackBlock(notes, hint) {
+  if (!notes?.trim()) return '';
+  return `<section class="rmo-feedback-alert" role="alert" aria-live="polite">
+    <div class="rmo-feedback-alert__icon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 9V13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="12" cy="17" r="1.25" fill="currentColor"/>
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="rmo-feedback-alert__body">
+      <p class="rmo-feedback-alert__title">RMO feedback</p>
+      <p class="rmo-feedback-alert__message">${escapeHtml(notes.trim())}</p>
+      ${hint ? `<p class="rmo-feedback-alert__hint">${escapeHtml(hint)}</p>` : ''}
+    </div>
+  </section>`;
+}
+
 const KPI_ICONS = {
   tickets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
@@ -249,11 +267,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
 
   const officerBlock =
     t.status === 'returned' && t.officerNotes
-      ? `<section class="card">
-          <h2>RMO feedback</h2>
-          <p>${escapeHtml(t.officerNotes)}</p>
-          <p class="text-muted">Your report was returned for revision. Use <strong>Revise</strong> from My tickets to update and resubmit.</p>
-        </section>`
+      ? rmoReturnFeedbackBlock(
+          t.officerNotes,
+          'Your report was returned for revision. Use Revise from My tickets to update and resubmit.',
+        )
       : t.officerNotes && ['in_mitigation', 'reopened', 'pending_audit', 'closed', 'resolved'].includes(t.status)
         ? `<section class="card card--accent">
             <h2>Approved mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}</h2>
@@ -287,14 +304,21 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
 
   const evidenceSectionHtml = evidenceSection(t, { attachmentBasePath: '/supervisor/attachments' });
 
+  const showAccomplishment = canSupervisorSubmitAccomplishment(t);
+  const existingEvidenceCount = (t.evidence || []).filter((e) => e.storageKey || !e.legacy).length;
+
   const addEvidenceForm =
     ['under_review', 'in_mitigation', 'returned', 'pending_audit', 'reopened'].includes(t.status)
-      ? `<section class="card">
-          <h2>Add evidence</h2>
-          <p class="text-muted">Upload PDF, PNG, or JPG files (max 20MB each).</p>
+      ? `<section class="card${showAccomplishment ? ' card--required-evidence' : ''}">
+          <h2>Add evidence${showAccomplishment ? ' <span class="req" aria-hidden="true">*</span>' : ''}</h2>
+          <p class="text-muted">${
+            showAccomplishment
+              ? 'Required — upload at least one supporting file (PDF, PNG, or JPG) before submitting your accomplishment report.'
+              : 'Upload PDF, PNG, or JPG files (max 20MB each).'
+          }</p>
           <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form" enctype="multipart/form-data">
-            <div class="field">
-              <label for="addEvidenceFiles">Files</label>
+            <div class="field${showAccomplishment ? ' field--required' : ''}">
+              <label for="addEvidenceFiles">${showAccomplishment ? 'Files *' : 'Files'}</label>
               <input id="addEvidenceFiles" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" required>
             </div>
             <button type="submit" class="btn-sm">Upload files</button>
@@ -302,25 +326,71 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
         </section>`
       : '';
 
-  const accomplishmentForm = canSupervisorSubmitAccomplishment(t)
+  const accomplishmentForm = showAccomplishment
       ? `<section class="card card--accent">
           <h2>Submit accomplishment report</h2>
-          <p class="text-muted">Document mitigation implementation and outcomes.</p>
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="stack-form">
-            <div class="field">
+          <p class="text-muted">Document mitigation implementation and outcomes. Evidence attachment is required.</p>
+          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="stack-form" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
+            <div class="field field--required">
               <label for="summary">Implementation summary *</label>
               <textarea id="summary" name="summary" rows="3" required></textarea>
             </div>
-            <div class="field">
+            <div class="field field--required">
               <label for="outcomes">Outcomes and results *</label>
               <textarea id="outcomes" name="outcomes" rows="3" required></textarea>
             </div>
-            <div class="field">
-              <label for="acc_evidence">Resolution evidence (one per line)</label>
-              <textarea id="acc_evidence" name="evidenceFiles" rows="2"></textarea>
+            <div class="field field--required" id="accEvidenceField" data-required="evidence">
+              <label for="acc_attachments">Resolution evidence *</label>
+              <p class="field-hint">Upload at least one supporting file (PDF, PNG, or JPG, max 20MB each). You may also use files already attached above.</p>
+              <div class="upload-evidence-status ${existingEvidenceCount > 0 ? 'upload-evidence-status--ok' : 'upload-evidence-status--missing'}" id="accEvidenceStatus" role="status">
+                ${existingEvidenceCount > 0 ? `${existingEvidenceCount} file(s) already attached to this ticket.` : 'No evidence attached yet. Upload at least one file to continue.'}
+              </div>
+              <input id="acc_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg"${existingEvidenceCount === 0 ? ' required' : ''}>
             </div>
-            <button type="submit" class="btn-primary btn-primary--auto">Submit accomplishment</button>
+            <button type="submit" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${existingEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
           </form>
+          <script>
+            (function () {
+              const form = document.getElementById('accomplishmentForm');
+              if (!form) return;
+              const savedCount = ${existingEvidenceCount};
+              const fileInput = document.getElementById('acc_attachments');
+              const statusEl = document.getElementById('accEvidenceStatus');
+              const evidenceField = document.getElementById('accEvidenceField');
+              const submitBtn = document.getElementById('accomplishmentSubmitBtn');
+
+              function updateState() {
+                const newCount = fileInput && fileInput.files ? fileInput.files.length : 0;
+                const hasEvidence = savedCount > 0 || newCount > 0;
+                if (statusEl) {
+                  statusEl.className = 'upload-evidence-status ' + (hasEvidence ? 'upload-evidence-status--ok' : 'upload-evidence-status--missing');
+                  if (newCount > 0) {
+                    statusEl.textContent = newCount + ' new file(s) selected' + (savedCount > 0 ? ' (' + savedCount + ' already on ticket).' : ' — ready to submit.');
+                  } else if (savedCount > 0) {
+                    statusEl.textContent = savedCount + ' file(s) already attached to this ticket.';
+                  } else {
+                    statusEl.textContent = 'No evidence attached yet. Upload at least one file to continue.';
+                  }
+                }
+                if (evidenceField) evidenceField.classList.toggle('field--invalid', !hasEvidence);
+                if (submitBtn) submitBtn.disabled = !hasEvidence;
+              }
+
+              form.addEventListener('submit', function (e) {
+                const newCount = fileInput && fileInput.files ? fileInput.files.length : 0;
+                if (savedCount === 0 && newCount === 0) {
+                  e.preventDefault();
+                  updateState();
+                  if (window.showAppToast) {
+                    window.showAppToast('Upload at least one evidence file before submitting your accomplishment report.', 'error');
+                  }
+                }
+              });
+
+              if (fileInput) fileInput.addEventListener('change', updateState);
+              updateState();
+            })();
+          </script>
         </section>`
       : '';
 
@@ -402,14 +472,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
     return `<option value="${escapeHtml(d)}" ${selected}>${escapeHtml(d)}</option>`;
   }).join('');
   const existingAttachments = isEdit ? renderExistingAttachments(t) : '';
-  const rmoFeedbackBlock = isRevise && t.officerNotes
-    ? `<section class="enterprise-card enterprise-card--warn">
-        <div class="enterprise-section-head">
-          <h2>RMO FEEDBACK</h2>
-        </div>
-        <p>${escapeHtml(t.officerNotes)}</p>
-        <p class="text-muted">Address the feedback below, then continue to the AI preview and resubmit.</p>
-      </section>`
+  const rmoFeedbackBlock = isRevise
+    ? rmoReturnFeedbackBlock(
+        t.officerNotes,
+        'Address the feedback below, then continue to the AI preview and resubmit.',
+      )
     : '';
   const body = `
     ${flashMessage(flash)}
@@ -510,7 +577,17 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           </div>
 
           ${existingAttachments}
-          <ul class="upload-preview" id="filePreview"></ul>
+          <div class="upload-pending-wrap" id="pendingUploads" hidden>
+            <div class="upload-pending-head">
+              <span class="upload-pending-badge" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span class="upload-pending-label">New files ready to upload</span>
+            </div>
+            <ul class="upload-preview upload-preview--pending" id="filePreview"></ul>
+          </div>
           <div class="upload-message" id="uploadMessage" role="status"></div>
         </section>
 
@@ -539,6 +616,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         const dropzone = document.getElementById('dropzone');
         const browseBtn = document.getElementById('browseBtn');
         const filePreview = document.getElementById('filePreview');
+        const pendingUploads = document.getElementById('pendingUploads');
         const uploadMessage = document.getElementById('uploadMessage');
         const aiLoading = document.getElementById('aiLoading');
 
@@ -558,15 +636,39 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
 
         function renderPreview() {
           filePreview.innerHTML = '';
-          if (!selectedFiles.length) return;
-          selectedFiles.forEach((f) => {
+          if (!selectedFiles.length) {
+            if (pendingUploads) pendingUploads.hidden = true;
+            return;
+          }
+          if (pendingUploads) pendingUploads.hidden = false;
+          selectedFiles.forEach((f, idx) => {
             const li = document.createElement('li');
-            li.className = 'upload-preview-item';
-            li.innerHTML = '<span class="upload-name"></span><span class="upload-meta"></span>';
+            li.className = 'upload-preview-item upload-preview-item--pending';
+            li.innerHTML =
+              '<span class="upload-pending-item-icon" aria-hidden="true">' +
+              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+              '<path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+              '</svg></span>' +
+              '<span class="upload-name"></span>' +
+              '<span class="upload-meta"></span>' +
+              '<button type="button" class="upload-remove-btn">Remove</button>';
             li.querySelector('.upload-name').textContent = f.name;
-            li.querySelector('.upload-meta').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB';
+            li.querySelector('.upload-meta').textContent =
+              (f.size / 1024 / 1024).toFixed(2) + ' MB · Ready to upload';
+            li.querySelector('.upload-remove-btn').addEventListener('click', () => {
+              selectedFiles.splice(idx, 1);
+              syncInputFiles();
+              renderPreview();
+              if (!selectedFiles.length) setMessage('', null);
+              updateNextState();
+            });
             filePreview.appendChild(li);
           });
+        }
+
+        function notifyUpload(msg, type) {
+          setMessage(msg, type);
+          if (window.showAppToast) window.showAppToast(msg, type === 'error' ? 'error' : 'success');
         }
 
         function setMessage(msg, type) {
@@ -588,19 +690,31 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
 
         function addFiles(files) {
           const arr = Array.from(files || []);
+          const before = selectedFiles.length;
           const next = [...selectedFiles];
+          const addedNames = [];
           for (const f of arr) {
             const v = validateFile(f);
             if (!v.ok) {
-              setMessage(v.reason, 'error');
+              notifyUpload(v.reason, 'error');
               continue;
             }
             next.push(f);
+            addedNames.push(f.name);
           }
           selectedFiles = next.slice(0, 10);
+          const addedCount = selectedFiles.length - before;
           syncInputFiles();
           renderPreview();
-          setMessage(selectedFiles.length ? ('Attached ' + selectedFiles.length + ' file(s).') : '', selectedFiles.length ? 'ok' : null);
+          if (addedCount > 0) {
+            const msg =
+              addedCount === 1
+                ? '"' + addedNames[addedNames.length - 1] + '" added — ready to upload'
+                : addedCount + ' file(s) added — ready to upload';
+            notifyUpload(msg, 'ok');
+            dropzone.classList.add('upload-zone--success');
+            setTimeout(() => dropzone.classList.remove('upload-zone--success'), 2000);
+          }
           updateNextState();
         }
 
@@ -694,7 +808,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
   return supervisorPage(isRevise ? 'Revise report' : isEdit ? 'Edit draft' : 'New report', user, isRevise ? 'actions' : isEdit ? 'tickets' : 'new', body, stats);
 }
 
-function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {} }) {
+function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, showUploadToast = false } = {}) {
   const ai = ticket?.ai || {};
   const riskCategoryLabel = getCategoryLabel(ai.riskCategory || ticket?.category);
   const riskLevel = ai.riskLevel || riskLevelFromSeverityLocal(ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2);
@@ -763,50 +877,129 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {} }) {
         ${renderExistingAttachments(ticket) || '<p class="text-muted">No attachments on file.</p>'}
       </section>
 
-      <section class="enterprise-card">
-        <div class="enterprise-section-head">
-          <h2>REVIEW & SUBMISSION</h2>
+      <section class="enterprise-card review-submission-section review-submission-section--pending" id="reviewSubmissionSection">
+        <div class="enterprise-section-head review-submission-section__head">
+          <h2>
+            <span class="review-submission-section__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            REVIEW &amp; SUBMISSION
+          </h2>
           <p class="section-hint">Ensure the information is accurate. You will submit this report for Risk Management Officer review.</p>
         </div>
 
-        <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/submit" class="submit-report-form" id="submitForm">
-          <div class="review-confirm">
-            <label class="confirm-check">
-              <input type="checkbox" id="confirmBox" name="confirmBox" value="1" required>
+        <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/submit" class="submit-report-form" id="submitForm" novalidate>
+          <div class="review-confirm" id="reviewConfirmBox">
+            <label class="confirm-check" id="confirmCheckLabel">
+              <input type="checkbox" id="confirmBox" name="confirmBox" value="1" aria-describedby="reviewConfirmHint">
               <span>I confirm that the information provided is accurate.</span>
             </label>
+            <p class="review-confirm-hint" id="reviewConfirmHint">Required — check this box to enable Submit Report.</p>
             <div class="review-note text-muted">Ticket: <span class="mono">${escapeHtml(ticket.reference)}</span></div>
           </div>
 
-          <div class="enterprise-actions enterprise-actions--split">
-            <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">Edit draft</a>
-            <button type="submit" class="btn-enterprise-primary btn-enterprise-submit" id="submitBtn" disabled>
+          <div class="enterprise-actions enterprise-actions--split review-submission-actions">
+            <div class="enterprise-actions__group">
+              <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">Edit Draft</a>
+              <button type="submit" formaction="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" formmethod="post" class="btn-enterprise-outline">Save Draft</button>
+            </div>
+            <button type="button" class="btn-enterprise-primary btn-enterprise-submit btn-enterprise-primary--inactive" id="submitBtn">
               Submit Report
             </button>
+            <button type="submit" id="submitBtnNative" class="visually-hidden" tabindex="-1" aria-hidden="true">Submit</button>
           </div>
         </form>
-
-        <div class="enterprise-actions enterprise-actions--draft-save">
-          <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" class="inline-form">
-            <button type="submit" class="btn-enterprise-outline">Save Draft</button>
-          </form>
-        </div>
       </section>
     </div>
 
     <script>
       (function () {
         const confirmBox = document.getElementById('confirmBox');
+        const confirmLabel = document.getElementById('confirmCheckLabel');
         const submitBtn = document.getElementById('submitBtn');
+        const submitBtnNative = document.getElementById('submitBtnNative');
         const submitForm = document.getElementById('submitForm');
+        const reviewSection = document.getElementById('reviewSubmissionSection');
+        const reviewConfirmBox = document.getElementById('reviewConfirmBox');
+        const reviewHint = document.getElementById('reviewConfirmHint');
+
+        function triggerPulse() {
+          [reviewSection, reviewConfirmBox, confirmLabel].forEach((el) => {
+            if (!el) return;
+            el.classList.remove('review-submission-section--pulse');
+            void el.offsetWidth;
+            el.classList.add('review-submission-section--pulse');
+          });
+          if (reviewHint) {
+            reviewHint.textContent = 'Please check the confirmation box before submitting.';
+            reviewHint.classList.add('review-confirm-hint--error');
+          }
+          try {
+            confirmBox.focus({ preventScroll: true });
+          } catch (_) {
+            confirmBox.focus();
+          }
+          reviewConfirmBox?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          window.setTimeout(() => {
+            [reviewSection, reviewConfirmBox, confirmLabel].forEach((el) => {
+              el?.classList.remove('review-submission-section--pulse');
+            });
+            update();
+          }, 1600);
+        }
 
         function update() {
-          submitBtn.disabled = !confirmBox.checked;
+          const checked = confirmBox.checked;
+          submitBtn.classList.toggle('btn-enterprise-primary--inactive', !checked);
+          submitBtn.setAttribute('aria-disabled', checked ? 'false' : 'true');
+          if (reviewSection) {
+            reviewSection.classList.toggle('review-submission-section--pending', !checked);
+            reviewSection.classList.toggle('review-submission-section--confirmed', checked);
+          }
+          if (reviewConfirmBox) {
+            reviewConfirmBox.classList.toggle('review-confirm--pending', !checked);
+            reviewConfirmBox.classList.toggle('review-confirm--done', checked);
+          }
+          if (reviewHint) {
+            reviewHint.classList.remove('review-confirm-hint--error');
+            reviewHint.textContent = checked
+              ? 'Confirmed — you may submit this report.'
+              : 'Required — check this box to enable Submit Report.';
+          }
         }
+
+        submitBtn.addEventListener('click', function () {
+          if (!confirmBox.checked) {
+            triggerPulse();
+            return;
+          }
+          submitBtnNative.click();
+        });
+
+        submitForm.addEventListener('submit', function (e) {
+          const submitter = e.submitter;
+          if (submitter && submitter.id === 'submitBtnNative' && !confirmBox.checked) {
+            e.preventDefault();
+            triggerPulse();
+          }
+        });
+
         confirmBox.addEventListener('change', update);
         update();
       })();
     </script>
+    ${
+      showUploadToast && flash
+        ? `<script>
+      document.addEventListener('DOMContentLoaded', function () {
+        if (window.showAppToast) window.showAppToast(${JSON.stringify(flash)}, 'success');
+      });
+    </script>`
+        : ''
+    }
   `;
 
   return supervisorPage('AI Summary Preview', user, 'new', body, stats);
