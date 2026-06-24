@@ -3137,6 +3137,7 @@ a.officer-kpi:hover {
 
 .supervisor-main {
   flex: 1;
+  width: 100%;
   padding: 1.75rem 2rem 2.5rem;
   max-width: 1180px;
 }
@@ -3190,16 +3191,18 @@ a.officer-kpi:hover {
 
 .sup-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
   gap: 0.875rem;
   margin-bottom: 1.5rem;
 }
 
 .sup-kpi {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.85rem;
   padding: 1.1rem 1.15rem;
+  min-width: 0;
+  overflow: hidden;
   background: var(--sup-surface);
   border: 1px solid var(--sup-border);
   border-radius: var(--sup-radius);
@@ -3235,7 +3238,9 @@ a.officer-kpi:hover {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .sup-kpi--accent {
@@ -3277,8 +3282,12 @@ a.officer-kpi:hover {
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
   color: var(--sup-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .sup-card {
@@ -3381,18 +3390,24 @@ a.officer-kpi:hover {
     flex: 1 1 auto;
   }
 
-  .sup-kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .supervisor-main {
     padding: 1rem;
   }
+
+  .console-topbar {
+    padding: 0.75rem 1rem;
+  }
 }
 
-@media (max-width: 520px) {
-  .sup-kpi-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .supervisor-main .page-head,
+  .supervisor-main .sup-page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .supervisor-main .sup-btn-primary {
+    align-self: flex-start;
   }
 }
 
@@ -3413,7 +3428,7 @@ a.officer-kpi:hover {
 }
 
 .officer-console .sup-kpi-grid--officer {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
 }
 
 .officer-console .officer-quick-actions {
@@ -3566,18 +3581,8 @@ a.officer-kpi:hover {
 }
 
 @media (max-width: 1100px) {
-  .officer-console .sup-kpi-grid--officer {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .officer-console .officer-dash-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 520px) {
-  .officer-console .sup-kpi-grid--officer {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -3841,11 +3846,11 @@ a.officer-kpi:hover {
 }
 
 .executive-console .sup-kpi-grid--levels {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10.5rem), 1fr));
 }
 
 .executive-console .sup-kpi-grid--stats {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
   margin-bottom: 0.25rem;
 }
 
@@ -3920,14 +3925,4 @@ a.officer-kpi:hover {
 
 .executive-console .card--executive-comments {
   border-left: 4px solid #ea580c;
-}
-
-@media (max-width: 960px) {
-  .executive-console .sup-kpi-grid--levels {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .executive-console .sup-kpi-grid--stats {
-    grid-template-columns: 1fr;
-  }
 }
