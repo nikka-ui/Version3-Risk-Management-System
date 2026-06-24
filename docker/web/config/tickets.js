@@ -82,17 +82,17 @@ function getStatusLabel(status) {
   return TICKET_STATUSES[status]?.label || status;
 }
 
-/** Maps a ticket status to a pill tone: info | warn | done | muted. */
+/** Maps a ticket status to a pill tone: info | warn | done | muted | rmo | audit | pending. */
 function getStatusTone(status) {
   const tones = {
     draft: 'muted',
     submitted: 'info',
-    under_review: 'info',
+    under_review: 'rmo',
     returned: 'warn',
-    under_audit: 'info',
+    under_audit: 'audit',
     audit_returned: 'warn',
     in_mitigation: 'warn',
-    pending_audit: 'info',
+    pending_audit: 'pending',
     resolved: 'done',
     closed: 'done',
     reopened: 'warn',

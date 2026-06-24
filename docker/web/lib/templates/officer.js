@@ -16,6 +16,27 @@ function statusPill(status, overdue) {
   return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
 }
 
+function officerFormField({ id, label, hint, inputHtml }) {
+  return `<div class="field field--console">
+    <label for="${escapeHtml(id)}">${label}</label>
+    ${hint ? `<p class="field-hint">${hint}</p>` : ''}
+    ${inputHtml}
+  </div>`;
+}
+
+function officerDecisionActions(panels) {
+  const cards = panels
+    .map(
+      (panel) => `<section class="decision-action-card decision-action-card--${escapeHtml(panel.variant || 'default')}">
+      <h3 class="decision-action-card__title">${panel.title}</h3>
+      ${panel.hint ? `<p class="decision-action-card__hint">${escapeHtml(panel.hint)}</p>` : ''}
+      ${panel.formHtml}
+    </section>`,
+    )
+    .join('');
+  return `<div class="decision-actions">${cards}</div>`;
+}
+
 const KPI_ICONS = {
   total: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   review: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
@@ -236,26 +257,30 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
       : 'Update the proposed solution while it is under audit review.';
 
   const formHtml = `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/update-mitigation" class="stack-form stack-form--console">
-      <div class="field">
-        <label for="editMitigationPlan">Solution / mitigation plan *</label>
-        <textarea id="editMitigationPlan" name="mitigationPlan" rows="${inSplitRow ? 8 : 6}" required>${escapeHtml(ticket.officerNotes || '')}</textarea>
-      </div>
-      <div class="field">
-        <label for="editMitigationDueAt">Implementation due date</label>
-        <input id="editMitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}" required>
-      </div>
+      ${officerFormField({
+        id: 'editMitigationPlan',
+        label: 'Mitigation plan',
+        hint: 'Required. Update the approved actions, owners, and expectations.',
+        inputHtml: `<textarea id="editMitigationPlan" name="mitigationPlan" rows="${inSplitRow ? 8 : 6}" required>${escapeHtml(ticket.officerNotes || '')}</textarea>`,
+      })}
+      ${officerFormField({
+        id: 'editMitigationDueAt',
+        label: 'Implementation due date',
+        hint: 'When the department should complete the mitigation.',
+        inputHtml: `<input id="editMitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}" required>`,
+      })}
       <button type="submit" class="sup-btn-primary">Save mitigation plan</button>
     </form>`;
 
   if (inSplitRow) {
     return `<section class="${cardClass}">
-    <h2>Edit solution / mitigation plan</h2>
+    <h2>Edit mitigation plan</h2>
     ${formHtml}
   </section>`;
   }
 
   return supDecisionPanel({
-    title: 'Edit solution / mitigation plan',
+    title: 'Edit mitigation plan',
     desc: resubmitHint,
     bodyHtml: formHtml,
   });
@@ -518,27 +543,42 @@ function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
   defaultDue.setDate(defaultDue.getDate() + 14);
   const dueValue = defaultDue.toISOString().slice(0, 10);
 
-  const decisionBody = `
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/accept" class="stack-form stack-form--console">
-      <h3 class="sup-section-sub">Accept &amp; assign mitigation</h3>
-      <div class="field">
-        <label for="mitigationPlan">Mitigation plan / officer notes *</label>
-        <textarea id="mitigationPlan" name="mitigationPlan" rows="4" required placeholder="Describe approved actions, owners, and expectations…"></textarea>
-      </div>
-      <div class="field">
-        <label for="mitigationDueAt">Implementation due date</label>
-        <input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${dueValue}">
-      </div>
-      <button type="submit" class="sup-btn-primary">Accept &amp; submit for audit</button>
-    </form>
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console stack-form--divider">
-      <h3 class="sup-section-sub">Return for revision</h3>
-      <div class="field">
-        <label for="rejectionNotes">Rejection notes *</label>
-        <textarea id="rejectionNotes" name="rejectionNotes" rows="3" required placeholder="Explain what the department must correct…"></textarea>
-      </div>
-      <button type="submit" class="btn-danger">Return to department</button>
-    </form>`;
+  const decisionBody = officerDecisionActions([
+    {
+      variant: 'accept',
+      title: 'Accept &amp; assign mitigation',
+      hint: 'Approve this report and send your mitigation plan to the Audit Officer.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/accept" class="stack-form stack-form--console">
+        ${officerFormField({
+          id: 'mitigationPlan',
+          label: 'Mitigation plan',
+          hint: 'Required. Describe approved actions, responsible owners, and what success looks like.',
+          inputHtml: `<textarea id="mitigationPlan" name="mitigationPlan" rows="4" required placeholder="e.g. Replace overloaded outlet, assign maintenance lead, inspect adjacent rooms within 48 hours…"></textarea>`,
+        })}
+        ${officerFormField({
+          id: 'mitigationDueAt',
+          label: 'Implementation due date',
+          hint: 'Target date for the department to complete the mitigation.',
+          inputHtml: `<input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${dueValue}">`,
+        })}
+        <button type="submit" class="btn-accept--outline">Accept &amp; submit for audit</button>
+      </form>`,
+    },
+    {
+      variant: 'return',
+      title: 'Return for revision',
+      hint: 'Send the report back to the department if details are missing or need correction.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console">
+        ${officerFormField({
+          id: 'rejectionNotes',
+          label: 'Feedback for the department',
+          hint: 'Required. Be specific about what must be updated before resubmission.',
+          inputHtml: `<textarea id="rejectionNotes" name="rejectionNotes" rows="4" required placeholder="e.g. Add photos of the affected area and confirm who was on site when the incident occurred…"></textarea>`,
+        })}
+        <button type="submit" class="btn-danger--outline">Return to department</button>
+      </form>`,
+    },
+  ]);
 
   const body = `
     ${flashMessage(flash)}
@@ -552,8 +592,8 @@ function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
     })}
     ${ticketReadonlySections(t)}
     ${supDecisionPanel({
-      title: 'RMO decision',
-      desc: 'Per workflow step 3: accept the report and define a mitigation plan, or return it to the department for revision.',
+      title: 'Your decision',
+      desc: 'Review the risk report above, then choose whether to accept it or return it to the department.',
       bodyHtml: decisionBody,
     })}`;
 
@@ -589,23 +629,36 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error,
       </section>`
     : `<section class="card"><p class="text-muted">Accomplishment record not found.</p></section>`;
 
-  const decisionBody = `
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console">
-      <h3 class="sup-section-sub">Close ticket</h3>
-      <div class="field">
-        <label for="closingNotes">Closing notes (optional)</label>
-        <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Summary of validation outcome…"></textarea>
-      </div>
-      <button type="submit" class="sup-btn-primary">Close ticket</button>
-    </form>
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console stack-form--divider">
-      <h3 class="sup-section-sub">Return for further implementation</h3>
-      <div class="field">
-        <label for="returnNotes">Return notes *</label>
-        <textarea id="returnNotes" name="returnNotes" rows="3" required placeholder="Describe gaps in the accomplishment report…"></textarea>
-      </div>
-      <button type="submit" class="btn-danger">Return to department</button>
-    </form>`;
+  const decisionBody = officerDecisionActions([
+    {
+      variant: 'accept',
+      title: 'Close ticket',
+      hint: 'Confirm the mitigation was effective and close this risk report.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console">
+        ${officerFormField({
+          id: 'closingNotes',
+          label: 'Closing notes',
+          hint: 'Optional. Summarize the validation outcome for the record.',
+          inputHtml: `<textarea id="closingNotes" name="closingNotes" rows="3" placeholder="e.g. Mitigation verified on site; no further action required…"></textarea>`,
+        })}
+        <button type="submit" class="btn-accept--outline">Close ticket</button>
+      </form>`,
+    },
+    {
+      variant: 'return',
+      title: 'Return for further implementation',
+      hint: 'Send the accomplishment report back if gaps remain in the mitigation work.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console">
+        ${officerFormField({
+          id: 'returnNotes',
+          label: 'Feedback for the department',
+          hint: 'Required. Explain what still needs to be completed or documented.',
+          inputHtml: `<textarea id="returnNotes" name="returnNotes" rows="4" required placeholder="e.g. Provide updated photos and a signed completion checklist…"></textarea>`,
+        })}
+        <button type="submit" class="btn-danger--outline">Return to department</button>
+      </form>`,
+    },
+  ]);
 
   const body = `
     ${flashMessage(flash)}
@@ -622,7 +675,7 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error,
     ${accBlock}
     ${supDecisionPanel({
       title: 'Final validation',
-      desc: 'Per workflow step 6: confirm mitigation effectiveness and close the ticket, or return for further implementation.',
+      desc: 'Review the accomplishment report above, then close the ticket or return it for further work.',
       bodyHtml: decisionBody,
     })}`;
 
