@@ -28,3 +28,8 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+# Local debug / session artifacts
+_cookies*.txt
+_rmo_cookies.txt
+_rmo_page.html

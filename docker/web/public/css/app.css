@@ -756,21 +756,48 @@ form.inline {
   gap: 1rem;
 }
 
+.w1h-grid--readonly {
+  gap: 0.625rem;
+}
+
+.sup-card__body > .w1h-grid--readonly {
+  padding: 1rem;
+  background: #f8fafb;
+  border: 1px solid var(--sup-border, #e5e7eb);
+  border-radius: 8px;
+}
+
 .w1h-grid--readonly .w1h-item {
-  padding: 0.5rem 0;
+  padding: 0.875rem 1rem;
+  background: #fff;
+  border: 1px solid var(--sup-border, #e5e7eb);
+  border-radius: 8px;
 }
 
 .w1h-label {
   display: block;
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+}
+
+.w1h-grid--readonly .w1h-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #201c21;
+  background: #e8f4f6;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  margin-bottom: 0.55rem;
+  border-left: 3px solid #69b5a6;
 }
 
 .w1h-item p {
   font-size: 0.875rem;
-  line-height: 1.5;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .ticket-form .card {
@@ -3415,6 +3442,7 @@ a.officer-kpi:hover {
    Inherits the shared Supervisor palette so both modules look identical.
    Only the RMO-specific risk widgets add a semantic colour scale. */
 .officer-console.supervisor-shell {
+  --rms-green: #69b5a6;
   --rms-blue: #eef4ff;
   --rms-low: #dcfce7;
   --rms-moderate: #fef9c3;
@@ -3425,6 +3453,16 @@ a.officer-kpi:hover {
 .officer-console .supervisor-sidebar__link:hover,
 .officer-console .supervisor-sidebar__link--active {
   color: var(--sup-accent);
+}
+
+.officer-console .supervisor-main .sup-btn-primary {
+  background: var(--rms-green);
+  color: #201c21;
+  box-shadow: none;
+}
+
+.officer-console .supervisor-main .sup-btn-primary:hover {
+  background: #56a090;
 }
 
 .officer-console .sup-kpi-grid--officer {

@@ -5,6 +5,11 @@ const { flashMessage } = require('./layout');
 const { officerAppLayout } = require('./officer-layout');
 const { matrixCellTier } = require('../tickets');
 const { evidenceSection } = require('./evidence');
+const {
+  supTicketHead,
+  supDetailCard,
+  supDecisionPanel,
+} = require('./console-ui');
 
 function statusPill(status, overdue) {
   const tone = overdue ? 'bad' : getStatusTone(status);
@@ -54,21 +59,6 @@ function ticketRiskLevel(ticket) {
   return riskLevelFromSeverityLocal(sev);
 }
 
-function riskSummaryFloat(ticket) {
-  const riskLevel = ticketRiskLevel(ticket);
-  const categoryLabel = ticket.categoryLabel || getCategoryLabel(ticket.category);
-  return `<aside class="risk-summary-float" aria-label="Risk summary">
-    <div class="risk-summary-float__item">
-      <span class="risk-summary-float__label">Risk level</span>
-      ${riskLevelBadge(riskLevel)}
-    </div>
-    <div class="risk-summary-float__item">
-      <span class="risk-summary-float__label">Risk category</span>
-      <span class="risk-summary-float__value">${escapeHtml(categoryLabel)}</span>
-    </div>
-  </aside>`;
-}
-
 function ticketTableRows(tickets, { linkPrefix = '/officer/tickets/' } = {}) {
   return tickets
     .map(
@@ -107,30 +97,19 @@ function fiveW1HReadonly(ticket) {
   </div>`;
 }
 
-function evidenceCompactSection(ticket) {
-  return evidenceSection(ticket, { attachmentBasePath: '/officer/attachments', compact: true });
-}
-
 function officerNotesCard(ticket) {
   const version = ticket.mitigationPlanVersion
     ? ` <span class="text-muted">(v${ticket.mitigationPlanVersion})</span>`
     : '';
-  const due = ticket.mitigationDueAt
-    ? `<p class="text-muted officer-notes-meta">Due: ${escapeHtml(formatDate(ticket.mitigationDueAt))}</p>`
-    : '';
 
   if (!ticket.officerNotes) {
-    return `<section class="card card--accent">
-      <h2>Solution / mitigation plan</h2>
-      <p class="text-muted">No mitigation plan on record.</p>
-    </section>`;
+    return supDetailCard('Solution / mitigation plan', '<p class="sup-muted-block">No mitigation plan on record.</p>');
   }
 
-  return `<section class="card card--accent">
-    <h2>Solution / mitigation plan${version}</h2>
-    <div class="officer-notes-scroll">${escapeHtml(ticket.officerNotes)}</div>
-    ${due}
-  </section>`;
+  const inner = `<div class="officer-notes-scroll">${escapeHtml(ticket.officerNotes)}</div>
+    ${ticket.mitigationDueAt ? `<p class="sup-muted-block">Due: ${escapeHtml(formatDate(ticket.mitigationDueAt))}</p>` : ''}`;
+
+  return supDetailCard(`Solution / mitigation plan${version}`, inner, { accent: true });
 }
 
 function officerPlanSection(ticket, ref, { editable = false } = {}) {
@@ -142,82 +121,59 @@ function officerPlanSection(ticket, ref, { editable = false } = {}) {
 
 function ticketReadonlySections(ticket, { monitoring = false } = {}) {
   const t = ticket;
-  const aiBlock = t.ai
-    ? `<section class="card card--ai">
-        <h2>AI classification</h2>
-        <p class="text-muted">${escapeHtml(t.ai.summary)}</p>
-        <dl class="detail-dl">
+  const riskLevel = ticketRiskLevel(t);
+  const categoryLabel = t.categoryLabel || getCategoryLabel(t.category);
+
+  const aiInner = t.ai
+    ? `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
+        <dl class="detail-dl detail-dl--console">
           <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
           <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
           <dt>Confidence</dt><dd>${Math.round((t.ai.confidence || 0) * 100)}%</dd>
           <dt>Manual review</dt><dd>${t.ai.manualReviewRequired ? 'Required' : 'No'}</dd>
-        </dl>
-      </section>`
+        </dl>`
+    : '<p class="sup-muted-block">No AI classification available.</p>';
+
+  const solutionInner = t.officerNotes
+    ? `<p>${escapeHtml(t.officerNotes)}</p>
+        ${t.mitigationDueAt ? `<p class="sup-muted-block">Proposed implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}`
     : '';
 
-  const evidenceBlock = monitoring
-    ? evidenceCompactSection(t)
-    : evidenceSection(t, { attachmentBasePath: '/officer/attachments' });
+  const auditInner = t.auditNotes ? `<p>${escapeHtml(t.auditNotes)}</p>` : '';
 
-  const officerBlock = t.officerNotes
-    ? `<section class="card card--accent">
-        <h2>Solution / mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}</h2>
-        <p>${escapeHtml(t.officerNotes)}</p>
-        ${t.mitigationDueAt ? `<p class="text-muted">Proposed implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}
-      </section>`
-    : '';
-
-  const auditFeedbackBlock =
-    t.auditNotes && t.status === 'audit_returned'
-      ? `<section class="card">
-          <h2>Audit Officer feedback</h2>
-          <p>${escapeHtml(t.auditNotes)}</p>
-        </section>`
-      : '';
-
-  if (monitoring) {
-    return `
-    <section class="card">
-      <div class="card-head-split">
-        <h2>Risk details</h2>
-        ${riskSummaryFloat(t)}
-      </div>
-      <dl class="detail-dl detail-dl--compact">
+  const detailInner = monitoring
+    ? `<dl class="detail-dl detail-dl--console">
         <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
         <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
+        <dt>Risk level</dt><dd>${riskLevelBadge(riskLevel)}</dd>
+        <dt>Category</dt><dd>${escapeHtml(categoryLabel)}</dd>
         <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
         <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
       </dl>
-      <p class="risk-desc-snippet">${escapeHtml(t.description || '—')}</p>
-    </section>
-    <section class="card card--compact">
-      <h2>5W1H</h2>
-      ${fiveW1HReadonly(t)}
-    </section>
-    ${evidenceCompactSection(t)}
-    ${auditFeedbackBlock}`;
-  }
-
-  return `
-    <section class="card">
-      <h2>Risk details</h2>
-      <dl class="detail-dl">
+      <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`
+    : `<dl class="detail-dl detail-dl--console">
         <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
         <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
-        <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
+        <dt>Category</dt><dd>${escapeHtml(categoryLabel)}</dd>
         <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
         <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
       </dl>
-      <p style="margin-top:1rem">${escapeHtml(t.description || '—')}</p>
-    </section>
-    <section class="card">
-      <h2>5W1H</h2>
-      ${fiveW1HReadonly(t)}
-    </section>
-    ${evidenceBlock}
-    ${aiBlock}
-    ${officerBlock}
-    ${auditFeedbackBlock}`;
+      <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`;
+
+  const evidence = evidenceSection(t, {
+    attachmentBasePath: '/officer/attachments',
+    compact: monitoring,
+    theme: 'console',
+  });
+
+  return `<div class="sup-detail-stack">
+    ${supDetailCard('Risk details', detailInner)}
+    ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
+    ${evidence}
+    ${!monitoring && t.ai ? supDetailCard('AI classification', aiInner, { compact: true }) : ''}
+    ${!monitoring && t.officerNotes ? supDetailCard(`Solution / mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}`, solutionInner, { accent: true }) : ''}
+    ${t.auditNotes && t.status === 'audit_returned' ? supDetailCard('Audit Officer feedback', auditInner) : ''}
+  </div>`;
 }
 
 function mitigationPlanHistorySection(history) {
@@ -276,13 +232,10 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
   const resubmitHint = inSplitRow
     ? ''
     : ticket.status === 'audit_returned'
-      ? '<p class="text-muted">Saving will update the plan and resubmit it to the Audit Officer for review.</p>'
-      : '<p class="text-muted">Update the proposed solution while it is under audit review.</p>';
+      ? 'Saving will update the plan and resubmit it to the Audit Officer for review.'
+      : 'Update the proposed solution while it is under audit review.';
 
-  return `<section class="${cardClass}">
-    <h2>Edit solution / mitigation plan</h2>
-    ${resubmitHint}
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/update-mitigation" class="stack-form stack-form--compact">
+  const formHtml = `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/update-mitigation" class="stack-form stack-form--console">
       <div class="field">
         <label for="editMitigationPlan">Solution / mitigation plan *</label>
         <textarea id="editMitigationPlan" name="mitigationPlan" rows="${inSplitRow ? 8 : 6}" required>${escapeHtml(ticket.officerNotes || '')}</textarea>
@@ -291,9 +244,21 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
         <label for="editMitigationDueAt">Implementation due date</label>
         <input id="editMitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}" required>
       </div>
-      <button type="submit" class="btn-primary btn-primary--auto">Save mitigation plan</button>
-    </form>
+      <button type="submit" class="sup-btn-primary">Save mitigation plan</button>
+    </form>`;
+
+  if (inSplitRow) {
+    return `<section class="${cardClass}">
+    <h2>Edit solution / mitigation plan</h2>
+    ${formHtml}
   </section>`;
+  }
+
+  return supDecisionPanel({
+    title: 'Edit solution / mitigation plan',
+    desc: resubmitHint,
+    bodyHtml: formHtml,
+  });
 }
 
 function officerPageLayout(opts) {
@@ -526,13 +491,13 @@ function ticketMitigationPage(user, ticket, { flash, error, stats } = {}) {
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
-    <div class="page-head page-head--row">
-      <div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
-      </div>
-      <a href="${backHref}" class="btn-outline">Back</a>
-    </div>
+    ${supTicketHead({
+      title: t.title,
+      ref,
+      statusHtml: statusPill(t.status, t.isOverdue),
+      backHref,
+      backLabel: t.status === 'audit_returned' ? 'Back to review queue' : 'Back to monitoring',
+    })}
     ${ticketReadonlySections(t, { monitoring: true })}
     ${officerPlanSection(t, ref, { editable })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
@@ -553,41 +518,44 @@ function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
   defaultDue.setDate(defaultDue.getDate() + 14);
   const dueValue = defaultDue.toISOString().slice(0, 10);
 
+  const decisionBody = `
+    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/accept" class="stack-form stack-form--console">
+      <h3 class="sup-section-sub">Accept &amp; assign mitigation</h3>
+      <div class="field">
+        <label for="mitigationPlan">Mitigation plan / officer notes *</label>
+        <textarea id="mitigationPlan" name="mitigationPlan" rows="4" required placeholder="Describe approved actions, owners, and expectations…"></textarea>
+      </div>
+      <div class="field">
+        <label for="mitigationDueAt">Implementation due date</label>
+        <input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${dueValue}">
+      </div>
+      <button type="submit" class="sup-btn-primary">Accept &amp; submit for audit</button>
+    </form>
+    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console stack-form--divider">
+      <h3 class="sup-section-sub">Return for revision</h3>
+      <div class="field">
+        <label for="rejectionNotes">Rejection notes *</label>
+        <textarea id="rejectionNotes" name="rejectionNotes" rows="3" required placeholder="Explain what the department must correct…"></textarea>
+      </div>
+      <button type="submit" class="btn-danger">Return to department</button>
+    </form>`;
+
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
-    <div class="page-head page-head--row">
-      <div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
-      </div>
-      <a href="/officer/review" class="btn-outline">Back to review queue</a>
-    </div>
+    ${supTicketHead({
+      title: t.title,
+      ref,
+      statusHtml: statusPill(t.status, t.isOverdue),
+      backHref: '/officer/review',
+      backLabel: 'Back to review queue',
+    })}
     ${ticketReadonlySections(t)}
-    <section class="card card--accent">
-      <h2>RMO decision</h2>
-      <p class="text-muted">Per workflow step 3: accept the report and define a mitigation plan, or return it to the department for revision.</p>
-      <form method="post" action="/officer/tickets/${escapeHtml(ref)}/accept" class="stack-form" style="margin-top:1rem">
-        <h2 class="section-sub">Accept &amp; assign mitigation</h2>
-        <div class="field">
-          <label for="mitigationPlan">Mitigation plan / officer notes *</label>
-          <textarea id="mitigationPlan" name="mitigationPlan" rows="4" required placeholder="Describe approved actions, owners, and expectations…"></textarea>
-        </div>
-        <div class="field">
-          <label for="mitigationDueAt">Implementation due date</label>
-          <input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${dueValue}">
-        </div>
-        <button type="submit" class="btn-primary btn-primary--auto">Accept &amp; submit for audit</button>
-      </form>
-      <form method="post" action="/officer/tickets/${escapeHtml(ref)}/reject" class="stack-form" style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border, #e2e8f0)">
-        <h2 class="section-sub">Return for revision</h2>
-        <div class="field">
-          <label for="rejectionNotes">Rejection notes *</label>
-          <textarea id="rejectionNotes" name="rejectionNotes" rows="3" required placeholder="Explain what the department must correct…"></textarea>
-        </div>
-        <button type="submit" class="btn-danger">Return to department</button>
-      </form>
-    </section>`;
+    ${supDecisionPanel({
+      title: 'RMO decision',
+      desc: 'Per workflow step 3: accept the report and define a mitigation plan, or return it to the department for revision.',
+      bodyHtml: decisionBody,
+    })}`;
 
   return officerPageLayout({
     title: `Review ${ref}`,
@@ -621,39 +589,42 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error,
       </section>`
     : `<section class="card"><p class="text-muted">Accomplishment record not found.</p></section>`;
 
+  const decisionBody = `
+    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console">
+      <h3 class="sup-section-sub">Close ticket</h3>
+      <div class="field">
+        <label for="closingNotes">Closing notes (optional)</label>
+        <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Summary of validation outcome…"></textarea>
+      </div>
+      <button type="submit" class="sup-btn-primary">Close ticket</button>
+    </form>
+    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console stack-form--divider">
+      <h3 class="sup-section-sub">Return for further implementation</h3>
+      <div class="field">
+        <label for="returnNotes">Return notes *</label>
+        <textarea id="returnNotes" name="returnNotes" rows="3" required placeholder="Describe gaps in the accomplishment report…"></textarea>
+      </div>
+      <button type="submit" class="btn-danger">Return to department</button>
+    </form>`;
+
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
-    <div class="page-head page-head--row">
-      <div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
-      </div>
-      <a href="/officer/final-validation" class="btn-outline">Back to final validation</a>
-    </div>
+    ${supTicketHead({
+      title: t.title,
+      ref,
+      statusHtml: statusPill(t.status, t.isOverdue),
+      backHref: '/officer/final-validation',
+      backLabel: 'Back to final validation',
+    })}
     ${ticketReadonlySections(t)}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
     ${accBlock}
-    <section class="card card--accent">
-      <h2>Final validation</h2>
-      <p class="text-muted">Per workflow step 6: confirm mitigation effectiveness and close the ticket, or return for further implementation.</p>
-      <form method="post" action="/officer/tickets/${escapeHtml(ref)}/close" class="stack-form" style="margin-top:1rem">
-        <h2 class="section-sub">Close ticket</h2>
-        <div class="field">
-          <label for="closingNotes">Closing notes (optional)</label>
-          <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Summary of validation outcome…"></textarea>
-        </div>
-        <button type="submit" class="btn-primary btn-primary--auto">Close ticket</button>
-      </form>
-      <form method="post" action="/officer/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form" style="margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border, #e2e8f0)">
-        <h2 class="section-sub">Return for further implementation</h2>
-        <div class="field">
-          <label for="returnNotes">Return notes *</label>
-          <textarea id="returnNotes" name="returnNotes" rows="3" required placeholder="Describe gaps in the accomplishment report…"></textarea>
-        </div>
-        <button type="submit" class="btn-danger">Return to department</button>
-      </form>
-    </section>`;
+    ${supDecisionPanel({
+      title: 'Final validation',
+      desc: 'Per workflow step 6: confirm mitigation effectiveness and close the ticket, or return for further implementation.',
+      bodyHtml: decisionBody,
+    })}`;
 
   return officerPageLayout({
     title: `Final validation ${ref}`,
@@ -675,26 +646,26 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout, stat
   const body = monitoring
     ? `
     ${flashMessage(flash)}
-    <div class="page-head page-head--row">
-      <div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
-      </div>
-      <a href="${back}" class="btn-outline">${backLabel}</a>
-    </div>
+    ${supTicketHead({
+      title: t.title,
+      ref,
+      statusHtml: statusPill(t.status, t.isOverdue),
+      backHref: back,
+      backLabel,
+    })}
     ${ticketReadonlySections(t, { monitoring: true })}
     ${officerPlanSection(t, ref, { editable: canOfficerEditMitigation(t) })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
     ${extraBody || ''}`
     : `
     ${flashMessage(flash)}
-    <div class="page-head page-head--row">
-      <div>
-        <h1>${escapeHtml(t.title)}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
-      </div>
-      <a href="${back}" class="btn-outline">${backLabel}</a>
-    </div>
+    ${supTicketHead({
+      title: t.title,
+      ref,
+      statusHtml: statusPill(t.status, t.isOverdue),
+      backHref: back,
+      backLabel,
+    })}
     ${ticketReadonlySections(t)}
     ${canOfficerEditMitigation(t) ? editMitigationPlanSection(t) : ''}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
