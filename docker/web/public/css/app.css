@@ -640,6 +640,7 @@ form.inline {
   padding: 0.55rem 1.05rem;
   font-size: 0.8125rem;
   font-weight: 600;
+  font-family: inherit;
   color: #b42318;
   background: #fff;
   border: 1px solid #fecdca;
@@ -4496,6 +4497,105 @@ a.officer-kpi:hover {
   margin: 0;
 }
 
+/* Bordered meta footer: separates body content from a key detail (e.g. due date) */
+.sup-meta-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--sup-border);
+}
+
+.sup-meta-footer__icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--sup-accent-soft, #eef2ff);
+  color: var(--sup-accent, #4f46e5);
+}
+
+.sup-meta-footer__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sup-meta-footer__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sup-muted);
+}
+
+.sup-meta-footer__value {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--sup-ink);
+}
+
+/* Report field containers: each labeled subsection in its own card for clear separation */
+.sup-report-meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--sup-muted);
+}
+
+.sup-report-meta strong {
+  color: var(--sup-ink);
+  font-weight: 600;
+}
+
+.sup-report-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.sup-report-field {
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--sup-border);
+  border-radius: var(--sup-radius-sm);
+}
+
+.sup-report-field__label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sup-accent-strong);
+}
+
+.sup-report-field__value {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--sup-ink);
+}
+
+.sup-report-field__value p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.sup-report-field__value .evidence-list {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.sup-report-field__empty {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--sup-muted);
+}
+
 .sup-section-sub {
   font-size: 0.8125rem;
   font-weight: 700;
@@ -4626,6 +4726,84 @@ a.officer-kpi:hover {
   border-bottom: none;
 }
 
+/* Align card head + body so headings line up with their content (matches RMO console) */
+.audit-console .sup-card__body {
+  padding: 0 1.25rem 1.25rem;
+}
+
+.audit-console .sup-card__head + .sup-card__body {
+  padding-top: 1rem;
+}
+
+/* Audit decision panel — calm heading + readable description */
+.audit-console .sup-card--decision {
+  border-color: var(--sup-border);
+}
+
+.audit-console .sup-card--decision .sup-card__head h2 {
+  color: var(--sup-ink);
+  font-size: 1rem;
+}
+
+.audit-console .sup-card--decision .sup-muted-block {
+  margin-bottom: 1.1rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: #4b5563;
+}
+
+.audit-console .sup-card--decision .sup-section-sub {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.audit-console .sup-card--decision .field label {
+  margin-bottom: 0.35rem;
+}
+
+/* Executive oversight comments — clean console card (no alarming red bar) */
+.audit-console .card--executive-comments {
+  border-left: 1px solid var(--sup-border);
+}
+
+.audit-console .card--executive-comments > h2 {
+  font-size: 0.9375rem;
+  margin-bottom: 0.25rem;
+}
+
+.audit-console .card--executive-comments .section-hint {
+  margin: 0 0 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--sup-muted);
+}
+
+.audit-console .comment--executive {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--sup-border);
+  border-left: 3px solid var(--sup-accent);
+  border-radius: var(--sup-radius-sm);
+  background: var(--sup-accent-soft);
+}
+
+.audit-console .comment--executive .comment-role {
+  color: var(--sup-accent-strong);
+}
+
+.audit-console .comment--executive .comment-body {
+  color: var(--sup-ink);
+}
+
+/* Reply form sits as a clean sub-block inside the executive comment */
+.audit-console .comment-form--reply {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--sup-border);
+}
+
+.audit-console .comment-form--reply textarea {
+  background: #fff;
+}
+
 @media (max-width: 960px) {
   .console-topbar {
     padding: 0.75rem 1rem;
@@ -4686,6 +4864,37 @@ a.officer-kpi:hover {
   border: 1px dashed #fca5a5;
   background: linear-gradient(180deg, #fffafb 0%, #fff 100%);
   margin-bottom: 0.875rem;
+}
+
+.executive-console .exec-empty-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding: 0.1rem 0;
+}
+
+.executive-console .exec-empty-state__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff1f2;
+  color: #b91c1c;
+  flex-shrink: 0;
+}
+
+.executive-console .exec-empty-state__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.executive-console .exec-empty-state__title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #7f1d1d;
+  margin: 0 0 0.2rem;
 }
 
 .executive-console .row--critical {

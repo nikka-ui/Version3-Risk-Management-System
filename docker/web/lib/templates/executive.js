@@ -117,7 +117,7 @@ function ticketReadonlySections(ticket) {
   return `<div class="sup-detail-stack">
     ${supDetailCard('Risk details', detailInner)}
     ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
-    ${evidenceSection(t, { attachmentBasePath: '/executive/attachments', theme: 'console' })}
+    ${evidenceSection(t, { attachmentBasePath: '/executive/attachments', theme: 'console', interactive: true })}
     ${supDetailCard('AI classification', aiInner, { compact: true })}
     ${t.officerNotes ? supDetailCard('RMO mitigation solution', solutionInner, { accent: true }) : ''}
   </div>`;
@@ -214,7 +214,19 @@ function executiveOverviewPage(user, stats, flash) {
     : `<section class="sup-card sup-card--critical-empty">
         <div class="sup-card__head"><h2>Critical risks</h2></div>
         <div class="sup-card__body">
-          <p class="sup-muted-block">No Extreme/Critical risk reports at this time. Critical items will appear here automatically when identified.</p>
+          <div class="exec-empty-state" role="status" aria-live="polite">
+            <span class="exec-empty-state__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <line x1="12" y1="8" x2="12" y2="13"/>
+                <circle cx="12" cy="16.5" r="0.75" fill="currentColor" stroke="none"/>
+              </svg>
+            </span>
+            <div class="exec-empty-state__content">
+              <p class="exec-empty-state__title">No critical risks right now</p>
+              <p class="sup-muted-block">No Extreme/Critical risk reports at this time. Critical items will appear here automatically when identified.</p>
+            </div>
+          </div>
         </div>
       </section>`;
 

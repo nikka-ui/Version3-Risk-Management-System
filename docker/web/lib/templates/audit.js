@@ -13,6 +13,8 @@ const {
   supDecisionPanel,
 } = require('./console-ui');
 
+const CALENDAR_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
+
 function statusPill(status, overdue) {
   const tone = overdue ? 'bad' : getStatusTone(status);
   return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
@@ -77,8 +79,12 @@ function ticketReadonlySections(ticket) {
     : '<p class="sup-muted-block">No AI classification available.</p>';
 
   const solutionInner = t.officerNotes
-    ? `<p>${escapeHtml(t.officerNotes)}</p>
-        ${t.mitigationDueAt ? `<p class="sup-muted-block">Proposed implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}`
+    ? `<p class="sup-detail-desc">${escapeHtml(t.officerNotes)}</p>
+        ${t.mitigationDueAt ? `<div class="sup-meta-footer">
+          <span class="sup-meta-footer__icon">${CALENDAR_ICON}</span>
+          <span class="sup-meta-footer__label">Proposed implementation due</span>
+          <span class="sup-meta-footer__value">${escapeHtml(formatDate(t.mitigationDueAt))}</span>
+        </div>` : ''}`
     : '';
 
   const auditInner = t.auditNotes ? `<p>${escapeHtml(t.auditNotes)}</p>` : '';
@@ -134,10 +140,10 @@ function auditOverviewPage(user, stats, flash) {
       actionHtml: '<a href="/audit/review" class="sup-btn-primary">Open solution queue</a>',
     })}
     <div class="sup-kpi-grid">
-      ${kpiCard('/audit/review', KPI_ICONS.review, stats.awaitingReview, 'Solution review', 'sup-kpi--accent')}
+      ${kpiCard('/audit/review', KPI_ICONS.review, stats.awaitingReview, 'Solution review', Number(stats.awaitingReview) > 0 ? 'sup-kpi--accent' : '')}
       ${kpiCard('/audit/final-validation', KPI_ICONS.final, stats.awaitingFinalValidation, 'Accomplishment review')}
       ${kpiCard('/audit/tickets', KPI_ICONS.implementing, stats.inImplementation, 'In implementation')}
-      ${kpiCard('/audit/tickets', KPI_ICONS.returned, stats.returnedToRmo, 'Returned to RMO', 'sup-kpi--warn')}
+      ${kpiCard('/audit/tickets', KPI_ICONS.returned, stats.returnedToRmo, 'Returned to RMO', Number(stats.returnedToRmo) > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/audit/tickets', KPI_ICONS.closed, stats.closed, 'Closed')}
     </div>
     ${supQuickActions([
@@ -195,15 +201,18 @@ function accomplishmentSection(accomplishment) {
     ? `<ul class="evidence-list">${(acc.evidence || [])
         .map((e) => `<li>${escapeHtml(e.name || e.originalName || '—')}</li>`)
         .join('')}</ul>`
-    : '<p class="sup-muted-block">No additional evidence references.</p>';
+    : '<p class="sup-report-field__empty">No additional evidence references.</p>';
+  const reportField = (label, valueHtml) => `<div class="sup-report-field">
+      <span class="sup-report-field__label">${escapeHtml(label)}</span>
+      <div class="sup-report-field__value">${valueHtml}</div>
+    </div>`;
   const inner = `
-    <p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
-    <h3 class="sup-section-sub">Implementation summary</h3>
-    <p>${escapeHtml(acc.summary)}</p>
-    <h3 class="sup-section-sub">Outcomes and results</h3>
-    <p>${escapeHtml(acc.outcomes)}</p>
-    <h3 class="sup-section-sub">Resolution evidence</h3>
-    ${evidenceList}`;
+    <p class="sup-report-meta">Submitted by <strong>${escapeHtml(acc.submittedByName || acc.submittedBy)}</strong> on ${escapeHtml(formatDate(acc.submittedAt))}</p>
+    <div class="sup-report-grid">
+      ${reportField('Implementation summary', `<p>${escapeHtml(acc.summary)}</p>`)}
+      ${reportField('Outcomes and results', `<p>${escapeHtml(acc.outcomes)}</p>`)}
+      ${reportField('Resolution evidence', evidenceList)}
+    </div>`;
   return supDetailCard('Accomplishment report', inner, { accent: true });
 }
 
@@ -218,7 +227,7 @@ function ticketAccomplishmentAuditPage(user, ticket, accomplishment, { flash, er
         <label for="closingNotes">Audit remarks (optional)</label>
         <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Record your final audit assessment…"></textarea>
       </div>
-      <button type="submit" class="sup-btn-primary">Approve accomplishment &amp; close ticket</button>
+      <button type="submit" class="btn-accept--outline">Approve accomplishment &amp; close ticket</button>
     </form>
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console stack-form--divider">
       <h3 class="sup-section-sub">Return for further implementation</h3>
@@ -226,7 +235,7 @@ function ticketAccomplishmentAuditPage(user, ticket, accomplishment, { flash, er
         <label for="returnNotes">Return notes *</label>
         <textarea id="returnNotes" name="returnNotes" rows="3" required placeholder="Describe gaps in the accomplishment report or evidence…"></textarea>
       </div>
-      <button type="submit" class="btn-danger">Return to department</button>
+      <button type="submit" class="btn-danger--outline">Return to department</button>
     </form>`;
 
   const body = `
@@ -299,7 +308,7 @@ function ticketAuditPage(user, ticket, { flash, error, stats = {} } = {}) {
         <label for="mitigationDueAt">Confirm implementation due date</label>
         <input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}">
       </div>
-      <button type="submit" class="sup-btn-primary">Approve &amp; release for implementation</button>
+      <button type="submit" class="btn-accept--outline">Approve &amp; release for implementation</button>
     </form>
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/return" class="stack-form stack-form--console stack-form--divider">
       <h3 class="sup-section-sub">Return to RMO</h3>
@@ -307,7 +316,7 @@ function ticketAuditPage(user, ticket, { flash, error, stats = {} } = {}) {
         <label for="returnNotes">Comments / suggestions *</label>
         <textarea id="returnNotes" name="auditNotes" rows="3" required placeholder="Explain why the solution is insufficient and what the RMO should revise…"></textarea>
       </div>
-      <button type="submit" class="btn-danger">Return to RMO</button>
+      <button type="submit" class="btn-danger--outline">Return to RMO</button>
     </form>`;
 
   const body = `
