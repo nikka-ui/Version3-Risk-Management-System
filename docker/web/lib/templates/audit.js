@@ -95,7 +95,7 @@ function ticketReadonlySections(ticket) {
   return `<div class="sup-detail-stack">
     ${supDetailCard('Risk details', detailInner)}
     ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
-    ${evidenceSection(t, { attachmentBasePath: '/audit/attachments', theme: 'console' })}
+    ${evidenceSection(t, { attachmentBasePath: '/audit/attachments', theme: 'console', interactive: true })}
     ${supDetailCard('AI classification', aiInner, { compact: true })}
     ${t.officerNotes ? supDetailCard(`RMO mitigation solution${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}`, solutionInner, { accent: true }) : ''}
     ${t.auditNotes ? supDetailCard('Audit notes', auditInner) : ''}

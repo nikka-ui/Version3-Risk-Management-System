@@ -24,7 +24,7 @@ function officerFormField({ id, label, hint, inputHtml }) {
   </div>`;
 }
 
-function officerDecisionActions(panels) {
+function officerDecisionActions(panels, { single = false } = {}) {
   const cards = panels
     .map(
       (panel) => `<section class="decision-action-card decision-action-card--${escapeHtml(panel.variant || 'default')}">
@@ -34,7 +34,8 @@ function officerDecisionActions(panels) {
     </section>`,
     )
     .join('');
-  return `<div class="decision-actions">${cards}</div>`;
+  const gridClass = single ? 'decision-actions decision-actions--single' : 'decision-actions';
+  return `<div class="${gridClass}">${cards}</div>`;
 }
 
 const KPI_ICONS = {
@@ -185,6 +186,7 @@ function ticketReadonlySections(ticket, { monitoring = false } = {}) {
     attachmentBasePath: '/officer/attachments',
     compact: monitoring,
     theme: 'console',
+    interactive: true,
   });
 
   return `<div class="sup-detail-stack">
@@ -195,6 +197,39 @@ function ticketReadonlySections(ticket, { monitoring = false } = {}) {
     ${!monitoring && t.officerNotes ? supDetailCard(`Solution / mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}`, solutionInner, { accent: true }) : ''}
     ${t.auditNotes && t.status === 'audit_returned' ? supDetailCard('Audit Officer feedback', auditInner) : ''}
   </div>`;
+}
+
+function accomplishmentReportSection(accomplishment, { notice = '' } = {}) {
+  const acc = accomplishment;
+  if (!acc) {
+    return supDetailCard('Accomplishment report', '<p class="sup-muted-block">Accomplishment record not found.</p>');
+  }
+
+  const evidenceBlock = (acc.evidence || []).length
+    ? `<div class="accomplishment-block">
+        <h3 class="accomplishment-block__label">Evidence references</h3>
+        <ul class="accomplishment-block__list">${(acc.evidence || [])
+          .map((e) => `<li>${escapeHtml(e.name || e.originalName || '—')}</li>`)
+          .join('')}</ul>
+      </div>`
+    : '';
+
+  const inner = `
+    <p class="sup-muted-block accomplishment-report__meta">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
+    ${notice ? `<p class="accomplishment-notice">${escapeHtml(notice)}</p>` : ''}
+    <div class="accomplishment-blocks">
+      <div class="accomplishment-block">
+        <h3 class="accomplishment-block__label">Implementation summary</h3>
+        <p class="accomplishment-block__content">${escapeHtml(acc.summary)}</p>
+      </div>
+      <div class="accomplishment-block">
+        <h3 class="accomplishment-block__label">Outcomes and results</h3>
+        <p class="accomplishment-block__content">${escapeHtml(acc.outcomes)}</p>
+      </div>
+      ${evidenceBlock}
+    </div>`;
+
+  return supDetailCard('Accomplishment report', inner, { accent: true });
 }
 
 function mitigationPlanHistorySection(history) {
@@ -224,19 +259,21 @@ function mitigationPlanHistorySection(history) {
                 : ''
             }
             <div class="audit-trail-current">
-              <span class="text-muted">Updated plan:</span>
-              <p>${escapeHtml(h.updated?.plan || '—')}</p>
-              ${h.updated?.dueAt ? `<p class="text-muted">Due: ${escapeHtml(formatDate(h.updated.dueAt))}</p>` : ''}
+              <span class="audit-trail-current__label">Updated plan</span>
+              <p class="audit-trail-current__plan">${escapeHtml(h.updated?.plan || '—')}</p>
+              ${h.updated?.dueAt ? `<p class="audit-trail-current__due">Due: ${escapeHtml(formatDate(h.updated.dueAt))}</p>` : ''}
             </div>
           </li>`;
         })
         .join('')
     : '<li class="text-muted">No plan revisions recorded yet.</li>';
 
-  return `<section class="card">
-    <h2>Mitigation plan history</h2>
-    <p class="text-muted section-hint">Audit trail of solution changes (previous and updated values).</p>
-    <ul class="audit-trail-list">${items}</ul>
+  return `<section class="sup-card sup-card--history">
+    <div class="sup-card__head"><h2>Mitigation plan history</h2></div>
+    <div class="sup-card__body">
+      <p class="sup-muted-block">Audit trail of solution changes (previous and updated values).</p>
+      <ul class="audit-trail-list">${items}</ul>
+    </div>
   </section>`;
 }
 
@@ -250,11 +287,13 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
   const cardClass = inSplitRow
     ? 'card card--accent officer-split-col'
     : 'card card--accent';
-  const resubmitHint = inSplitRow
-    ? ''
-    : ticket.status === 'audit_returned'
-      ? 'Saving will update the plan and resubmit it to the Audit Officer for review.'
-      : 'Update the proposed solution while it is under audit review.';
+  const isAuditReturned = ticket.status === 'audit_returned';
+  const panelDesc = isAuditReturned
+    ? 'The Audit Officer returned this plan. Update it and resubmit for review.'
+    : 'This ticket is under audit review. You can still adjust the mitigation plan if needed.';
+  const cardHint = isAuditReturned
+    ? 'Update the plan and resubmit it to the Audit Officer.'
+    : 'Adjust approved actions, owners, or the due date while audit review is in progress.';
 
   const formHtml = `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/update-mitigation" class="stack-form stack-form--console">
       ${officerFormField({
@@ -269,7 +308,7 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
         hint: 'When the department should complete the mitigation.',
         inputHtml: `<input id="editMitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}" required>`,
       })}
-      <button type="submit" class="sup-btn-primary">Save mitigation plan</button>
+      <button type="submit" class="btn-accept--outline">Save mitigation plan</button>
     </form>`;
 
   if (inSplitRow) {
@@ -281,8 +320,18 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
 
   return supDecisionPanel({
     title: 'Edit mitigation plan',
-    desc: resubmitHint,
-    bodyHtml: formHtml,
+    desc: panelDesc,
+    bodyHtml: officerDecisionActions(
+      [
+        {
+          variant: 'accept',
+          title: 'Mitigation plan',
+          hint: cardHint,
+          formHtml,
+        },
+      ],
+      { single: true },
+    ),
   });
 }
 
@@ -376,7 +425,7 @@ function officerOverviewPage(user, dashboard, flash) {
         <h1>Dashboard</h1>
         <p class="sup-page-desc">Welcome, Risk Management Officer — overview of risk reports, validation queues, and mitigation status.</p>
       </div>
-      <a href="/officer/review" class="sup-btn-primary">Review queue (${stats.awaitingReview})</a>
+      <a href="/officer/review" class="filter-pill filter-pill--head">Review queue <span class="filter-pill__count">${stats.awaitingReview}</span></a>
     </div>
     <div class="sup-kpi-grid sup-kpi-grid--officer">
       ${kpiCard('/officer/tickets', KPI_ICONS.total, stats.total, 'Total reports', 'sup-kpi--accent')}
@@ -611,23 +660,7 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error,
   const ref = t.reference;
   const acc = accomplishment;
 
-  const accBlock = acc
-    ? `<section class="card card--accent">
-        <h2>Accomplishment report</h2>
-        <p class="text-muted">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
-        <h2 class="section-sub">Implementation summary</h2>
-        <p>${escapeHtml(acc.summary)}</p>
-        <h2 class="section-sub">Outcomes and results</h2>
-        <p>${escapeHtml(acc.outcomes)}</p>
-        ${
-          (acc.evidence || []).length
-            ? `<h2 class="section-sub">Evidence references</h2><ul class="evidence-list">${(acc.evidence || [])
-                .map((e) => `<li>${escapeHtml(e.name)}</li>`)
-                .join('')}</ul>`
-            : ''
-        }
-      </section>`
-    : `<section class="card"><p class="text-muted">Accomplishment record not found.</p></section>`;
+  const accBlock = accomplishmentReportSection(acc);
 
   const decisionBody = officerDecisionActions([
     {
@@ -743,18 +776,9 @@ function renderOfficerTicketPage(user, ticket, opts) {
   }
   if (ticket.status === 'pending_audit') {
     const accomplishment = getAccomplishmentForTicket(ticket);
-    const acc = accomplishment;
-    const accBlock = acc
-      ? `<section class="card card--accent">
-          <h2>Accomplishment report</h2>
-          <p class="text-muted">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
-          <p class="text-muted" style="margin-top:0.75rem">Awaiting Audit Officer review. You can monitor this ticket but cannot close it from the RMO console.</p>
-          <h2 class="section-sub">Implementation summary</h2>
-          <p>${escapeHtml(acc.summary)}</p>
-          <h2 class="section-sub">Outcomes and results</h2>
-          <p>${escapeHtml(acc.outcomes)}</p>
-        </section>`
-      : `<section class="card"><p class="text-muted">Accomplishment record not found.</p></section>`;
+    const accBlock = accomplishmentReportSection(accomplishment, {
+      notice: 'Awaiting Audit Officer review. You can monitor this ticket but cannot close it from the RMO console.',
+    });
     return ticketViewPage(user, ticket, {
       ...opts,
       layout: 'monitoring',
