@@ -28,6 +28,10 @@ function getStore() {
   return { store: loadStore(), saveStore };
 }
 
+function isVisibleTicket(ticket) {
+  return ticket && !ticket.deleted;
+}
+
 function nextTicketRef(store) {
   const year = new Date().getFullYear();
   const prefix = `RISK-${year}-`;
@@ -239,7 +243,7 @@ async function mergeUploadedEvidence(ticket, uploadedFiles, uploadedBy) {
 function listTicketsForSupervisor(username) {
   const { store } = getStore();
   return (store.riskTickets || [])
-    .filter((t) => t.submittedBy === username)
+    .filter((t) => isVisibleTicket(t) && t.submittedBy === username)
     .map(publicTicket)
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
@@ -596,7 +600,7 @@ function getTicketByRefForOfficer(reference) {
 function listTicketsForOfficer() {
   const { store } = getStore();
   return (store.riskTickets || [])
-    .filter((t) => t.status !== 'draft')
+    .filter((t) => isVisibleTicket(t) && t.status !== 'draft')
     .map(publicTicket)
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
@@ -1040,7 +1044,7 @@ function getTicketByRefForAudit(reference) {
 function listTicketsForAudit() {
   const { store } = getStore();
   return (store.riskTickets || [])
-    .filter((t) => t.status !== 'draft')
+    .filter((t) => isVisibleTicket(t) && t.status !== 'draft')
     .map(publicTicket)
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
@@ -1100,7 +1104,7 @@ function getTicketByRefForExecutive(reference) {
 function listTicketsForExecutive({ level, category } = {}) {
   const { store } = getStore();
   let tickets = (store.riskTickets || [])
-    .filter((t) => t.status !== 'draft')
+    .filter((t) => isVisibleTicket(t) && t.status !== 'draft')
     .map((t) => {
       const pub = publicTicket(t);
       pub.riskLevel = ticketRiskLevelId(t);
@@ -1404,6 +1408,87 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
   });
 }
 
+function listTicketsForAdmin({ department, level, status, search, includeDeleted = false } = {}) {
+  const { store } = getStore();
+  let tickets = (store.riskTickets || []).filter((t) => includeDeleted || isVisibleTicket(t));
+  tickets = tickets.map((t) => {
+    const pub = publicTicket(t);
+    pub.riskLevel = ticketRiskLevelId(t);
+    pub.riskLevelLabel = riskLevelFromSeverity(
+      t.ai?.severity
+        || (t.likelihood && t.impact ? Math.round((t.likelihood + t.impact) / 2) : 2),
+    ).label;
+    pub.deleted = Boolean(t.deleted);
+    pub.deletionReason = t.deletionReason || null;
+    return pub;
+  });
+  if (department) {
+    tickets = tickets.filter((t) => t.department?.toLowerCase() === String(department).toLowerCase());
+  }
+  if (level) {
+    tickets = tickets.filter((t) => t.riskLevel === level);
+  }
+  if (status) {
+    tickets = tickets.filter((t) => t.status === status);
+  }
+  if (search) {
+    const q = String(search).toLowerCase();
+    tickets = tickets.filter(
+      (t) =>
+        t.reference?.toLowerCase().includes(q)
+        || t.title?.toLowerCase().includes(q)
+        || t.submittedByName?.toLowerCase().includes(q),
+    );
+  }
+  return tickets.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function getAdminTicketStats() {
+  const tickets = listTicketsForAdmin();
+  const byLevel = { low: 0, moderate: 0, high: 0, critical: 0 };
+  for (const t of tickets) {
+    byLevel[t.riskLevel] = (byLevel[t.riskLevel] || 0) + 1;
+  }
+  return {
+    total: tickets.length,
+    open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+    highRisk: byLevel.high || 0,
+    criticalRisk: byLevel.critical || 0,
+    byLevel,
+  };
+}
+
+function getTicketByRefForAdmin(reference) {
+  const { store } = getStore();
+  return (store.riskTickets || []).find((t) => t.reference === reference) || null;
+}
+
+function softDeleteTicketForAdmin(reference, user, reason) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForAdmin(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (ticket.deleted) return { error: 'Ticket is already deleted.' };
+  const deletionReason = String(reason || '').trim();
+  if (!deletionReason) return { error: 'A reason for deletion is required.' };
+  const now = new Date().toISOString();
+  ticket.deleted = true;
+  ticket.deletedAt = now;
+  ticket.deletedBy = user.username;
+  ticket.deletedByName = user.displayName || user.username;
+  ticket.deletionReason = deletionReason;
+  ticket.updatedAt = now;
+  saveStore();
+  const { appendDeletedTicketLog } = require('./store');
+  appendDeletedTicketLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    deletedBy: user.username,
+    reason: deletionReason,
+  });
+  return { ticket: publicTicket(ticket) };
+}
+
 module.exports = {
   listTicketsForSupervisor,
   getTicketByRef,
@@ -1460,4 +1545,8 @@ module.exports = {
   findAttachmentForExecutive,
   addExecutiveComment,
   replyToExecutiveComment,
+  listTicketsForAdmin,
+  getAdminTicketStats,
+  getTicketByRefForAdmin,
+  softDeleteTicketForAdmin,
 };

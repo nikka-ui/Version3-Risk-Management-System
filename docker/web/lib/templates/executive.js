@@ -172,8 +172,10 @@ function levelFilterPills(activeLevel) {
   return levels
     .map((l) => {
       const href = l.id ? `/executive/tickets?level=${l.id}` : '/executive/tickets';
-      const cls = activeLevel === l.id ? 'filter-pill active' : 'filter-pill';
-      return `<a href="${href}" class="${cls}">${escapeHtml(l.label)}</a>`;
+      const tone = l.id ? `filter-pill--level filter-pill--level-${l.id}` : 'filter-pill--all';
+      const active = activeLevel === l.id ? ' active' : '';
+      const dot = l.id ? '<span class="filter-pill__dot" aria-hidden="true"></span>' : '';
+      return `<a href="${href}" class="filter-pill ${tone}${active}">${dot}${escapeHtml(l.label)}</a>`;
     })
     .join('');
 }

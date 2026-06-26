@@ -14,9 +14,15 @@ const {
 const { loginPage, dashboardPage } = require('./lib/templates');
 const {
   adminOverviewPage,
-  accountsPage,
-  credentialsLogPage,
-  reportHistoryPage,
+  usersPage,
+  resetPasswordPage,
+  departmentsPage,
+  positionsPage,
+  ticketsPage,
+  ticketDetailPage,
+  auditLogsPage,
+  settingsPage,
+  profilePage,
 } = require('./lib/templates/admin');
 const {
   supervisorOverviewPage,
@@ -97,8 +103,14 @@ const {
   addExecutiveComment,
   replyToExecutiveComment,
   publicTicket,
+  listTicketsForAdmin,
+  getAdminTicketStats,
+  getTicketByRefForAdmin,
+  softDeleteTicketForAdmin,
+  ticketRiskLevelId,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
+const { logAdminAction, notifyAdmin, getAdminDashboardData } = require('./lib/admin');
 const { handleEvidenceUpload } = require('./lib/upload');
 const { initializeAttachmentStorage, hydrateTicketEvidence } = require('./lib/attachments');
 const { migrateLegacyEvidenceFromStore } = require('./lib/attachmentRepository');
@@ -106,10 +118,25 @@ const { loadStore, saveStore } = require('./lib/store');
 const {
   listUsers,
   createUser,
+  updateUser,
   updateUserRole,
   deleteUser,
+  setUserStatus,
+  resetUserPassword,
+  findUserRecord,
   getCredentialLogs,
-  getReportLogs,
+  listDepartments,
+  findDepartment,
+  createDepartment,
+  updateDepartment,
+  deleteDepartment,
+  listPositions,
+  createPosition,
+  updatePosition,
+  deletePosition,
+  getAuditLogs,
+  getSystemSettings,
+  updateSystemSettings,
 } = require('./lib/store');
 const { ROLES } = require('./config/roles');
 
@@ -142,8 +169,14 @@ app.use(
 function flashFromQuery(query) {
   const map = {
     created: 'Account created successfully.',
+    updated: 'Record updated successfully.',
     role_updated: 'Role updated successfully.',
-    deleted: 'Account deleted successfully.',
+    deleted: 'Record deleted successfully.',
+    activated: 'User activated successfully.',
+    deactivated: 'User deactivated successfully.',
+    password_reset: 'Password reset successfully.',
+    settings_saved: 'System settings saved successfully.',
+    ticket_deleted: 'Ticket deleted successfully (soft delete).',
     draft_saved: 'Draft saved successfully.',
     preview_generated: 'AI preview generated successfully.',
     draft_updated: 'Draft updated successfully.',
@@ -218,6 +251,25 @@ app.post('/login', (req, res) => {
       actor: '—',
       detail: 'Invalid credentials',
       success: false,
+    });
+    const { appendAuditLog } = require('./lib/store');
+    const { parseClientInfo } = require('./lib/admin');
+    const { device, browser } = parseClientInfo(req);
+    appendAuditLog({
+      username: username || '—',
+      role: '—',
+      roleLabel: '—',
+      action: 'login_failed',
+      module: 'Security',
+      description: 'Failed login attempt detected',
+      ip: require('./lib/logger').clientIp(req),
+      device,
+      browser,
+    });
+    notifyAdmin({
+      type: 'failed_login',
+      title: 'Failed login attempt',
+      message: `Failed login for username: ${username || 'unknown'}`,
     });
     const nextParam = next ? `&next=${encodeURIComponent(next)}` : '';
     return res.redirect(`/login?error=invalid${nextParam}`);
@@ -882,40 +934,88 @@ app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
   return res.redirect(`/executive/tickets/${ref}?flash=executive_comment_added`);
 });
 
-/* —— IT Administrator —— */
+/* —— System Administrator —— */
+
+function adminError(res, path, message) {
+  return res.redirect(`${path}?error=${encodeURIComponent(message)}`);
+}
+
+function filterUsers(users, query) {
+  let result = users;
+  if (query.q) {
+    const q = String(query.q).toLowerCase();
+    result = result.filter(
+      (u) =>
+        u.username.toLowerCase().includes(q)
+        || u.displayName.toLowerCase().includes(q)
+        || (u.email || '').toLowerCase().includes(q)
+        || (u.employeeId || '').toLowerCase().includes(q),
+    );
+  }
+  if (query.role) result = result.filter((u) => u.role === query.role);
+  if (query.status) result = result.filter((u) => u.status === query.status);
+  if (query.filter === 'active') result = result.filter((u) => u.status === 'active');
+  return result;
+}
 
 app.get('/admin', requireAdmin, (req, res) => {
-  const cred = getCredentialLogs();
-  const reports = getReportLogs();
-  res.type('html').send(
-    adminOverviewPage(req.session.user, {
-      accounts: listUsers().length,
-      credentialEvents: cred.length,
-      reportEvents: reports.length,
-    }, flashFromQuery(req.query)),
-  );
+  const ticketStats = getAdminTicketStats();
+  const data = getAdminDashboardData(ticketStats);
+  res.type('html').send(adminOverviewPage(req.session.user, data, flashFromQuery(req.query)));
 });
 
-app.get('/admin/accounts', requireAdmin, (req, res) => {
+app.get('/admin/profile', requireAdmin, (req, res) => {
+  const record = findUserRecord(req.session.user.username);
+  const profile = record ? { ...req.session.user, ...require('./lib/store').publicUser(record) } : req.session.user;
+  res.type('html').send(profilePage(profile, flashFromQuery(req.query)));
+});
+
+app.get('/admin/users', requireAdmin, (req, res) => {
+  const users = filterUsers(listUsers({ includeInactive: true }), req.query);
   res.type('html').send(
-    accountsPage(
+    usersPage(
       req.session.user,
-      listUsers(),
+      users,
+      listDepartments(),
+      listPositions(),
       flashFromQuery(req.query),
       req.query.error ? decodeURIComponent(req.query.error) : null,
+      { filters: req.query },
     ),
   );
 });
 
-app.post('/admin/accounts', requireAdmin, (req, res) => {
-  const { username, password, displayName, role } = req.body;
-  if (!ROLES[role]) {
-    return res.redirect('/admin/accounts?error=' + encodeURIComponent('Invalid role selected.'));
-  }
-  const result = createUser({ username, password, displayName, role });
-  if (result.error) {
-    return res.redirect('/admin/accounts?error=' + encodeURIComponent(result.error));
-  }
+app.get('/admin/users/:username/edit', requireAdmin, (req, res) => {
+  const editUser = findUserRecord(req.params.username.toLowerCase(), { includeInactive: true });
+  if (!editUser) return res.redirect('/admin/users?flash=not_found');
+  res.type('html').send(
+    usersPage(
+      req.session.user,
+      listUsers({ includeInactive: true }),
+      listDepartments(),
+      listPositions(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      { editUser, filters: req.query },
+    ),
+  );
+});
+
+app.post('/admin/users', requireAdmin, (req, res) => {
+  const { username, password, displayName, role, employeeId, email, department, position, confirmPassword } = req.body;
+  if (!ROLES[role]) return adminError(res, '/admin/users', 'Invalid role selected.');
+  const result = createUser({
+    username,
+    password,
+    displayName,
+    role,
+    employeeId,
+    email,
+    department,
+    position,
+    confirmPassword,
+  });
+  if (result.error) return adminError(res, '/admin/users', result.error);
   logCredential(req, {
     action: 'account_created',
     username: result.user.username,
@@ -923,35 +1023,42 @@ app.post('/admin/accounts', requireAdmin, (req, res) => {
     detail: `Created account with role ${result.user.roleLabel}`,
     success: true,
   });
-  return res.redirect('/admin/accounts?flash=created');
-});
-
-app.post('/admin/accounts/:username/role', requireAdmin, (req, res) => {
-  const username = req.params.username.toLowerCase();
-  const { role } = req.body;
-  if (!ROLES[role]) {
-    return res.redirect('/admin/accounts?error=' + encodeURIComponent('Invalid role.'));
-  }
-  const result = updateUserRole(username, role, req.session.user.username);
-  if (result.error) {
-    return res.redirect('/admin/accounts?error=' + encodeURIComponent(result.error));
-  }
-  logCredential(req, {
-    action: 'role_changed',
-    username,
-    actor: req.session.user.username,
-    detail: `Role changed from ${ROLES[result.previous]?.label || result.previous} to ${result.user.roleLabel}`,
-    success: true,
+  logAdminAction(req, {
+    action: 'user_created',
+    module: 'User Management',
+    description: `Created account: ${result.user.displayName} (${result.user.username})`,
+    targetUser: result.user.username,
   });
-  return res.redirect('/admin/accounts?flash=role_updated');
+  notifyAdmin({
+    type: 'user_created',
+    title: 'New user created',
+    message: `${result.user.displayName} was added to the system.`,
+  });
+  return res.redirect('/admin/users?flash=created');
 });
 
-app.post('/admin/accounts/:username/delete', requireAdmin, (req, res) => {
+app.post('/admin/users/:username/edit', requireAdmin, (req, res) => {
+  const username = req.params.username.toLowerCase();
+  const { displayName, email, employeeId, department, position, role, status } = req.body;
+  const result = updateUser(username, { displayName, email, employeeId, department, position, role });
+  if (result.error) return adminError(res, `/admin/users/${username}/edit`, result.error);
+  if (status && username !== 'admin') {
+    const statusResult = setUserStatus(username, status === 'active');
+    if (statusResult.error) return adminError(res, `/admin/users/${username}/edit`, statusResult.error);
+  }
+  logAdminAction(req, {
+    action: 'user_updated',
+    module: 'User Management',
+    description: `Updated account: ${result.user.displayName}`,
+    targetUser: username,
+  });
+  return res.redirect('/admin/users?flash=updated');
+});
+
+app.post('/admin/users/:username/delete', requireAdmin, (req, res) => {
   const username = req.params.username.toLowerCase();
   const result = deleteUser(username);
-  if (result.error) {
-    return res.redirect('/admin/accounts?error=' + encodeURIComponent(result.error));
-  }
+  if (result.error) return adminError(res, '/admin/users', result.error);
   logCredential(req, {
     action: 'account_deleted',
     username,
@@ -959,20 +1066,336 @@ app.post('/admin/accounts/:username/delete', requireAdmin, (req, res) => {
     detail: `Deleted account (${result.user.roleLabel})`,
     success: true,
   });
-  return res.redirect('/admin/accounts?flash=deleted');
+  logAdminAction(req, {
+    action: 'user_deleted',
+    module: 'User Management',
+    description: `Deleted account: ${result.user.displayName}`,
+    targetUser: username,
+  });
+  return res.redirect('/admin/users?flash=deleted');
 });
 
-app.get('/admin/logs/credentials', requireAdmin, (req, res) => {
+app.post('/admin/users/:username/activate', requireAdmin, (req, res) => {
+  const username = req.params.username.toLowerCase();
+  const result = setUserStatus(username, true);
+  if (result.error) return adminError(res, '/admin/users', result.error);
+  logAdminAction(req, {
+    action: 'user_activated',
+    module: 'User Management',
+    description: `Activated account: ${result.user.displayName}`,
+    targetUser: username,
+  });
+  return res.redirect('/admin/users?flash=activated');
+});
+
+app.post('/admin/users/:username/deactivate', requireAdmin, (req, res) => {
+  const username = req.params.username.toLowerCase();
+  const result = setUserStatus(username, false);
+  if (result.error) return adminError(res, '/admin/users', result.error);
+  logAdminAction(req, {
+    action: 'user_deactivated',
+    module: 'User Management',
+    description: `Deactivated account: ${result.user.displayName}`,
+    targetUser: username,
+  });
+  return res.redirect('/admin/users?flash=deactivated');
+});
+
+app.get('/admin/users/:username/reset-password', requireAdmin, (req, res) => {
+  const target = findUserRecord(req.params.username.toLowerCase());
+  if (!target) return res.redirect('/admin/users?flash=not_found');
   res.type('html').send(
-    credentialsLogPage(req.session.user, getCredentialLogs(), flashFromQuery(req.query)),
+    resetPasswordPage(
+      req.session.user,
+      target,
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+    ),
   );
 });
 
-app.get('/admin/logs/reports', requireAdmin, (req, res) => {
+app.post('/admin/users/:username/reset-password', requireAdmin, (req, res) => {
+  const username = req.params.username.toLowerCase();
+  if (req.body.mode === 'prompt') {
+    return res.redirect(`/admin/users/${username}/reset-password`);
+  }
+  const { password, confirmPassword } = req.body;
+  const result = resetUserPassword(username, password, confirmPassword);
+  if (result.error) return adminError(res, `/admin/users/${username}/reset-password`, result.error);
+  logAdminAction(req, {
+    action: 'password_reset',
+    module: 'User Management',
+    description: `Reset password for: ${result.user.displayName}`,
+    targetUser: username,
+  });
+  return res.redirect('/admin/users?flash=password_reset');
+});
+
+app.get('/admin/departments', requireAdmin, (req, res) => {
   res.type('html').send(
-    reportHistoryPage(req.session.user, getReportLogs(), flashFromQuery(req.query)),
+    departmentsPage(
+      req.session.user,
+      listDepartments(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      { showAdd: req.query.action === 'add' },
+    ),
   );
 });
+
+app.get('/admin/departments/:id/edit', requireAdmin, (req, res) => {
+  const editDept = findDepartment(req.params.id);
+  if (!editDept) return res.redirect('/admin/departments?flash=not_found');
+  res.type('html').send(
+    departmentsPage(
+      req.session.user,
+      listDepartments(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      { editDept },
+    ),
+  );
+});
+
+app.post('/admin/departments', requireAdmin, (req, res) => {
+  const result = createDepartment(req.body);
+  if (result.error) return adminError(res, '/admin/departments', result.error);
+  logAdminAction(req, {
+    action: 'department_created',
+    module: 'Department Management',
+    description: `Added department: ${result.department.name}`,
+  });
+  notifyAdmin({ type: 'department_added', title: 'Department added', message: result.department.name });
+  return res.redirect('/admin/departments?flash=created');
+});
+
+app.post('/admin/departments/:id/edit', requireAdmin, (req, res) => {
+  const result = updateDepartment(req.params.id, req.body);
+  if (result.error) return adminError(res, `/admin/departments/${req.params.id}/edit`, result.error);
+  logAdminAction(req, {
+    action: 'department_updated',
+    module: 'Department Management',
+    description: `Updated department: ${result.department.name}`,
+  });
+  return res.redirect('/admin/departments?flash=updated');
+});
+
+app.post('/admin/departments/:id/delete', requireAdmin, (req, res) => {
+  const dept = findDepartment(req.params.id);
+  const result = deleteDepartment(req.params.id);
+  if (result.error) return adminError(res, '/admin/departments', result.error);
+  logAdminAction(req, {
+    action: 'department_deleted',
+    module: 'Department Management',
+    description: `Deleted department: ${dept?.name || req.params.id}`,
+  });
+  return res.redirect('/admin/departments?flash=deleted');
+});
+
+app.get('/admin/positions', requireAdmin, (req, res) => {
+  res.type('html').send(
+    positionsPage(
+      req.session.user,
+      listPositions(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      { showAdd: req.query.action === 'add' },
+    ),
+  );
+});
+
+app.get('/admin/positions/:id/edit', requireAdmin, (req, res) => {
+  const positions = listPositions();
+  const editPos = positions.find((p) => p.id === req.params.id);
+  if (!editPos) return res.redirect('/admin/positions?flash=not_found');
+  res.type('html').send(
+    positionsPage(
+      req.session.user,
+      positions,
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      { editPos },
+    ),
+  );
+});
+
+app.post('/admin/positions', requireAdmin, (req, res) => {
+  const result = createPosition(req.body.name);
+  if (result.error) return adminError(res, '/admin/positions', result.error);
+  logAdminAction(req, {
+    action: 'position_created',
+    module: 'Position Management',
+    description: `Added position: ${result.position.name}`,
+  });
+  return res.redirect('/admin/positions?flash=created');
+});
+
+app.post('/admin/positions/:id/edit', requireAdmin, (req, res) => {
+  const result = updatePosition(req.params.id, req.body.name);
+  if (result.error) return adminError(res, `/admin/positions/${req.params.id}/edit`, result.error);
+  logAdminAction(req, {
+    action: 'position_updated',
+    module: 'Position Management',
+    description: `Updated position: ${result.position.name}`,
+  });
+  return res.redirect('/admin/positions?flash=updated');
+});
+
+app.post('/admin/positions/:id/delete', requireAdmin, (req, res) => {
+  const positions = listPositions();
+  const pos = positions.find((p) => p.id === req.params.id);
+  const result = deletePosition(req.params.id);
+  if (result.error) return adminError(res, '/admin/positions', result.error);
+  logAdminAction(req, {
+    action: 'position_deleted',
+    module: 'Position Management',
+    description: `Deleted position: ${pos?.name || req.params.id}`,
+  });
+  return res.redirect('/admin/positions?flash=deleted');
+});
+
+app.get('/admin/tickets', requireAdmin, (req, res) => {
+  let status = req.query.status;
+  if (status === 'open') status = '';
+  const filters = {
+    q: req.query.q,
+    department: req.query.department,
+    level: req.query.level,
+    status: status === 'closed' ? 'closed' : status,
+    deleted: req.query.deleted === '1',
+  };
+  let tickets = listTicketsForAdmin({
+    department: filters.department,
+    level: filters.level,
+    status: filters.status,
+    search: filters.q,
+    includeDeleted: filters.deleted,
+  });
+  if (filters.status === 'closed') {
+    tickets = tickets.filter((t) => ['closed', 'resolved'].includes(t.status));
+  } else if (req.query.status === 'open') {
+    tickets = tickets.filter((t) => !['closed', 'resolved'].includes(t.status));
+  }
+  res.type('html').send(
+    ticketsPage(
+      req.session.user,
+      tickets,
+      listDepartments(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+      filters,
+    ),
+  );
+});
+
+app.get('/admin/tickets/:ref', requireAdmin, (req, res) => {
+  const ticket = getTicketByRefForAdmin(req.params.ref);
+  if (!ticket) return res.redirect('/admin/tickets?flash=not_found');
+  const pub = publicTicket(ticket);
+  pub.riskLevel = ticketRiskLevelId(ticket);
+  pub.deleted = Boolean(ticket.deleted);
+  pub.deletionReason = ticket.deletionReason;
+  res.type('html').send(ticketDetailPage(req.session.user, pub, flashFromQuery(req.query)));
+});
+
+app.post('/admin/tickets/:ref/delete', requireAdmin, (req, res) => {
+  const result = softDeleteTicketForAdmin(req.params.ref, req.session.user, req.body.reason);
+  if (result.error) return adminError(res, '/admin/tickets', result.error);
+  logAdminAction(req, {
+    action: 'ticket_deleted',
+    module: 'Ticket Management',
+    description: `Soft-deleted ticket ${req.params.ref}: ${req.body.reason}`,
+  });
+  notifyAdmin({
+    type: 'ticket_deleted',
+    title: 'Ticket deleted',
+    message: `Ticket ${req.params.ref} was soft-deleted.`,
+  });
+  return res.redirect('/admin/tickets?flash=ticket_deleted');
+});
+
+app.get('/admin/audit-logs', requireAdmin, (req, res) => {
+  const filters = {
+    q: req.query.q,
+    date: req.query.date,
+    user: req.query.user,
+    action: req.query.action,
+    module: req.query.module,
+  };
+  const logs = getAuditLogs({ limit: 300, filters });
+  res.type('html').send(auditLogsPage(req.session.user, logs, flashFromQuery(req.query), filters));
+});
+
+app.get('/admin/audit-logs/export', requireAdmin, (req, res) => {
+  const filters = {
+    q: req.query.q,
+    date: req.query.date,
+    user: req.query.user,
+    action: req.query.action,
+    module: req.query.module,
+  };
+  const logs = getAuditLogs({ limit: 1000, filters });
+  const header = 'Date,User,Role,Action,Module,Description,IP,Device,Browser\n';
+  const rows = logs
+    .map((l) =>
+      [l.at, l.username, l.roleLabel, l.action, l.module, l.description, l.ip, l.device, l.browser]
+        .map((v) => `"${String(v || '').replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    .join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="audit-logs.csv"');
+  res.send(header + rows);
+});
+
+app.get('/admin/settings', requireAdmin, (req, res) => {
+  res.type('html').send(
+    settingsPage(
+      req.session.user,
+      getSystemSettings(),
+      flashFromQuery(req.query),
+      req.query.error ? decodeURIComponent(req.query.error) : null,
+    ),
+  );
+});
+
+app.post('/admin/settings', requireAdmin, (req, res) => {
+  const body = req.body;
+  const fields = {
+    systemName: body.systemName,
+    organizationName: body.organizationName,
+    themeColor: body.themeColor,
+    ticketNumberFormat: body.ticketNumberFormat,
+    defaultRiskLevels: String(body.defaultRiskLevels || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    emailNotifications: body.emailNotifications === '1',
+    passwordMinLength: Number(body.passwordMinLength) || 8,
+    sessionTimeoutMinutes: Number(body.sessionTimeoutMinutes) || 480,
+    mfaEnabled: body.mfaEnabled === '1',
+    maxUploadSizeMb: Number(body.maxUploadSizeMb) || 25,
+    allowedFileTypes: String(body.allowedFileTypes || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+    maintenanceMode: body.maintenanceMode === '1',
+    backupEnabled: body.backupEnabled === '1',
+    backupFrequency: body.backupFrequency || 'daily',
+  };
+  updateSystemSettings(fields);
+  logAdminAction(req, {
+    action: 'settings_updated',
+    module: 'System Settings',
+    description: 'System settings were updated',
+  });
+  return res.redirect('/admin/settings?flash=settings_saved');
+});
+
+/* Legacy admin routes → redirect */
+app.get('/admin/accounts', requireAdmin, (_req, res) => res.redirect('/admin/users'));
+app.get('/admin/logs/credentials', requireAdmin, (_req, res) => res.redirect('/admin/audit-logs'));
+app.get('/admin/logs/reports', requireAdmin, (_req, res) => res.redirect('/admin/tickets'));
 
 app.get('/', (req, res) => {
   if (req.session?.user) {

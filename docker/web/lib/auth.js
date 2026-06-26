@@ -1,5 +1,4 @@
 const { findUserWithPassword, publicUser } = require('./store');
-const { getRoleLabel } = require('../config/roles');
 
 function requireAuth(req, res, next) {
   if (req.session?.user) {
@@ -80,12 +79,17 @@ function authenticate(username, password) {
 }
 
 function sessionUser(record) {
+  const pub = publicUser(record);
   return {
-    username: record.username,
-    role: record.role,
-    roleLabel: record.roleLabel || getRoleLabel(record.role),
-    displayName: record.displayName,
-    canManageUsers: Boolean(record.canManageUsers),
+    username: pub.username,
+    role: pub.role,
+    roleLabel: pub.roleLabel,
+    displayName: pub.displayName,
+    email: pub.email,
+    department: pub.department,
+    position: pub.position,
+    employeeId: pub.employeeId,
+    canManageUsers: pub.canManageUsers,
   };
 }
 
