@@ -10,46 +10,54 @@ function loginPage({ error, next }) {
     ? `<input type="hidden" name="next" value="${escapeHtml(next)}">`
     : '';
 
+  const year = new Date().getFullYear();
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in — RMS</title>
+  <title>Sign in — ACCC Risk Management System</title>
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>
-<body>
-  <div class="layout">
-    <aside class="panel-brand">
-      <div>
-        <div class="brand-logo">RMS</div>
-        <p class="brand-tagline">AI-Assisted Risk Management</p>
-        <p class="brand-desc">ISO 31000-aligned workflow for identifying, assessing, and mitigating organizational risk.</p>
-      </div>
-    </aside>
-    <main class="panel-form">
-      <div class="form-wrap">
-        <h1>Sign in</h1>
-        <p class="form-sub">Use your assigned credentials to continue.</p>
-        ${errorBlock}
-        <form method="post" action="/login" autocomplete="on">
-          ${nextField}
-          <div class="field">
-            <label for="username">Username</label>
-            <input id="username" name="username" type="text" required autofocus
-              autocapitalize="none" autocomplete="username" placeholder="e.g. personnel">
-          </div>
-          <div class="field">
-            <label for="password">Password</label>
-            <input id="password" name="password" type="password" required
-              autocomplete="current-password" placeholder="Enter password">
-          </div>
-          <button type="submit" class="btn-primary">Sign in</button>
-        </form>
-        <p class="form-foot">Authorized personnel only. Activity is logged.</p>
-      </div>
-    </main>
+<body class="login-body">
+  <div class="login-shell">
+    <div class="login-card">
+      <aside class="login-visual">
+        <div class="login-visual__intro">
+          <p class="login-visual__eyebrow">Identify. Assess. Mitigate.</p>
+          <h2 class="login-visual__headline">ACCC Risk<br>Management<br>System</h2>
+        </div>
+        <div class="login-visual__art">
+          <img src="/img/risk-illustration.png" alt="Risk management dashboard illustration" class="login-visual__img">
+        </div>
+      </aside>
+      <main class="login-panel">
+        <div class="login-form-wrap">
+          <h1 class="login-title">Sign In</h1>
+          <p class="login-sub">Use your assigned credentials to continue.</p>
+          ${errorBlock}
+          <form method="post" action="/login" autocomplete="on" class="login-form">
+            ${nextField}
+            <div class="login-field">
+              <label for="username">Username</label>
+              <input id="username" name="username" type="text" required autofocus
+                autocapitalize="none" autocomplete="username" placeholder="Enter your username">
+            </div>
+            <div class="login-field">
+              <label for="password">Password</label>
+              <input id="password" name="password" type="password" required
+                autocomplete="current-password" placeholder="Enter your password">
+            </div>
+            <button type="submit" class="login-submit">Sign In</button>
+          </form>
+        </div>
+        <footer class="login-foot">
+          <span>&copy; ${year} ACCC. Authorized personnel only.</span>
+        </footer>
+      </main>
+    </div>
   </div>
 </body>
 </html>`;

@@ -166,6 +166,13 @@ app.use(
   }),
 );
 
+app.use(
+  '/img',
+  express.static(path.join(__dirname, 'public', 'img'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+  }),
+);
+
 function flashFromQuery(query) {
   const map = {
     created: 'Account created successfully.',
