@@ -1,8 +1,9 @@
 const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket, canOfficerEditMitigation } = require('../tickets');
-const { flashMessage } = require('./layout');
+const { flashMessage, executiveCommentsSection, commentsSection } = require('./layout');
 const { officerAppLayout } = require('./officer-layout');
+const { layoutNotifications } = require('../notifications');
 const { matrixCellTier } = require('../tickets');
 const { evidenceSection } = require('./evidence');
 const {
@@ -79,6 +80,28 @@ function ticketRiskLevel(ticket) {
       ? Math.round((ticket.likelihood + ticket.impact) / 2)
       : 2);
   return riskLevelFromSeverityLocal(sev);
+}
+
+function executiveCommentsBlock(ticket, ref) {
+  return executiveCommentsSection(ticket.executiveComments || [], {
+    replyAction: `/officer/tickets/${escapeHtml(ref)}/executive-reply`,
+    canReply: true,
+  });
+}
+
+function privateCommentsBlock(ticket, ref) {
+  return commentsSection(ticket.comments || ticket.privateComments || [], {
+    postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
+    placeholder: 'Private comment for the Audit Officer (not visible to the department)…',
+    compact: true,
+  });
+}
+
+function commentSectionsBlock(ticket, ref) {
+  return `<div class="sup-detail-stack sup-detail-stack--comments">
+    ${privateCommentsBlock(ticket, ref)}
+    ${executiveCommentsBlock(ticket, ref)}
+  </div>`;
 }
 
 function ticketTableRows(tickets, { linkPrefix = '/officer/tickets/' } = {}) {
@@ -336,8 +359,9 @@ function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
 }
 
 function officerPageLayout(opts) {
-  const { stats, ...rest } = opts;
-  return officerAppLayout({ stats, ...rest });
+  const { stats, user, ...rest } = opts;
+  const notifications = opts.notifications || layoutNotifications(user);
+  return officerAppLayout({ stats, user, notifications, ...rest });
 }
 
 function quickActionsBar(stats) {
@@ -574,7 +598,8 @@ function ticketMitigationPage(user, ticket, { flash, error, stats } = {}) {
     })}
     ${ticketReadonlySections(t, { monitoring: true })}
     ${officerPlanSection(t, ref, { editable })}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
+    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
+    ${commentSectionsBlock(t, ref)}`;
 
   return officerPageLayout({
     title: `Mitigation plan ${ref}`,
@@ -640,6 +665,7 @@ function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
       backLabel: 'Back to review queue',
     })}
     ${ticketReadonlySections(t)}
+    ${commentSectionsBlock(t, ref)}
     ${supDecisionPanel({
       title: 'Your decision',
       desc: 'Review the risk report above, then choose whether to accept it or return it to the department.',
@@ -706,6 +732,7 @@ function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error,
     ${ticketReadonlySections(t)}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
     ${accBlock}
+    ${commentSectionsBlock(t, ref)}
     ${supDecisionPanel({
       title: 'Final validation',
       desc: 'Review the accomplishment report above, then close the ticket or return it for further work.',
@@ -742,6 +769,7 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout, stat
     ${ticketReadonlySections(t, { monitoring: true })}
     ${officerPlanSection(t, ref, { editable: canOfficerEditMitigation(t) })}
     ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
+    ${commentSectionsBlock(t, ref)}
     ${extraBody || ''}`
     : `
     ${flashMessage(flash)}
@@ -754,7 +782,8 @@ function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout, stat
     })}
     ${ticketReadonlySections(t)}
     ${canOfficerEditMitigation(t) ? editMitigationPlanSection(t) : ''}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}`;
+    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
+    ${commentSectionsBlock(t, ref)}`;
 
   return officerPageLayout({
     title: t.reference,

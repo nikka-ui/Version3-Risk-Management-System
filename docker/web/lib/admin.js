@@ -93,6 +93,9 @@ const AUDIT_ACTION_LABELS = {
   position_deleted: 'Deleted Position',
   ticket_deleted: 'Deleted Ticket',
   settings_updated: 'Updated Settings',
+  login_success: 'Login',
+  login_failed: 'Failed Login',
+  logout: 'Logout',
   system_init: 'System Init',
 };
 

@@ -648,20 +648,52 @@ function appendNotification(entry) {
   const store = loadStore();
   if (!store.notifications) store.notifications = [];
   store.notifications.unshift({
-    id: `notif-${Date.now()}`,
+    id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     at: new Date().toISOString(),
     read: false,
     ...entry,
   });
-  if (store.notifications.length > 100) {
-    store.notifications = store.notifications.slice(0, 100);
+  if (store.notifications.length > 300) {
+    store.notifications = store.notifications.slice(0, 300);
   }
   saveStore();
+}
+
+function notificationMatchesUser(n, user) {
+  if (!user) return false;
+  if (n.recipientUsername && n.recipientUsername === user.username) return true;
+  if (n.recipientRole && n.recipientRole === user.role) return true;
+  return false;
 }
 
 function getNotifications(limit = 20) {
   const store = loadStore();
   return (store.notifications || []).slice(0, limit);
+}
+
+function getNotificationsForUser(user, limit = 15) {
+  const store = loadStore();
+  return (store.notifications || [])
+    .filter((n) => notificationMatchesUser(n, user))
+    .slice(0, limit);
+}
+
+function getUnreadNotificationCount(user) {
+  return getNotificationsForUser(user, 100).filter((n) => !n.read).length;
+}
+
+function markNotificationsReadForUser(user, { ticketRef, ids } = {}) {
+  const store = loadStore();
+  let changed = false;
+  for (const n of store.notifications || []) {
+    if (n.read) continue;
+    if (!notificationMatchesUser(n, user)) continue;
+    if (ids?.length && !ids.includes(n.id)) continue;
+    if (ticketRef && n.ticketRef !== ticketRef) continue;
+    n.read = true;
+    changed = true;
+  }
+  if (changed) saveStore();
 }
 
 function appendDeletedTicketLog(entry) {
@@ -737,6 +769,9 @@ module.exports = {
   getAuditLogsTodayCount,
   appendNotification,
   getNotifications,
+  getNotificationsForUser,
+  getUnreadNotificationCount,
+  markNotificationsReadForUser,
   appendDeletedTicketLog,
   getDeletedTicketLogs,
   getSystemSettings,

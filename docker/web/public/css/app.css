@@ -4542,6 +4542,134 @@ a.officer-kpi:hover {
   font-weight: 600;
 }
 
+.console-topbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.console-topbar .notif-btn {
+  color: var(--sup-muted);
+}
+
+.console-topbar .notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.notif-wrap {
+  position: relative;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  background: #fff;
+  border: 1px solid var(--sup-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.notif-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--sup-border);
+  background: #f8fafc;
+}
+
+.notif-panel__title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--sup-text);
+}
+
+.notif-panel__mark-all {
+  margin: 0;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.notif-item {
+  border-bottom: 1px solid var(--sup-border);
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item__link {
+  display: block;
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+
+.notif-item__link:hover {
+  background: #f8fafc;
+}
+
+.notif-item--unread .notif-item__link {
+  background: #eff6ff;
+}
+
+.notif-item--unread .notif-item__title {
+  color: #1d4ed8;
+}
+
+.notif-item__title {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--sup-text);
+}
+
+.notif-item__message {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--sup-muted);
+  line-height: 1.4;
+}
+
+.notif-item__time {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.notif-item--empty {
+  padding: 1rem;
+  font-size: 0.8125rem;
+  color: var(--sup-muted);
+  text-align: center;
+}
+
 .console-quick-actions {
   margin: 0 0 1.25rem;
 }

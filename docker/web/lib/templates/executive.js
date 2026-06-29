@@ -2,6 +2,7 @@ const { getCategoryLabel, getStatusLabel, getStatusTone, RISK_CATEGORIES } = req
 const { escapeHtml, formatDate } = require('../html');
 const { flashMessage, executiveCommentsSection } = require('./layout');
 const { executiveAppLayout } = require('./executive-layout');
+const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const { supPageHead, supTicketHead, supQuickActions, supDetailCard } = require('./console-ui');
 
@@ -157,8 +158,15 @@ function statKpi(icon, value, label) {
   </div>`;
 }
 
-function executivePage({ title, user, activeNav, body, stats = {} }) {
-  return executiveAppLayout({ title, user, activeNav, body, stats });
+function executivePage({ title, user, activeNav, body, stats = {}, notifications }) {
+  return executiveAppLayout({
+    title,
+    user,
+    activeNav,
+    body,
+    stats,
+    notifications: notifications || layoutNotifications(user),
+  });
 }
 
 function levelFilterPills(activeLevel) {

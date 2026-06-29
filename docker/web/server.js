@@ -111,6 +111,8 @@ const {
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { logAdminAction, notifyAdmin, getAdminDashboardData } = require('./lib/admin');
+const { markTicketNotificationsRead } = require('./lib/notifications');
+const { markNotificationsReadForUser } = require('./lib/store');
 const { handleEvidenceUpload } = require('./lib/upload');
 const { initializeAttachmentStorage, hydrateTicketEvidence } = require('./lib/attachments');
 const { migrateLegacyEvidenceFromStore } = require('./lib/attachmentRepository');
@@ -242,16 +244,21 @@ app.get('/login', (req, res) => {
   if (req.session?.user) {
     return res.redirect(dashboardPath(req.session.user));
   }
-  const error = req.query.error === 'invalid' ? 'Invalid username or password.' : null;
+  const loginErrors = {
+    invalid_username: 'Invalid username.',
+    invalid_password: 'Invalid password.',
+  };
+  const errorKey = typeof req.query.error === 'string' ? req.query.error : '';
+  const error = loginErrors[errorKey] || null;
   const next = typeof req.query.next === 'string' ? req.query.next : '';
   res.type('html').send(loginPage({ error, next }));
 });
 
 app.post('/login', (req, res) => {
   const { username, password, next } = req.body;
-  const user = authenticate(username, password);
+  const authResult = authenticate(username, password);
 
-  if (!user) {
+  if (authResult.error) {
     logCredential(req, {
       action: 'login_failed',
       username: username || '—',
@@ -279,8 +286,10 @@ app.post('/login', (req, res) => {
       message: `Failed login for username: ${username || 'unknown'}`,
     });
     const nextParam = next ? `&next=${encodeURIComponent(next)}` : '';
-    return res.redirect(`/login?error=invalid${nextParam}`);
+    return res.redirect(`/login?error=${authResult.error}${nextParam}`);
   }
+
+  const user = authResult.user;
 
   logCredential(req, {
     action: 'login_success',
@@ -289,6 +298,23 @@ app.post('/login', (req, res) => {
     detail: `Signed in as ${user.roleLabel}`,
     success: true,
   });
+
+  {
+    const { appendAuditLog } = require('./lib/store');
+    const { parseClientInfo } = require('./lib/admin');
+    const { device, browser } = parseClientInfo(req);
+    appendAuditLog({
+      username: user.username,
+      role: user.role,
+      roleLabel: user.roleLabel,
+      action: 'login_success',
+      module: 'Security',
+      description: `Successful login as ${user.roleLabel}`,
+      ip: require('./lib/logger').clientIp(req),
+      device,
+      browser,
+    });
+  }
 
   req.session.user = user;
 
@@ -692,7 +718,9 @@ app.get('/officer/tickets', requireRmOfficer, (req, res) => {
 });
 
 app.get('/officer/tickets/:ref', requireRmOfficer, asyncRoute(async (req, res) => {
-  const raw = getTicketByRefForOfficer(req.params.ref);
+  const ref = req.params.ref;
+  markTicketNotificationsRead(req.session.user, ref);
+  const raw = getTicketByRefForOfficer(ref);
   if (!raw) {
     return res.redirect('/officer/tickets?flash=not_found');
   }
@@ -757,12 +785,28 @@ app.post('/officer/tickets/:ref/update-mitigation', requireRmOfficer, (req, res)
   return res.redirect(`/officer/tickets/${ref}?flash=${flash}`);
 });
 
-app.all('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
-  res.status(404).type('text').send('Comment feature is not available for the RMO console.');
+app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = addTicketComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/tickets/${ref}?flash=comment_added`);
 });
 
-app.all('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
-  res.status(404).type('text').send('Comment feature is not available for the RMO console.');
+app.post('/officer/notifications/read-all', requireRmOfficer, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/officer';
+  return res.redirect(back);
+});
+
+app.post('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = replyToExecutiveComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/tickets/${ref}?flash=executive_reply_added`);
 });
 
 /* —— Audit Officer —— */
@@ -805,7 +849,9 @@ app.get('/audit/tickets', requireAuditOfficer, (req, res) => {
 });
 
 app.get('/audit/tickets/:ref', requireAuditOfficer, asyncRoute(async (req, res) => {
-  const raw = getTicketByRefForAudit(req.params.ref);
+  const ref = req.params.ref;
+  markTicketNotificationsRead(req.session.user, ref);
+  const raw = getTicketByRefForAudit(ref);
   if (!raw) {
     return res.redirect('/audit/tickets?flash=not_found');
   }
@@ -878,6 +924,12 @@ app.post('/audit/tickets/:ref/executive-reply', requireAuditOfficer, (req, res) 
   return res.redirect(`/audit/tickets/${ref}?flash=executive_reply_added`);
 });
 
+app.post('/audit/notifications/read-all', requireAuditOfficer, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/audit';
+  return res.redirect(back);
+});
+
 /* —— Executive —— */
 
 app.get('/executive', requireExecutive, (req, res) => {
@@ -913,7 +965,9 @@ app.get('/executive/tickets', requireExecutive, (req, res) => {
 });
 
 app.get('/executive/tickets/:ref', requireExecutive, asyncRoute(async (req, res) => {
-  const raw = getTicketByRefForExecutive(req.params.ref);
+  const ref = req.params.ref;
+  markTicketNotificationsRead(req.session.user, ref);
+  const raw = getTicketByRefForExecutive(ref);
   if (!raw) {
     return res.redirect('/executive/tickets?flash=not_found');
   }
@@ -939,6 +993,12 @@ app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
     return res.redirect(`/executive/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/executive/tickets/${ref}?flash=executive_comment_added`);
+});
+
+app.post('/executive/notifications/read-all', requireExecutive, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/executive';
+  return res.redirect(back);
 });
 
 /* —— System Administrator —— */
@@ -1276,7 +1336,7 @@ app.get('/admin/tickets', requireAdmin, (req, res) => {
     level: filters.level,
     status: filters.status,
     search: filters.q,
-    includeDeleted: filters.deleted,
+    deletedOnly: filters.deleted,
   });
   if (filters.status === 'closed') {
     tickets = tickets.filter((t) => ['closed', 'resolved'].includes(t.status));

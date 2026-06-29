@@ -1,5 +1,6 @@
 const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
 
 const NAV_ITEMS = [
   { id: 'dashboard', href: '/officer', label: 'Dashboard', icon: 'dashboard' },
@@ -34,8 +35,9 @@ function sidebarNav(activeNav, stats = {}) {
   }).join('');
 }
 
-function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
+function officerAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
+  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/officer/notifications/read-all' });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -80,11 +82,13 @@ function officerAppLayout({ title, user, activeNav, body, stats = {} }) {
     <header class="console-topbar" aria-label="Page toolbar">
       <div class="console-topbar__title">${escapeHtml(title)}</div>
       <div class="console-topbar__actions">
+        ${notifHtml}
         <span class="console-topbar__role-pill">Risk Management Officer</span>
       </div>
     </header>
     <main class="supervisor-main">${body}</main>
   </div>
+  ${NOTIFICATION_PANEL_SCRIPT}
 </body>
 </html>`;
 }

@@ -1,4 +1,4 @@
-const { findUserWithPassword, publicUser } = require('./store');
+const { findUserRecord, publicUser } = require('./store');
 
 function requireAuth(req, res, next) {
   if (req.session?.user) {
@@ -71,11 +71,14 @@ function requireRole(...roles) {
 }
 
 function authenticate(username, password) {
-  const record = findUserWithPassword(username, password);
+  const record = findUserRecord(username);
   if (!record) {
-    return null;
+    return { error: 'invalid_username' };
   }
-  return sessionUser(record);
+  if (record.password !== password) {
+    return { error: 'invalid_password' };
+  }
+  return { user: sessionUser(record) };
 }
 
 function sessionUser(record) {

@@ -3,6 +3,7 @@ const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
 const { flashMessage, commentsSection, executiveCommentsSection } = require('./layout');
 const { auditAppLayout } = require('./audit-layout');
+const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const {
   supPageHead,
@@ -126,8 +127,15 @@ function kpiCard(href, icon, value, label, variant = '') {
   </a>`;
 }
 
-function auditPage({ title, user, activeNav, body, stats = {} }) {
-  return auditAppLayout({ title, user, activeNav, body, stats });
+function auditPage({ title, user, activeNav, body, stats = {}, notifications }) {
+  return auditAppLayout({
+    title,
+    user,
+    activeNav,
+    body,
+    stats,
+    notifications: notifications || layoutNotifications(user),
+  });
 }
 
 function auditOverviewPage(user, stats, flash) {

@@ -22,6 +22,11 @@ const {
   hydrateTicketEvidence,
 } = require('./attachments');
 const attachmentRepo = require('./attachmentRepository');
+const {
+  notifyExecutiveComment,
+  notifyExecutiveReply,
+  notifyPrivateComment,
+} = require('./notifications');
 
 function getStore() {
   const { loadStore, saveStore } = require('./store');
@@ -787,9 +792,9 @@ async function ticketForRole(ticket, role) {
   }
 
   if (role === 'rm_officer') {
-    merged.privateComments = undefined;
-    merged.executiveComments = undefined;
-    merged.comments = undefined;
+    merged.privateComments = ticket.privateComments || [];
+    merged.executiveComments = ticket.executiveComments || [];
+    merged.comments = merged.privateComments;
     merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
     merged.evidence = ticket.evidence || [];
     return merged;
@@ -1183,6 +1188,7 @@ function addExecutiveComment(reference, user, body) {
   ticket.executiveComments.push(record);
   ticket.updatedAt = now;
   saveStore();
+  notifyExecutiveComment(ticket, user);
 
   const { appendReportLog } = require('./store');
   appendReportLog({
@@ -1233,6 +1239,7 @@ function replyToExecutiveComment(reference, user, body) {
   ticket.executiveComments.push(record);
   ticket.updatedAt = now;
   saveStore();
+  notifyExecutiveReply(ticket, user);
 
   const { appendReportLog } = require('./store');
   appendReportLog({
@@ -1307,7 +1314,9 @@ function addTicketComment(reference, user, body) {
   if (!['rm_officer', 'audit_officer'].includes(user.role)) {
     return { error: 'Only the RMO and Audit Officer may post private comments.' };
   }
-  const ticket = getTicketByRefForOfficer(reference);
+  const ticket = user.role === 'audit_officer'
+    ? getTicketByRefForAudit(reference)
+    : getTicketByRefForOfficer(reference);
   if (!ticket) return { error: 'Ticket not found.' };
 
   const text = String(body.comment || body.body || '').trim();
@@ -1329,6 +1338,7 @@ function addTicketComment(reference, user, body) {
   ticket.privateComments.push(record);
   ticket.updatedAt = now;
   saveStore();
+  notifyPrivateComment(ticket, user);
 
   const { appendReportLog } = require('./store');
   appendReportLog({
@@ -1408,9 +1418,12 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
   });
 }
 
-function listTicketsForAdmin({ department, level, status, search, includeDeleted = false } = {}) {
+function listTicketsForAdmin({ department, level, status, search, deletedOnly = false } = {}) {
   const { store } = getStore();
-  let tickets = (store.riskTickets || []).filter((t) => includeDeleted || isVisibleTicket(t));
+  let tickets = store.riskTickets || [];
+  tickets = deletedOnly
+    ? tickets.filter((t) => t.deleted)
+    : tickets.filter((t) => isVisibleTicket(t));
   tickets = tickets.map((t) => {
     const pub = publicTicket(t);
     pub.riskLevel = ticketRiskLevelId(t);
