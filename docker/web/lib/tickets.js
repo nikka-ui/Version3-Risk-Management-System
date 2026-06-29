@@ -614,6 +614,10 @@ function listOfficerReviewQueue() {
   return listTicketsForOfficer().filter((t) => OFFICER_REVIEW_STATUSES.includes(t.status));
 }
 
+function listOfficerAuditReturnedQueue() {
+  return listTicketsForOfficer().filter((t) => t.status === 'audit_returned');
+}
+
 function listOfficerFinalValidationQueue() {
   return listTicketsForOfficer().filter((t) => OFFICER_FINAL_VALIDATION_STATUSES.includes(t.status));
 }
@@ -628,6 +632,8 @@ function getOfficerStats() {
   return {
     total: tickets.length,
     awaitingReview: tickets.filter((t) => OFFICER_REVIEW_STATUSES.includes(t.status)).length,
+    pendingReview: tickets.filter((t) => t.status === 'under_review').length,
+    returnedByAudit: tickets.filter((t) => t.status === 'audit_returned').length,
     awaitingFinalValidation: tickets.filter((t) => OFFICER_FINAL_VALIDATION_STATUSES.includes(t.status))
       .length,
     inMitigation: tickets.filter((t) => t.status === 'in_mitigation').length,
@@ -1526,6 +1532,7 @@ module.exports = {
   getTicketByRefForOfficer,
   listTicketsForOfficer,
   listOfficerReviewQueue,
+  listOfficerAuditReturnedQueue,
   listOfficerFinalValidationQueue,
   listOfficerMonitoringQueue,
   getOfficerStats,

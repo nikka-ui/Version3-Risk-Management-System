@@ -46,6 +46,7 @@ const KPI_ICONS = {
   mitigation: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`,
   overdue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
   closed: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`,
+  returned: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
 };
 
 function kpiCard(href, icon, value, label, variant = '') {
@@ -367,6 +368,7 @@ function officerPageLayout(opts) {
 function quickActionsBar(stats) {
   const actions = [
     { href: '/officer/review', label: 'Review queue', count: stats.awaitingReview },
+    { href: '/officer/review?filter=audit_returned', label: 'Returned by audit', count: stats.returnedByAudit },
     { href: '/officer/final-validation', label: 'Final validation', count: stats.awaitingFinalValidation },
     { href: '/officer/monitoring', label: 'Monitoring', count: stats.inMitigation },
     { href: '/officer/tickets', label: 'All reports', count: stats.total },
@@ -453,7 +455,7 @@ function officerOverviewPage(user, dashboard, flash) {
     </div>
     <div class="sup-kpi-grid sup-kpi-grid--officer">
       ${kpiCard('/officer/tickets', KPI_ICONS.total, stats.total, 'Total reports', 'sup-kpi--accent')}
-      ${kpiCard('/officer/review', KPI_ICONS.review, stats.awaitingReview, 'Pending review')}
+      ${kpiCard('/officer/review', KPI_ICONS.review, stats.pendingReview, 'Pending review')}
       ${kpiCard('/officer/final-validation', KPI_ICONS.final, stats.awaitingFinalValidation, 'Final validation')}
       ${kpiCard('/officer/monitoring', KPI_ICONS.mitigation, stats.inMitigation, 'In mitigation')}
       ${kpiCard('/officer/monitoring', KPI_ICONS.overdue, stats.overdueMitigation, 'Overdue', stats.overdueMitigation ? 'sup-kpi--warn' : '')}
@@ -464,6 +466,7 @@ function officerOverviewPage(user, dashboard, flash) {
           <span class="sup-kpi__label">Closed</span>
         </span>
       </div>
+      ${kpiCard('/officer/review?filter=audit_returned', KPI_ICONS.returned, stats.returnedByAudit, 'Returned by audit', stats.returnedByAudit > 0 ? 'sup-kpi--warn' : '')}
     </div>
     ${quickActionsBar(stats)}
     <div class="officer-dash-grid">
@@ -531,14 +534,19 @@ function queueListPage(user, { title, desc, tickets, flash, error, activeNav, em
 }
 
 function reviewQueuePage(user, tickets, flash, opts = {}) {
+  const auditReturned = opts.filter === 'audit_returned';
   return queueListPage(user, {
-    title: 'Review queue',
-    desc: 'Risk reports submitted by department supervisors awaiting your validation (accept and assign mitigation, or return for revision).',
+    title: auditReturned ? 'Returned by audit' : 'Review queue',
+    desc: auditReturned
+      ? 'Mitigation solutions returned by the Audit Officer. Revise the plan and resubmit for audit review.'
+      : 'Risk reports submitted by department supervisors awaiting your validation (accept and assign mitigation, or return for revision).',
     tickets,
     flash,
     error: opts.error,
     activeNav: 'reports',
-    emptyMessage: 'No tickets awaiting RMO review.',
+    emptyMessage: auditReturned
+      ? 'No tickets returned by the Audit Officer.'
+      : 'No tickets awaiting RMO review.',
     stats: opts.stats,
   });
 }

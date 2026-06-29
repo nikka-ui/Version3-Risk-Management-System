@@ -5,7 +5,7 @@ const FONT_LINKS = `
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">`;
 
 /** Bump this when CSS/JS assets change so browsers fetch the new files. */
-const ASSET_VERSION = '20260709p';
+const ASSET_VERSION = '20260710';
 
 /** Stylesheet link with a cache-busting version query. */
 const STYLESHEET_LINK = `<link rel="stylesheet" href="/css/app.css?v=${ASSET_VERSION}">`;

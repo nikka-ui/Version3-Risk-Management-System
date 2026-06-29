@@ -75,6 +75,7 @@ const {
   getOfficerDashboardData,
   listTicketsForOfficer,
   listOfficerReviewQueue,
+  listOfficerAuditReturnedQueue,
   listOfficerFinalValidationQueue,
   listOfficerMonitoringQueue,
   getTicketByRefForOfficer,
@@ -671,14 +672,17 @@ app.get('/officer', requireRmOfficer, (req, res) => {
 });
 
 app.get('/officer/review', requireRmOfficer, (req, res) => {
+  const filter = req.query.filter === 'audit_returned' ? 'audit_returned' : null;
+  const tickets = filter === 'audit_returned' ? listOfficerAuditReturnedQueue() : listOfficerReviewQueue();
   res.type('html').send(
     reviewQueuePage(
       req.session.user,
-      listOfficerReviewQueue(),
+      tickets,
       flashFromQuery(req.query),
       {
         error: req.query.error ? decodeURIComponent(req.query.error) : null,
         stats: getOfficerStats(),
+        filter,
       },
     ),
   );
