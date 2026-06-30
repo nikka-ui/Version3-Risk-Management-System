@@ -609,17 +609,26 @@ function appendAuditLog(entry) {
 
 function getAuditLogs({ limit = 200, filters = {} } = {}) {
   const store = loadStore();
+  const { auditActionLabel } = require('./admin');
+  const actionLabelOf = (l) => auditActionLabel(l.action || '').toLowerCase();
   let logs = [...(store.auditLogs || [])];
   if (filters.user) {
-    const q = String(filters.user).toLowerCase();
-    logs = logs.filter((l) => l.username?.toLowerCase().includes(q));
+    const q = String(filters.user).trim().toLowerCase();
+    logs = logs.filter(
+      (l) =>
+        l.username?.toLowerCase().includes(q)
+        || l.displayName?.toLowerCase().includes(q)
+        || l.roleLabel?.toLowerCase().includes(q),
+    );
   }
   if (filters.action) {
-    const q = String(filters.action).toLowerCase();
-    logs = logs.filter((l) => l.action?.toLowerCase().includes(q));
+    const q = String(filters.action).trim().toLowerCase();
+    logs = logs.filter(
+      (l) => l.action?.toLowerCase().includes(q) || actionLabelOf(l).includes(q),
+    );
   }
   if (filters.module) {
-    const q = String(filters.module).toLowerCase();
+    const q = String(filters.module).trim().toLowerCase();
     logs = logs.filter((l) => l.module?.toLowerCase().includes(q));
   }
   if (filters.date) {
@@ -627,15 +636,34 @@ function getAuditLogs({ limit = 200, filters = {} } = {}) {
     logs = logs.filter((l) => String(l.at).slice(0, 10) === day);
   }
   if (filters.search) {
-    const q = String(filters.search).toLowerCase();
+    const q = String(filters.search).trim().toLowerCase();
     logs = logs.filter(
       (l) =>
         l.description?.toLowerCase().includes(q)
         || l.username?.toLowerCase().includes(q)
-        || l.action?.toLowerCase().includes(q),
+        || l.module?.toLowerCase().includes(q)
+        || l.action?.toLowerCase().includes(q)
+        || actionLabelOf(l).includes(q),
     );
   }
   return logs.sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, limit);
+}
+
+function getAuditLogFilterOptions() {
+  const store = loadStore();
+  const users = new Set();
+  const actions = new Set();
+  const modules = new Set();
+  for (const l of store.auditLogs || []) {
+    if (l.username) users.add(l.username);
+    if (l.action) actions.add(l.action);
+    if (l.module) modules.add(l.module);
+  }
+  return {
+    users: [...users].sort(),
+    actions: [...actions].sort(),
+    modules: [...modules].sort(),
+  };
 }
 
 function getAuditLogsTodayCount() {
@@ -767,6 +795,7 @@ module.exports = {
   appendAuditLog,
   getAuditLogs,
   getAuditLogsTodayCount,
+  getAuditLogFilterOptions,
   appendNotification,
   getNotifications,
   getNotificationsForUser,

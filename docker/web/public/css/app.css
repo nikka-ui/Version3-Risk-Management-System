@@ -2915,6 +2915,26 @@ a.btn-enterprise-outline:focus {
   box-shadow: inset 3px 0 0 #f59e0b;
 }
 
+.revision-required-hint {
+  display: none;
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+}
+
+.revision-required-hint--visible {
+  display: block;
+}
+
+.revision-blocked-alert {
+  margin-bottom: 1rem;
+}
+
 /* Required field indicators */
 .req {
   color: #dc2626;

@@ -43,9 +43,20 @@ const DEFAULT_SYSTEM_SETTINGS = {
 
 const ADMIN_ASSIGNABLE_ROLES = ['supervisor', 'rm_officer', 'audit_officer', 'executive', 'admin'];
 
+/** Fixed user filter options for Audit Logs (label shown in UI → username stored in logs). */
+const AUDIT_LOG_USER_FILTERS = [
+  { label: 'personnel', username: 'personnel' },
+  { label: 'system admin', username: 'sys-admin' },
+  { label: 'admin', username: 'admin' },
+  { label: 'rm-officer', username: 'rm-officer' },
+  { label: 'executive', username: 'executive' },
+  { label: 'audit officer', username: 'audit-officer' },
+];
+
 module.exports = {
   SEED_DEPARTMENTS,
   SEED_POSITIONS,
   DEFAULT_SYSTEM_SETTINGS,
   ADMIN_ASSIGNABLE_ROLES,
+  AUDIT_LOG_USER_FILTERS,
 };

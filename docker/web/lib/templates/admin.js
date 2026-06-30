@@ -1,5 +1,5 @@
 const { ROLES } = require('../../config/roles');
-const { ADMIN_ASSIGNABLE_ROLES } = require('../../config/admin');
+const { ADMIN_ASSIGNABLE_ROLES, AUDIT_LOG_USER_FILTERS } = require('../../config/admin');
 const { TICKET_STATUSES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { auditActionLabel } = require('../admin');
@@ -62,15 +62,6 @@ function departmentOptionsHtml(departments, selected) {
     .map(
       (d) =>
         `<option value="${escapeHtml(d.name)}" ${selected === d.name ? 'selected' : ''}>${escapeHtml(d.name)}</option>`,
-    )
-    .join('');
-}
-
-function positionOptionsHtml(positions, selected) {
-  return positions
-    .map(
-      (p) =>
-        `<option value="${escapeHtml(p.name)}" ${selected === p.name ? 'selected' : ''}>${escapeHtml(p.name)}</option>`,
     )
     .join('');
 }
@@ -184,7 +175,7 @@ function adminOverviewPage(user, data, flash) {
   return adminPage('Dashboard', user, 'dashboard', body);
 }
 
-function usersPage(user, users, departments, positions, flash, error, { editUser, filters } = {}) {
+function usersPage(user, users, departments, flash, error, { editUser, filters } = {}) {
   const showForm = filters?.action === 'add' || editUser;
   const filterQ = escapeHtml(filters?.q || '');
   const filterRole = filters?.role || '';
@@ -258,11 +249,9 @@ function usersPage(user, users, departments, positions, flash, error, { editUser
                 <option value="">Select department</option>
                 ${departmentOptionsHtml(departments, editUser?.department)}
               </select></div>
-            <div class="field"><label for="position">Position</label>
-              <select id="position" name="position" required>
-                <option value="">Select position</option>
-                ${positionOptionsHtml(positions, editUser?.position)}
-              </select></div>
+            <div class="field"><label for="position">Company Position</label>
+              <input id="position" name="position" type="text" value="${escapeHtml(editUser?.position || '')}"
+                placeholder="e.g. IT Manager, Senior Analyst" required></div>
             <div class="field"><label for="role">User Role</label>
               <select id="role" name="role" required ${editUser?.username === 'admin' ? 'disabled' : ''}>
                 ${roleOptionsHtml(editUser?.role)}
@@ -318,7 +307,7 @@ function usersPage(user, users, departments, positions, flash, error, { editUser
           <thead>
             <tr>
               <th>Employee ID</th><th>Full Name</th><th>Email</th><th>Username</th>
-              <th>Department</th><th>Position</th><th>Role</th><th>Status</th><th>Actions</th>
+              <th>Department</th><th>Company Position</th><th>Role</th><th>Status</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>${rows || '<tr><td colspan="9" class="empty">No users found</td></tr>'}</tbody>
@@ -458,7 +447,7 @@ function positionsPage(user, positions, flash, error, { editPos, showAdd } = {})
     ${error ? flashMessage(error, 'error') : ''}
     ${supPageHead({
       title: 'Position Management',
-      desc: 'Manage job positions available when creating or editing users.',
+      desc: 'Manage job title presets used as reference labels across the system.',
       actionHtml: '<a href="/admin/positions?action=add" class="sup-btn-primary">+ Add Position</a>',
     })}
     ${form}
@@ -595,7 +584,14 @@ function ticketDetailPage(user, ticket, flash) {
   return adminPage('Ticket Details', user, 'tickets', body);
 }
 
-function auditLogsPage(user, logs, flash, filters = {}) {
+function auditLogsPage(user, logs, flash, filters = {}, options = {}) {
+  const userOpts = AUDIT_LOG_USER_FILTERS.map(
+    (u) =>
+      `<option value="${escapeHtml(u.username)}" ${filters.user === u.username ? 'selected' : ''}>${escapeHtml(u.label)}</option>`,
+  ).join('');
+  const moduleOpts = (options.modules || [])
+    .map((m) => `<option value="${escapeHtml(m)}" ${filters.module === m ? 'selected' : ''}>${escapeHtml(m)}</option>`)
+    .join('');
   const rows = logs
     .map(
       (l) => `<tr>
@@ -626,10 +622,11 @@ function auditLogsPage(user, logs, flash, filters = {}) {
     <form method="get" action="/admin/audit-logs" class="admin-filter-bar">
       <input type="search" name="q" placeholder="Search logs…" value="${escapeHtml(filters.q || '')}">
       <input type="date" name="date" value="${escapeHtml(filters.date || '')}" aria-label="Filter by date">
-      <input type="text" name="user" placeholder="User" value="${escapeHtml(filters.user || '')}">
-      <input type="text" name="action" placeholder="Action" value="${escapeHtml(filters.action || '')}">
-      <input type="text" name="module" placeholder="Module" value="${escapeHtml(filters.module || '')}">
+      <select name="user" aria-label="Filter by user"><option value="">All users</option>${userOpts}</select>
+      <input type="text" name="action" placeholder="Action" value="${escapeHtml(filters.action || '')}" aria-label="Filter by action">
+      <select name="module" aria-label="Filter by module"><option value="">All modules</option>${moduleOpts}</select>
       <button type="submit" class="btn-outline">Filter</button>
+      <a href="/admin/audit-logs" class="btn-outline">Reset</a>
     </form>
     <section class="sup-card sup-card--table admin-printable">
       <div class="table-wrap">

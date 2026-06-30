@@ -45,7 +45,9 @@ const KPI_ICONS = {
   tickets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
   action: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`,
+  returned: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
   overdue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  closed: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>`,
   done: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
 };
 
@@ -140,7 +142,9 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
       ${kpiCard('/supervisor/tickets', KPI_ICONS.tickets, stats.total, 'My tickets')}
       ${kpiCard('/supervisor/tickets?filter=draft', KPI_ICONS.drafts, stats.drafts, 'Drafts')}
       ${kpiCard('/supervisor/actions', KPI_ICONS.action, stats.actionRequired, 'Action required', 'sup-kpi--accent')}
+      ${kpiCard('/supervisor/tickets?filter=returned', KPI_ICONS.returned, stats.returned, 'Returned by RMO', stats.returned > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/supervisor/tickets', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue > 0 ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/supervisor/tickets?filter=closed', KPI_ICONS.closed, stats.closed, 'Closed')}
       ${kpiCard('/supervisor/accomplishments', KPI_ICONS.done, stats.accomplishments, 'Accomplishments')}
     </div>
     <section class="sup-card sup-card--table">
@@ -169,14 +173,21 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
 }
 
 function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {}) {
+  const isClosedStatus = (t) => ['closed', 'resolved'].includes(t.status);
   const filtered =
     filter === 'draft'
       ? tickets.filter((t) => t.status === 'draft')
-      : filter === 'submitted'
-        ? tickets.filter((t) => t.status !== 'draft')
-        : tickets;
+      : filter === 'returned'
+        ? tickets.filter((t) => t.status === 'returned')
+        : filter === 'closed'
+          ? tickets.filter(isClosedStatus)
+          : filter === 'submitted'
+            ? tickets.filter((t) => t.status !== 'draft')
+            : tickets;
   const rows = ticketTableRows(filtered, { showActions: true });
   const draftCount = tickets.filter((t) => t.status === 'draft').length;
+  const returnedCount = tickets.filter((t) => t.status === 'returned').length;
+  const closedCount = tickets.filter(isClosedStatus).length;
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(decodeURIComponent(error), 'error') : ''}
@@ -190,7 +201,9 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
     <div class="ticket-filters console-quick-actions">
       <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All <span class="filter-pill__count">${tickets.length}</span></a>
       <a href="/supervisor/tickets?filter=draft" class="filter-pill ${filter === 'draft' ? 'active' : ''}">Drafts <span class="filter-pill__count">${draftCount}</span></a>
+      <a href="/supervisor/tickets?filter=returned" class="filter-pill ${filter === 'returned' ? 'active' : ''}">Returned by RMO <span class="filter-pill__count">${returnedCount}</span></a>
       <a href="/supervisor/tickets?filter=submitted" class="filter-pill ${filter === 'submitted' ? 'active' : ''}">Submitted <span class="filter-pill__count">${tickets.length - draftCount}</span></a>
+      <a href="/supervisor/tickets?filter=closed" class="filter-pill ${filter === 'closed' ? 'active' : ''}">Closed <span class="filter-pill__count">${closedCount}</span></a>
     </div>
     <section class="sup-card sup-card--table">
       <div class="table-wrap">
@@ -248,7 +261,7 @@ function fiveW1HFields(ticket, editable) {
   </div>`;
 }
 
-function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} }) {
+function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const t = ticket || {};
   const ref = t.reference || '';
 
@@ -302,7 +315,11 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
         ${fiveW1HFields(t, false)}
       </section>`;
 
-  const evidenceSectionHtml = evidenceSection(t, { attachmentBasePath: '/supervisor/attachments' });
+  const evidenceSectionHtml = evidenceSection(t, {
+    attachmentBasePath: '/supervisor/attachments',
+    theme: 'console',
+    interactive: true,
+  });
 
   const showAccomplishment = canSupervisorSubmitAccomplishment(t);
   const existingEvidenceCount = (t.evidence || []).filter((e) => e.storageKey || !e.legacy).length;
@@ -316,13 +333,145 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
               ? 'Required — upload at least one supporting file (PDF, PNG, or JPG) before submitting your accomplishment report.'
               : 'Upload PDF, PNG, or JPG files (max 20MB each).'
           }</p>
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form" enctype="multipart/form-data">
-            <div class="field${showAccomplishment ? ' field--required' : ''}">
-              <label for="addEvidenceFiles">${showAccomplishment ? 'Files *' : 'Files'}</label>
-              <input id="addEvidenceFiles" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" required>
+          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form" id="addEvidenceForm" enctype="multipart/form-data" novalidate>
+            <div class="upload-zone" id="addEvDropzone" role="button" tabindex="0" aria-label="Upload evidence files">
+              <div class="upload-icon" aria-hidden="true">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 16V4" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M7 9L12 4L17 9" stroke="#476C9B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M20 16.5C19.2 18.7 17.2 20 15 20H9C6.8 20 4.8 18.7 4 16.5" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <p class="upload-title">Drag and drop files here</p>
+              <p class="upload-sub">Accepted types: PDF, PNG, JPG (max 20MB)</p>
+              <button type="button" class="btn-outline btn-upload" id="addEvBrowseBtn">Browse files</button>
+              <input id="addEvFileInput" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" style="display:none">
             </div>
-            <button type="submit" class="btn-sm">Upload files</button>
+            <div class="upload-pending-wrap" id="addEvPending" hidden>
+              <div class="upload-pending-head">
+                <span class="upload-pending-badge" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+                <span class="upload-pending-label">New files ready to upload</span>
+              </div>
+              <ul class="upload-preview upload-preview--pending" id="addEvPreview"></ul>
+            </div>
+            <div class="upload-message" id="addEvMessage" role="status"></div>
+            <button type="submit" class="btn-primary btn-primary--auto" id="addEvSubmitBtn" disabled>Upload files</button>
           </form>
+          <script>
+            (function () {
+              const form = document.getElementById('addEvidenceForm');
+              if (!form) return;
+              const dropzone = document.getElementById('addEvDropzone');
+              const browseBtn = document.getElementById('addEvBrowseBtn');
+              const fileInput = document.getElementById('addEvFileInput');
+              const pending = document.getElementById('addEvPending');
+              const preview = document.getElementById('addEvPreview');
+              const message = document.getElementById('addEvMessage');
+              const submitBtn = document.getElementById('addEvSubmitBtn');
+              const allowedExt = new Set(['pdf', 'png', 'jpg', 'jpeg']);
+              let selectedFiles = [];
+
+              function syncInput() {
+                const dt = new DataTransfer();
+                selectedFiles.forEach((f) => dt.items.add(f));
+                fileInput.files = dt.files;
+              }
+
+              function setMessage(msg, type) {
+                message.textContent = msg || '';
+                message.className = 'upload-message';
+                if (type === 'error') message.classList.add('upload-message--error');
+                if (type === 'ok') message.classList.add('upload-message--ok');
+              }
+
+              function notify(msg, type) {
+                setMessage(msg, type);
+                if (window.showAppToast) window.showAppToast(msg, type === 'error' ? 'error' : 'success');
+              }
+
+              function render() {
+                preview.innerHTML = '';
+                if (!selectedFiles.length) {
+                  pending.hidden = true;
+                  submitBtn.disabled = true;
+                  return;
+                }
+                pending.hidden = false;
+                submitBtn.disabled = false;
+                selectedFiles.forEach((f, idx) => {
+                  const li = document.createElement('li');
+                  li.className = 'upload-preview-item upload-preview-item--pending';
+                  li.innerHTML =
+                    '<span class="upload-pending-item-icon" aria-hidden="true">' +
+                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                    '<path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+                    '</svg></span>' +
+                    '<span class="upload-name"></span>' +
+                    '<span class="upload-meta"></span>' +
+                    '<button type="button" class="upload-remove-btn">Remove</button>';
+                  li.querySelector('.upload-name').textContent = f.name;
+                  li.querySelector('.upload-meta').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB · Ready to upload';
+                  li.querySelector('.upload-remove-btn').addEventListener('click', () => {
+                    selectedFiles.splice(idx, 1);
+                    syncInput();
+                    render();
+                    if (!selectedFiles.length) setMessage('', null);
+                  });
+                  preview.appendChild(li);
+                });
+              }
+
+              function validate(file) {
+                const parts = String(file.name || '').toLowerCase().split('.');
+                const ext = parts.length > 1 ? parts[parts.length - 1] : '';
+                if (!allowedExt.has(ext)) return { ok: false, reason: 'Unsupported file type: ' + ext.toUpperCase() };
+                if (file.size > 20 * 1024 * 1024) return { ok: false, reason: 'File exceeds 20MB: ' + file.name };
+                return { ok: true };
+              }
+
+              function addFiles(files) {
+                const arr = Array.from(files || []);
+                const before = selectedFiles.length;
+                const names = [];
+                for (const f of arr) {
+                  const v = validate(f);
+                  if (!v.ok) { notify(v.reason, 'error'); continue; }
+                  selectedFiles.push(f);
+                  names.push(f.name);
+                }
+                selectedFiles = selectedFiles.slice(0, 10);
+                const added = selectedFiles.length - before;
+                syncInput();
+                render();
+                if (added > 0) {
+                  notify(added === 1 ? '"' + names[names.length - 1] + '" added — ready to upload' : added + ' file(s) added — ready to upload', 'ok');
+                  dropzone.classList.add('upload-zone--success');
+                  setTimeout(() => dropzone.classList.remove('upload-zone--success'), 2000);
+                }
+              }
+
+              browseBtn.addEventListener('click', () => fileInput.click());
+              dropzone.addEventListener('click', (e) => { if (e.target === dropzone) fileInput.click(); });
+              dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+              fileInput.addEventListener('change', (e) => { addFiles(e.target.files); });
+              ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+              ['dragleave', 'drop'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+              dropzone.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
+
+              form.addEventListener('submit', (e) => {
+                if (!selectedFiles.length) {
+                  e.preventDefault();
+                  notify('Select at least one file to upload.', 'error');
+                  return;
+                }
+                syncInput();
+              });
+            })();
+          </script>
         </section>`
       : '';
 
@@ -394,14 +543,6 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
         </section>`
       : '';
 
-  const devMitigation =
-    devMode && t.status === 'under_review'
-      ? `<form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/simulate-mitigation" class="dev-banner">
-          <p class="text-muted">Development: simulate RMO approval to test implementation workflow.</p>
-          <button type="submit" class="btn-outline">Assign mitigation (demo)</button>
-        </form>`
-      : '';
-
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
@@ -418,8 +559,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, devMode, stats = {} 
     ${supervisorFeedbackBlock}
     ${evidenceSectionHtml}
     ${addEvidenceForm}
-    ${accomplishmentForm}
-    ${devMitigation}`;
+    ${accomplishmentForm}`;
 
   return supervisorPage(ref, user, 'tickets', body, stats);
 }
@@ -591,6 +731,12 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           <div class="upload-message" id="uploadMessage" role="status"></div>
         </section>
 
+        ${
+          isRevise
+            ? `<p class="revision-required-hint" id="revisionRequiredHint" role="status">Make at least one change to the report details or evidence before continuing.</p>`
+            : ''
+        }
+
         <div class="enterprise-actions enterprise-actions--split">
           ${isEdit ? '<a href="/supervisor/tickets" class="btn-enterprise-outline">Back to My Tickets</a>' : ''}
           <button type="submit" id="nextBtn" class="btn-enterprise-primary btn-enterprise-next" disabled>
@@ -619,6 +765,18 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         const pendingUploads = document.getElementById('pendingUploads');
         const uploadMessage = document.getElementById('uploadMessage');
         const aiLoading = document.getElementById('aiLoading');
+        const isReviseMode = ${isRevise ? 'true' : 'false'};
+        const initialSnapshot = ${JSON.stringify({
+          title: t.title || '',
+          department: t.department || '',
+          location: t.location || '',
+          what: w.what || '',
+          why: w.why || '',
+          where: w.where || '',
+          when: w.when || '',
+          who: w.who || '',
+          how: w.how || '',
+        })};
 
         let selectedFiles = [];
         const allowedExt = new Set(['pdf','png','jpg','jpeg']);
@@ -724,6 +882,23 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           if (wrap) wrap.classList.toggle('field--invalid', invalid);
         }
 
+        function isFormDirty() {
+          if (!isReviseMode) return true;
+          if (selectedFiles.length > 0) return true;
+          if (document.querySelectorAll('input[name="removeAttachmentIds"]:checked').length > 0) return true;
+          return (
+            document.getElementById('title').value.trim() !== initialSnapshot.title ||
+            document.getElementById('department').value.trim() !== initialSnapshot.department ||
+            document.getElementById('location').value.trim() !== initialSnapshot.location ||
+            document.getElementById('what').value.trim() !== initialSnapshot.what ||
+            document.getElementById('why').value.trim() !== initialSnapshot.why ||
+            document.getElementById('where').value.trim() !== initialSnapshot.where ||
+            document.getElementById('when').value.trim() !== initialSnapshot.when ||
+            document.getElementById('who').value.trim() !== initialSnapshot.who ||
+            document.getElementById('how').value.trim() !== initialSnapshot.how
+          );
+        }
+
         function updateRequiredIndicators() {
           const title = document.getElementById('title').value.trim();
           const department = document.getElementById('department').value.trim();
@@ -731,6 +906,8 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           const what = document.getElementById('what').value.trim();
           const why = document.getElementById('why').value.trim();
           const evCount = selectedFiles.length + countSavedNotRemoved();
+          const revised = isFormDirty();
+          const revisionHint = document.getElementById('revisionRequiredHint');
 
           setFieldInvalid('title', !title);
           setFieldInvalid('department', !department);
@@ -742,8 +919,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           const evidenceSection = document.getElementById('evidenceSection');
           if (evidenceSection) evidenceSection.classList.toggle('field--invalid', evidenceMissing);
           dropzone.classList.toggle('upload-zone--invalid', evidenceMissing);
+          if (revisionHint) {
+            revisionHint.classList.toggle('revision-required-hint--visible', isReviseMode && !revised);
+          }
 
-          const ready = title && department && location && what && why && !evidenceMissing;
+          const ready = title && department && location && what && why && !evidenceMissing && revised;
           nextBtn.disabled = !ready;
           if (ready) nextBtn.classList.add('btn-enterprise-next-ready');
           else nextBtn.classList.remove('btn-enterprise-next-ready');
@@ -780,7 +960,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         });
 
         // Smart validation as the user types.
-        ['title','department','location','what','why'].forEach(id => {
+        ['title','department','location','what','why','where','when','who','how'].forEach(id => {
           const el = document.getElementById(id);
           if (!el) return;
           el.addEventListener('input', updateNextState);
@@ -794,6 +974,9 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         riskForm.addEventListener('submit', (e) => {
           if (nextBtn.disabled) {
             e.preventDefault();
+            if (isReviseMode && !isFormDirty() && window.showAppToast) {
+              window.showAppToast('Make at least one change to the report or evidence before continuing.', 'error');
+            }
             return;
           }
           syncInputFiles();
@@ -808,7 +991,8 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
   return supervisorPage(isRevise ? 'Revise report' : isEdit ? 'Edit draft' : 'New report', user, isRevise ? 'actions' : isEdit ? 'tickets' : 'new', body, stats);
 }
 
-function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, showUploadToast = false } = {}) {
+function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, showUploadToast = false, revisionBlocked = false } = {}) {
+  const isRevise = ticket?.status === 'returned';
   const ai = ticket?.ai || {};
   const riskCategoryLabel = getCategoryLabel(ai.riskCategory || ticket?.category);
   const riskLevel = ai.riskLevel || riskLevelFromSeverityLocal(ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2);
@@ -816,12 +1000,23 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
+    ${
+      revisionBlocked
+        ? `<div class="rmo-feedback-alert revision-blocked-alert" role="alert">
+            <div class="rmo-feedback-alert__body">
+              <p class="rmo-feedback-alert__title">Revision required</p>
+              <p class="rmo-feedback-alert__message">No changes were detected since this ticket was returned. Go back, update the report details or evidence, then return to submit.</p>
+              <p class="rmo-feedback-alert__hint"><a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit">Edit returned report</a></p>
+            </div>
+          </div>`
+        : ''
+    }
     <div class="enterprise-module">
       <div class="enterprise-top">
         ${progressSteps(2)}
         <div class="enterprise-title">
-          <h1>NEW RISK REPORT</h1>
-          <p class="page-desc">AI preview generated from your incident details. Review and submit when ready.</p>
+          <h1>${isRevise ? 'REVISE RISK REPORT' : 'NEW RISK REPORT'}</h1>
+          <p class="page-desc">${isRevise ? 'Review your updates and resubmit to the RMO when ready.' : 'AI preview generated from your incident details. Review and submit when ready.'}</p>
         </div>
       </div>
 
@@ -886,28 +1081,32 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </span>
-            REVIEW &amp; SUBMISSION
+            ${isRevise ? 'FINAL STEP: RESUBMIT TO RMO' : 'REVIEW &amp; SUBMISSION'}
           </h2>
-          <p class="section-hint">Ensure the information is accurate. You will submit this report for Risk Management Officer review.</p>
+          <p class="section-hint">${
+            isRevise
+              ? 'This is the final step. Confirm and click "Resubmit to RMO" to send your revised report back for review — it will not return to the officer until you do.'
+              : 'Ensure the information is accurate. You will submit this report for Risk Management Officer review.'
+          }</p>
         </div>
 
         <form method="post" action="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/submit" class="submit-report-form" id="submitForm" novalidate>
           <div class="review-confirm" id="reviewConfirmBox">
             <label class="confirm-check" id="confirmCheckLabel">
               <input type="checkbox" id="confirmBox" name="confirmBox" value="1" aria-describedby="reviewConfirmHint">
-              <span>I confirm that the information provided is accurate.</span>
+              <span>I confirm that the information provided is accurate${isRevise ? ' and ready to resubmit to the RMO' : ''}.</span>
             </label>
-            <p class="review-confirm-hint" id="reviewConfirmHint">Required — check this box to enable Submit Report.</p>
+            <p class="review-confirm-hint" id="reviewConfirmHint">Required — check this box to enable ${isRevise ? 'Resubmit to RMO' : 'Submit Report'}.</p>
             <div class="review-note text-muted">Ticket: <span class="mono">${escapeHtml(ticket.reference)}</span></div>
           </div>
 
           <div class="enterprise-actions enterprise-actions--split review-submission-actions">
             <div class="enterprise-actions__group">
-              <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">Edit Draft</a>
-              <button type="submit" formaction="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" formmethod="post" class="btn-enterprise-outline">Save Draft</button>
+              <a href="/supervisor/tickets/${escapeHtml(ticket.reference)}/edit" class="btn-enterprise-outline">${isRevise ? 'Back to edit' : 'Edit Draft'}</a>
+              ${isRevise ? '' : `<button type="submit" formaction="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" formmethod="post" class="btn-enterprise-outline">Save Draft</button>`}
             </div>
             <button type="button" class="btn-enterprise-primary btn-enterprise-submit btn-enterprise-primary--inactive" id="submitBtn">
-              Submit Report
+              ${isRevise ? 'Resubmit to RMO' : 'Submit Report'}
             </button>
             <button type="submit" id="submitBtnNative" class="visually-hidden" tabindex="-1" aria-hidden="true">Submit</button>
           </div>
@@ -917,6 +1116,8 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
 
     <script>
       (function () {
+        const revisionBlocked = ${revisionBlocked ? 'true' : 'false'};
+        const submitVerb = ${isRevise ? "'Resubmit to RMO'" : "'Submit Report'"};
         const confirmBox = document.getElementById('confirmBox');
         const confirmLabel = document.getElementById('confirmCheckLabel');
         const submitBtn = document.getElementById('submitBtn');
@@ -952,9 +1153,10 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
         }
 
         function update() {
-          const checked = confirmBox.checked;
+          const checked = confirmBox.checked && !revisionBlocked;
           submitBtn.classList.toggle('btn-enterprise-primary--inactive', !checked);
           submitBtn.setAttribute('aria-disabled', checked ? 'false' : 'true');
+          submitBtn.disabled = revisionBlocked;
           if (reviewSection) {
             reviewSection.classList.toggle('review-submission-section--pending', !checked);
             reviewSection.classList.toggle('review-submission-section--confirmed', checked);
@@ -965,13 +1167,21 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
           }
           if (reviewHint) {
             reviewHint.classList.remove('review-confirm-hint--error');
-            reviewHint.textContent = checked
-              ? 'Confirmed — you may submit this report.'
-              : 'Required — check this box to enable Submit Report.';
+            reviewHint.textContent = revisionBlocked
+              ? 'Update the returned report before submitting.'
+              : checked
+                ? 'Confirmed — click "' + submitVerb + '" to send it now.'
+                : 'Required — check this box to enable ' + submitVerb + '.';
           }
         }
 
         submitBtn.addEventListener('click', function () {
+          if (revisionBlocked) {
+            if (window.showAppToast) {
+              window.showAppToast('Update the returned report before submitting.', 'error');
+            }
+            return;
+          }
           if (!confirmBox.checked) {
             triggerPulse();
             return;
@@ -981,6 +1191,10 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
 
         submitForm.addEventListener('submit', function (e) {
           const submitter = e.submitter;
+          if (revisionBlocked) {
+            e.preventDefault();
+            return;
+          }
           if (submitter && submitter.id === 'submitBtnNative' && !confirmBox.checked) {
             e.preventDefault();
             triggerPulse();

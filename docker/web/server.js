@@ -68,6 +68,8 @@ const {
   addEvidence,
   submitAccomplishment,
   assignMitigationForDemo,
+  hasRevisionSinceReturn,
+  ensureReturnRevisionBaseline,
   findAttachmentForUser,
   canSupervisorDraftCrud,
   canSupervisorReviseReport,
@@ -138,6 +140,7 @@ const {
   updatePosition,
   deletePosition,
   getAuditLogs,
+  getAuditLogFilterOptions,
   getSystemSettings,
   updateSystemSettings,
 } = require('./lib/store');
@@ -446,6 +449,9 @@ app.get('/supervisor/tickets/:ref/edit', requireSupervisor, asyncRoute(async (re
     return res.redirect('/supervisor/tickets?error=' + encodeURIComponent('This ticket cannot be revised.'));
   }
   await hydrateTicketEvidence(ticket);
+  if (ensureReturnRevisionBaseline(ticket)) {
+    saveStore();
+  }
   const mode = ticket.status === 'returned' ? 'revise' : 'edit';
   return res.type('html').send(
     newRiskReportStep1Page(user, ticket.reference, {
@@ -502,12 +508,16 @@ app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, asyncRoute(as
     return res.redirect('/supervisor/tickets/new?flash=not_found');
   }
   await hydrateTicketEvidence(ticket);
+  if (ensureReturnRevisionBaseline(ticket)) {
+    saveStore();
+  }
   res.type('html').send(
     newRiskReportPreviewPage(user, ticket, {
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       stats: supervisorStats(user.username),
       showUploadToast: req.query.flash === 'evidence_uploaded',
+      revisionBlocked: ticket.status === 'returned' && !hasRevisionSinceReturn(ticket),
     }),
   );
 }));
@@ -551,7 +561,6 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
       mode: 'view',
       flash: flashFromQuery(req.query),
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
-      devMode: isDev,
       stats: supervisorStats(user.username),
     }),
   );
@@ -1048,7 +1057,6 @@ app.get('/admin/users', requireAdmin, (req, res) => {
       req.session.user,
       users,
       listDepartments(),
-      listPositions(),
       flashFromQuery(req.query),
       req.query.error ? decodeURIComponent(req.query.error) : null,
       { filters: req.query },
@@ -1064,7 +1072,6 @@ app.get('/admin/users/:username/edit', requireAdmin, (req, res) => {
       req.session.user,
       listUsers({ includeInactive: true }),
       listDepartments(),
-      listPositions(),
       flashFromQuery(req.query),
       req.query.error ? decodeURIComponent(req.query.error) : null,
       { editUser, filters: req.query },
@@ -1394,7 +1401,8 @@ app.get('/admin/audit-logs', requireAdmin, (req, res) => {
     module: req.query.module,
   };
   const logs = getAuditLogs({ limit: 300, filters });
-  res.type('html').send(auditLogsPage(req.session.user, logs, flashFromQuery(req.query), filters));
+  const options = getAuditLogFilterOptions();
+  res.type('html').send(auditLogsPage(req.session.user, logs, flashFromQuery(req.query), filters, options));
 });
 
 app.get('/admin/audit-logs/export', requireAdmin, (req, res) => {

@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const {
   DEFAULT_DEPARTMENT,
   TICKET_STATUSES,
@@ -271,7 +273,9 @@ function getSupervisorStats(username) {
     drafts: tickets.filter((t) => t.status === 'draft').length,
     active: tickets.filter((t) => !['draft', 'closed', 'resolved'].includes(t.status)).length,
     actionRequired: tickets.filter((t) => SUPERVISOR_ACTION_STATUSES.includes(t.status)).length,
+    returned: tickets.filter((t) => t.status === 'returned').length,
     overdue: tickets.filter((t) => t.isOverdue).length,
+    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
     accomplishments: accomplishments.length,
   };
 }
@@ -323,6 +327,46 @@ function parseRemoveAttachmentIds(body) {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function buildTicketRevisionPayload(ticket) {
+  const w = ticket?.fiveW1H || {};
+  return {
+    title: String(ticket?.title || '').trim(),
+    department: String(ticket?.department || '').trim(),
+    location: String(ticket?.location || '').trim(),
+    mitigationApproach: String(ticket?.mitigationApproach || '').trim(),
+    what: String(w.what || '').trim(),
+    why: String(w.why || '').trim(),
+    where: String(w.where || '').trim(),
+    when: String(w.when || '').trim(),
+    who: String(w.who || '').trim(),
+    how: String(w.how || '').trim(),
+    evidenceIds: (ticket?.evidence || []).map((e) => e.id).sort(),
+  };
+}
+
+function hashTicketRevision(ticket) {
+  return crypto.createHash('sha256').update(JSON.stringify(buildTicketRevisionPayload(ticket))).digest('hex');
+}
+
+function hasRevisionSinceReturn(ticket) {
+  if (ticket?.status !== 'returned') return true;
+  if (!ticket.returnRevisionHash) return true;
+  return hashTicketRevision(ticket) !== ticket.returnRevisionHash;
+}
+
+function captureReturnRevisionSnapshot(ticket) {
+  ticket.returnedAt = new Date().toISOString();
+  ticket.returnRevisionHash = hashTicketRevision(ticket);
+}
+
+function ensureReturnRevisionBaseline(ticket) {
+  if (ticket?.status === 'returned' && !ticket.returnRevisionHash) {
+    captureReturnRevisionSnapshot(ticket);
+    return true;
+  }
+  return false;
 }
 
 function mockAiClassification(ticket) {
@@ -503,6 +547,13 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
   ticket.riskScore = ticket.likelihood * ticket.impact;
   ticket.ai = ai;
   ticket.updatedAt = new Date().toISOString();
+
+  if (!draftOnly && ticket.status === 'returned' && !hasRevisionSinceReturn(ticket)) {
+    return {
+      error: 'You must update the report details or evidence before resubmitting to the RMO.',
+    };
+  }
+
   saveStore();
   return { ticket: publicTicket(ticket) };
 }
@@ -530,6 +581,11 @@ function submitTicket(reference, username, displayName) {
   if (!canSupervisorEdit(ticket) && ticket.status !== 'draft' && ticket.status !== 'returned') {
     return { error: 'This ticket cannot be submitted.' };
   }
+  if (ticket.status === 'returned' && !hasRevisionSinceReturn(ticket)) {
+    return {
+      error: 'You must update the report details or evidence before resubmitting to the RMO.',
+    };
+  }
 
   const now = new Date().toISOString();
   // If the supervisor already generated an AI preview, keep it unless the draft was edited.
@@ -545,6 +601,8 @@ function submitTicket(reference, username, displayName) {
   if (wasReturned) {
     ticket.officerNotes = null;
     ticket.mitigationDueAt = null;
+    ticket.returnRevisionHash = null;
+    ticket.returnedAt = null;
   }
   ticket.submittedAt = ticket.submittedAt || now;
   ticket.updatedAt = now;
@@ -852,6 +910,7 @@ function rejectTicketForOfficer(reference, username, body) {
   ticket.status = 'returned';
   ticket.officerNotes = notes;
   ticket.mitigationDueAt = null;
+  captureReturnRevisionSnapshot(ticket);
   ticket.updatedAt = now;
   saveStore();
   logOfficerAction(ticket, username, 'returned_for_revision');
@@ -1519,6 +1578,8 @@ module.exports = {
   canSupervisorReviseReport,
   canSupervisorEdit,
   canSupervisorSubmitAccomplishment,
+  hasRevisionSinceReturn,
+  ensureReturnRevisionBaseline,
   findAttachmentForUser,
   createTicket,
   updateTicketDraft,
