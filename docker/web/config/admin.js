@@ -7,7 +7,8 @@ const SEED_DEPARTMENTS = [
   { code: 'IT', name: 'Information Technology', description: 'IT infrastructure and systems', status: 'active' },
   { code: 'HR', name: 'Human Resources', description: 'Human resources and talent management', status: 'active' },
   { code: 'BD', name: 'Business Development', description: 'Business development and partnerships', status: 'active' },
-  { code: 'CC', name: 'Credit and Collection', description: 'Credit and collections', status: 'active' },
+  { code: 'RMO', name: 'RMO', description: 'Risk Management Office', status: 'active' },
+  { code: 'PCEO', name: 'PCEO', description: 'President and Chief Executive Office', status: 'active' },
   { code: 'IA', name: 'Internal Audit', description: 'Internal audit and assurance', status: 'active' },
 ];
 

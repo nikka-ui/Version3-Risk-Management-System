@@ -126,6 +126,47 @@ function loadStore() {
       cache.departments = seedDepartments(now);
       migrated = true;
     }
+    const ccDept = (cache.departments || []).find(
+      (d) => d.active !== false && (d.code === 'CC' || d.name === 'Credit and Collection'),
+    );
+    if (ccDept) {
+      ccDept.active = false;
+      ccDept.status = 'inactive';
+      ccDept.updatedAt = now;
+      migrated = true;
+    }
+    const hasRmoDept = (cache.departments || []).some((d) => d.active !== false && d.name === 'RMO');
+    if (!hasRmoDept) {
+      if (!cache.departments) cache.departments = [];
+      cache.departments.push({
+        id: `dept-rmo-${Date.now()}`,
+        name: 'RMO',
+        code: 'RMO',
+        description: 'Risk Management Office',
+        head: null,
+        status: 'active',
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      migrated = true;
+    }
+    const hasPceoDept = (cache.departments || []).some((d) => d.active !== false && d.name === 'PCEO');
+    if (!hasPceoDept) {
+      if (!cache.departments) cache.departments = [];
+      cache.departments.push({
+        id: `dept-pceo-${Date.now()}`,
+        name: 'PCEO',
+        code: 'PCEO',
+        description: 'President and Chief Executive Office',
+        head: null,
+        status: 'active',
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      migrated = true;
+    }
     if (!cache.positions?.length) {
       cache.positions = SEED_POSITIONS.map((name, i) => ({
         id: `pos-${i + 1}`,
