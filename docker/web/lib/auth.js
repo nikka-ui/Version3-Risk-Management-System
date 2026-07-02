@@ -23,7 +23,17 @@ function requireSupervisor(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'supervisor') {
-    return res.status(403).send('Department Supervisor access only.');
+    return res.status(403).send('Ticket Reporter access only.');
+  }
+  return next();
+}
+
+function requireDeptHead(req, res, next) {
+  if (!req.session?.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'dept_head') {
+    return res.status(403).send('Department Head / Vice President access only.');
   }
   return next();
 }
@@ -33,7 +43,7 @@ function requireRmOfficer(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'rm_officer') {
-    return res.status(403).send('Risk Management Officer access only.');
+    return res.status(403).send('Risk Governance Office (RMU) access only.');
   }
   return next();
 }
@@ -43,7 +53,7 @@ function requireAuditOfficer(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'audit_officer') {
-    return res.status(403).send('Audit Officer access only.');
+    return res.status(403).send('Compliance Officer access only.');
   }
   return next();
 }
@@ -53,7 +63,17 @@ function requireExecutive(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'executive') {
-    return res.status(403).send('Executive access only.');
+    return res.status(403).send('Executive Committee access only.');
+  }
+  return next();
+}
+
+function requirePresident(req, res, next) {
+  if (!req.session?.user) {
+    return res.redirect('/login');
+  }
+  if (req.session.user.role !== 'president') {
+    return res.status(403).send('President access only.');
   }
   return next();
 }
@@ -108,9 +128,11 @@ module.exports = {
   requireAuth,
   requireAdmin,
   requireSupervisor,
+  requireDeptHead,
   requireRmOfficer,
   requireAuditOfficer,
   requireExecutive,
+  requirePresident,
   requireRole,
   authenticate,
   sessionUser,

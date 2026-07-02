@@ -66,6 +66,44 @@ function fiveW1HReadonly(ticket) {
   </div>`;
 }
 
+function departmentPlanSection(ticket) {
+  const plan = ticket.actionPlan;
+  const people = ticket.personnel || [];
+  const updates = ticket.progressUpdates || [];
+  if (!plan && !people.length && !updates.length) return '';
+
+  const planHtml = plan
+    ? `<p class="sup-detail-desc">${escapeHtml(plan.summary)}</p>
+        ${(plan.steps || []).length ? `<ol class="dept-plan__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+        <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))} by ${escapeHtml(plan.updatedByName || '—')}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}</p>`
+    : '<p class="sup-muted-block">The department has not submitted an action plan yet.</p>';
+
+  const peopleHtml = people.length
+    ? `<div class="sup-report-field"><span class="sup-report-field__label">Assigned personnel (${people.length})</span>
+        <ul class="dept-people">${people
+          .map(
+            (p) => `<li class="dept-people__item"><span class="dept-people__name">${escapeHtml(p.name)}</span>${p.role ? `<span class="dept-people__role">${escapeHtml(p.role)}</span>` : ''}</li>`,
+          )
+          .join('')}</ul></div>`
+    : '';
+
+  const updatesHtml = updates.length
+    ? `<div class="sup-report-field"><span class="sup-report-field__label">Progress updates (${updates.length})</span>
+        <ul class="dept-progress">${[...updates]
+          .reverse()
+          .map(
+            (u) => `<li class="dept-progress__item">
+              <div class="dept-progress__meta">${u.percent != null ? `<span class="dept-progress__pct">${u.percent}%</span>` : ''}<span class="dept-progress__author">${escapeHtml(u.authorName || u.authorUsername)}</span><span class="dept-progress__time">${escapeHtml(formatDate(u.at))}</span></div>
+              <p class="dept-progress__body">${escapeHtml(u.body)}</p>
+            </li>`,
+          )
+          .join('')}</ul></div>`
+    : '';
+
+  const inner = `${planHtml}${peopleHtml}${updatesHtml}`;
+  return supDetailCard(`Department action plan${plan ? ` <span class="text-muted">(v${plan.version})</span>` : ''}`, inner, { accent: true });
+}
+
 function ticketReadonlySections(ticket) {
   const t = ticket;
 
@@ -104,8 +142,9 @@ function ticketReadonlySections(ticket) {
     ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
     ${evidenceSection(t, { attachmentBasePath: '/audit/attachments', theme: 'console', interactive: true })}
     ${supDetailCard('AI classification', aiInner, { compact: true })}
+    ${departmentPlanSection(t)}
     ${t.officerNotes ? supDetailCard(`RMO mitigation solution${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}`, solutionInner, { accent: true }) : ''}
-    ${t.auditNotes ? supDetailCard('Audit notes', auditInner) : ''}
+    ${t.auditNotes ? supDetailCard('Compliance notes', auditInner) : ''}
   </div>`;
 }
 
@@ -143,19 +182,19 @@ function auditOverviewPage(user, stats, flash) {
   const body = `
     ${flashMessage(flash)}
     ${supPageHead({
-      title: 'Audit dashboard',
-      desc: 'Independently review mitigation solutions and accomplishment reports before tickets are closed.',
-      actionHtml: '<a href="/audit/review" class="sup-btn-primary">Open solution queue</a>',
+      title: 'Compliance dashboard',
+      desc: 'Validate department action plans and accomplishment reports for compliance before tickets are closed.',
+      actionHtml: '<a href="/audit/review" class="sup-btn-primary">Open compliance queue</a>',
     })}
     <div class="sup-kpi-grid">
-      ${kpiCard('/audit/review', KPI_ICONS.review, stats.awaitingReview, 'Solution review', Number(stats.awaitingReview) > 0 ? 'sup-kpi--accent' : '')}
+      ${kpiCard('/audit/review', KPI_ICONS.review, stats.awaitingReview, 'Compliance review', Number(stats.awaitingReview) > 0 ? 'sup-kpi--accent' : '')}
       ${kpiCard('/audit/final-validation', KPI_ICONS.final, stats.awaitingFinalValidation, 'Accomplishment review')}
       ${kpiCard('/audit/tickets', KPI_ICONS.implementing, stats.inImplementation, 'In implementation')}
       ${kpiCard('/audit/tickets', KPI_ICONS.returned, stats.returnedToRmo, 'Returned to RMO', Number(stats.returnedToRmo) > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/audit/tickets', KPI_ICONS.closed, stats.closed, 'Closed')}
     </div>
     ${supQuickActions([
-      { href: '/audit/review', label: 'Solution queue', count: stats.awaitingReview },
+      { href: '/audit/review', label: 'Compliance review', count: stats.awaitingReview },
       { href: '/audit/final-validation', label: 'Accomplishment review', count: stats.awaitingFinalValidation },
       { href: '/audit/tickets', label: 'All tickets', count: stats.open },
     ])}
@@ -168,7 +207,7 @@ function auditOverviewPage(user, stats, flash) {
     })}`;
 
   return auditPage({
-    title: 'Audit dashboard',
+    title: 'Compliance dashboard',
     user,
     activeNav: 'overview',
     body,
@@ -190,12 +229,12 @@ function queueListPage(user, { title, desc, tickets, flash, error, activeNav, em
 function auditFinalValidationQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
     title: 'Accomplishment review',
-    desc: 'Department accomplishment reports awaiting your final audit review before closure.',
+    desc: 'Department accomplishment reports awaiting compliance validation before closure.',
     tickets,
     flash,
     error: opts.error,
     activeNav: 'final',
-    emptyMessage: 'No accomplishment reports awaiting audit review.',
+    emptyMessage: 'No accomplishment reports awaiting compliance review.',
     stats: opts.stats,
   });
 }
@@ -230,20 +269,20 @@ function ticketAccomplishmentAuditPage(user, ticket, accomplishment, { flash, er
 
   const decisionBody = `
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console">
-      <h3 class="sup-section-sub">Approve &amp; close</h3>
+      <h3 class="sup-section-sub">Approve compliance &amp; close</h3>
       <div class="field">
-        <label for="closingNotes">Audit remarks (optional)</label>
-        <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Record your final audit assessment…"></textarea>
+        <label for="closingNotes">Compliance notes (optional)</label>
+        <textarea id="closingNotes" name="closingNotes" rows="2" placeholder="Record your final compliance assessment…"></textarea>
       </div>
       <button type="submit" class="btn-accept--outline">Approve accomplishment &amp; close ticket</button>
     </form>
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console stack-form--divider">
-      <h3 class="sup-section-sub">Return for further implementation</h3>
+      <h3 class="sup-section-sub">Request revisions</h3>
       <div class="field">
-        <label for="returnNotes">Return notes *</label>
+        <label for="returnNotes">Compliance notes *</label>
         <textarea id="returnNotes" name="returnNotes" rows="3" required placeholder="Describe gaps in the accomplishment report or evidence…"></textarea>
       </div>
-      <button type="submit" class="btn-danger--outline">Return to department</button>
+      <button type="submit" class="btn-danger--outline">Request revisions (return to department)</button>
     </form>`;
 
   const body = `
@@ -259,8 +298,8 @@ function ticketAccomplishmentAuditPage(user, ticket, accomplishment, { flash, er
     ${ticketReadonlySections(t)}
     ${accomplishmentSection(accomplishment)}
     ${supDecisionPanel({
-      title: 'Audit decision',
-      desc: 'Review the accomplishment report, mitigation evidence, and implementation outcomes. Approve to close the ticket, or return to the department for further action.',
+      title: 'Compliance decision',
+      desc: 'Review the accomplishment report, mitigation evidence, and implementation outcomes. Approve compliance to close the ticket, or request revisions from the department.',
       bodyHtml: decisionBody,
     })}`;
 
@@ -275,13 +314,13 @@ function ticketAccomplishmentAuditPage(user, ticket, accomplishment, { flash, er
 
 function auditReviewQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
-    title: 'Solution queue',
-    desc: 'Mitigation solutions submitted by the RMO awaiting your review — approve to release for implementation, or return to the RMO as insufficient.',
+    title: 'Compliance review',
+    desc: 'Department action plans and mitigation solutions awaiting compliance validation — approve compliance to release for implementation, or request revisions.',
     tickets,
     flash,
     error: opts.error,
     activeNav: 'review',
-    emptyMessage: 'No solutions awaiting audit review.',
+    emptyMessage: 'No items awaiting compliance review.',
     stats: opts.stats,
   });
 }
@@ -307,24 +346,24 @@ function ticketAuditPage(user, ticket, { flash, error, stats = {} } = {}) {
 
   const decisionBody = `
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/approve" class="stack-form stack-form--console">
-      <h3 class="sup-section-sub">Approve solution</h3>
+      <h3 class="sup-section-sub">Approve compliance</h3>
       <div class="field">
-        <label for="approveNotes">Audit remarks (optional)</label>
-        <textarea id="approveNotes" name="auditNotes" rows="3" placeholder="Record your assessment of the mitigation solution…"></textarea>
+        <label for="approveNotes">Compliance notes (optional)</label>
+        <textarea id="approveNotes" name="auditNotes" rows="3" placeholder="Record your compliance assessment of the action plan and mitigation solution…"></textarea>
       </div>
       <div class="field">
         <label for="mitigationDueAt">Confirm implementation due date</label>
         <input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}">
       </div>
-      <button type="submit" class="btn-accept--outline">Approve &amp; release for implementation</button>
+      <button type="submit" class="btn-accept--outline">Approve compliance &amp; release for implementation</button>
     </form>
     <form method="post" action="/audit/tickets/${escapeHtml(ref)}/return" class="stack-form stack-form--console stack-form--divider">
-      <h3 class="sup-section-sub">Return to RMO</h3>
+      <h3 class="sup-section-sub">Request revisions</h3>
       <div class="field">
-        <label for="returnNotes">Comments / suggestions *</label>
-        <textarea id="returnNotes" name="auditNotes" rows="3" required placeholder="Explain why the solution is insufficient and what the RMO should revise…"></textarea>
+        <label for="returnNotes">Compliance notes / required revisions *</label>
+        <textarea id="returnNotes" name="auditNotes" rows="3" required placeholder="Explain the compliance gaps and what the RMO should revise…"></textarea>
       </div>
-      <button type="submit" class="btn-danger--outline">Return to RMO</button>
+      <button type="submit" class="btn-danger--outline">Request revisions (return to RMO)</button>
     </form>`;
 
   const body = `
@@ -335,7 +374,7 @@ function ticketAuditPage(user, ticket, { flash, error, stats = {} } = {}) {
       ref,
       statusHtml: statusPill(t.status, t.isOverdue),
       backHref: '/audit/review',
-      backLabel: 'Back to solution queue',
+      backLabel: 'Back to compliance review',
     })}
     ${ticketReadonlySections(t)}
     <div class="sup-detail-stack sup-detail-stack--comments">
@@ -346,13 +385,13 @@ function ticketAuditPage(user, ticket, { flash, error, stats = {} } = {}) {
       ${executiveCommentsBlock(t, ref)}
     </div>
     ${supDecisionPanel({
-      title: 'Audit decision',
-      desc: 'Approve the mitigation solution so the department can begin implementation, or return it to the RMO if it is insufficient.',
+      title: 'Compliance decision',
+      desc: 'Validate the department action plan and mitigation solution for compliance so implementation can begin, or request revisions from the RMO.',
       bodyHtml: decisionBody,
     })}`;
 
   return auditPage({
-    title: `Audit ${ref}`,
+    title: `Compliance review ${ref}`,
     user,
     activeNav: 'review',
     body,

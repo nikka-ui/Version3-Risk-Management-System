@@ -1,12 +1,17 @@
 const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
 
 const NAV_ITEMS = [
-  { id: 'overview', href: '/supervisor', label: 'Overview', icon: 'overview' },
+  { id: 'overview', href: '/supervisor', label: 'Dashboard', icon: 'overview' },
   { id: 'tickets', href: '/supervisor/tickets', label: 'My tickets', icon: 'tickets' },
-  { id: 'new', href: '/supervisor/tickets/new', label: 'New report', icon: 'new' },
-  { id: 'actions', href: '/supervisor/actions', label: 'Action required', icon: 'actions', statKey: 'actionRequired' },
-  { id: 'accomplishments', href: '/supervisor/accomplishments', label: 'Accomplishments', icon: 'accomplishments' },
+  { id: 'new', href: '/supervisor/tickets/new', label: 'Create new ticket', icon: 'new' },
+  { id: 'drafts', href: '/supervisor/drafts', label: 'Draft reports', icon: 'drafts', statKey: 'drafts' },
+  { id: 'submitted', href: '/supervisor/submitted', label: 'Submitted reports', icon: 'submitted', statKey: 'submitted' },
+  { id: 'returned', href: '/supervisor/returned', label: 'Returned reports', icon: 'returned', statKey: 'returned' },
+  { id: 'accomplishments', href: '/supervisor/accomplishments', label: 'Accomplishment reports', icon: 'accomplishments' },
+  { id: 'notifications', href: '/supervisor/notifications', label: 'Notifications', icon: 'notifications', statKey: 'unreadNotifications' },
+  { id: 'profile', href: '/supervisor/profile', label: 'Profile', icon: 'profile' },
 ];
 
 function navIcon(name) {
@@ -14,8 +19,12 @@ function navIcon(name) {
     overview: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
     tickets: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
     new: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>`,
-    actions: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`,
-    accomplishments: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
+    drafts: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+    submitted: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
+    returned: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+    accomplishments: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`,
+    notifications: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
+    profile: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   };
   return icons[name] || '';
 }
@@ -36,9 +45,10 @@ function sidebarNav(activeNav, stats = {}) {
   }).join('');
 }
 
-function supervisorAppLayout({ title, user, activeNav, body, stats = {} }) {
+function supervisorAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
-  const roleLabel = user.roleLabel || 'Department Supervisor';
+  const roleLabel = user.roleLabel || 'Ticket Reporter';
+  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/supervisor/notifications/read-all' });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -65,7 +75,7 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {} }) {
       </div>
     </div>
     <p class="supervisor-sidebar__section">Menu</p>
-    <nav class="supervisor-sidebar__nav" aria-label="Supervisor navigation">
+    <nav class="supervisor-sidebar__nav" aria-label="Ticket Reporter navigation">
       ${sidebarNav(activeNav, stats)}
     </nav>
     <div class="supervisor-sidebar__user">
@@ -83,12 +93,14 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {} }) {
     <header class="console-topbar" aria-label="Page toolbar">
       <div class="console-topbar__title">${escapeHtml(title)}</div>
       <div class="console-topbar__actions">
+        ${notifHtml}
         <span class="console-topbar__role-pill">${escapeHtml(roleLabel)}</span>
       </div>
     </header>
     <main class="supervisor-main">${body}</main>
   </div>
   <div id="appToast" class="upload-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+  ${NOTIFICATION_PANEL_SCRIPT}
   <script>
     (function () {
       window.showAppToast = function (msg, type) {

@@ -1,6 +1,6 @@
-const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
+const { getCategoryLabel, getStatusLabel, getStatusTone, RISK_CATEGORIES, DEPARTMENTS } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
-const { getAccomplishmentForTicket, canOfficerEditMitigation } = require('../tickets');
+const { getAccomplishmentForTicket } = require('../tickets');
 const { flashMessage, executiveCommentsSection, commentsSection } = require('./layout');
 const { officerAppLayout } = require('./officer-layout');
 const { layoutNotifications } = require('../notifications');
@@ -93,7 +93,7 @@ function executiveCommentsBlock(ticket, ref) {
 function privateCommentsBlock(ticket, ref) {
   return commentsSection(ticket.comments || ticket.privateComments || [], {
     postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-    placeholder: 'Private comment for the Audit Officer (not visible to the department)…',
+    placeholder: 'Private oversight note for the Compliance Officer (not visible to departments)…',
     compact: true,
   });
 }
@@ -158,68 +158,233 @@ function officerNotesCard(ticket) {
   return supDetailCard(`Solution / mitigation plan${version}`, inner, { accent: true });
 }
 
-function officerPlanSection(ticket, ref, { editable = false } = {}) {
-  if (editable) {
-    return editMitigationPlanSection(ticket);
-  }
+function officerPlanSection(ticket) {
   return officerNotesCard(ticket);
 }
 
-function ticketReadonlySections(ticket, { monitoring = false } = {}) {
-  const t = ticket;
-  const riskLevel = ticketRiskLevel(t);
-  const categoryLabel = t.categoryLabel || getCategoryLabel(t.category);
+function ownershipMonitorCard(ticket) {
+  const state = ticket.ownership?.state || ticket.ownershipState || 'unassigned';
+  const map = {
+    pending: { cls: 'info', label: 'Awaiting department acceptance' },
+    accepted: { cls: 'rmo', label: 'Owned by department' },
+    rejected: { cls: 'warn', label: 'Ownership rejected' },
+    unassigned: { cls: 'muted', label: 'Unassigned' },
+  };
+  const m = map[state] || map.unassigned;
+  const owner = ticket.ownership?.ownerName || ticket.ownerName;
+  const inner = `<p class="sup-muted-block">The RMU monitors this ticket but does <strong>not</strong> own it. Ownership rests with the responsible department.</p>
+    <dl class="detail-dl detail-dl--console">
+      <dt>Ownership</dt><dd><span class="pill pill--${m.cls}">${escapeHtml(m.label)}</span></dd>
+      <dt>Responsible department</dt><dd>${escapeHtml(ticket.department || '—')}</dd>
+      <dt>Department owner</dt><dd>${owner ? escapeHtml(owner) : '<span class="text-muted">—</span>'}</dd>
+    </dl>`;
+  return supDetailCard('Ownership (read-only)', inner, { compact: true });
+}
 
+function actionPlanReadonlyCard(ticket) {
+  const plan = ticket.actionPlan;
+  if (!plan) {
+    return supDetailCard('Department action plan', '<p class="sup-muted-block">No department action plan submitted yet.</p>');
+  }
+  const inner = `<p>${escapeHtml(plan.summary)}</p>
+    ${(plan.steps || []).length ? `<ol class="dept-plan__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+    <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}</p>`;
+  return supDetailCard(`Department action plan <span class="text-muted">(v${plan.version})</span>`, inner, { accent: true });
+}
+
+function aiReviewCard(ticket, ref) {
+  const t = ticket;
   const aiInner = t.ai
     ? `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
         <dl class="detail-dl detail-dl--console">
+          <dt>Category</dt><dd>${escapeHtml(t.categoryLabel || getCategoryLabel(t.category))}</dd>
           <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
           <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
           <dt>Confidence</dt><dd>${Math.round((t.ai.confidence || 0) * 100)}%</dd>
           <dt>Manual review</dt><dd>${t.ai.manualReviewRequired ? 'Required' : 'No'}</dd>
-        </dl>`
+          <dt>Routed department</dt><dd>${escapeHtml(t.department || '—')}</dd>
+        </dl>
+        ${(t.ai.overrideHistory || []).length ? `<p class="sup-muted-block">AI classification was overridden ${t.ai.overrideHistory.length} time(s).</p>` : ''}`
     : '<p class="sup-muted-block">No AI classification available.</p>';
 
-  const solutionInner = t.officerNotes
-    ? `<p>${escapeHtml(t.officerNotes)}</p>
-        ${t.mitigationDueAt ? `<p class="sup-muted-block">Proposed implementation due: ${escapeHtml(formatDate(t.mitigationDueAt))}</p>` : ''}`
+  const categoryOptions = RISK_CATEGORIES.map(
+    (c) => `<option value="${escapeHtml(c.id)}"${c.id === t.category ? ' selected' : ''}>${escapeHtml(c.label)}</option>`,
+  ).join('');
+  const deptOptions = DEPARTMENTS.map(
+    (d) => `<option value="${escapeHtml(d)}"${d === t.department ? ' selected' : ''}>${escapeHtml(d)}</option>`,
+  ).join('');
+
+  const overrideForm = t.ai
+    ? `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/override-ai" class="stack-form stack-form--console">
+        <div class="field field--console">
+          <label for="overrideCategory">Category</label>
+          <select id="overrideCategory" name="category" required>${categoryOptions}</select>
+        </div>
+        <div class="field field--console">
+          <label for="overrideLikelihood">Likelihood (1–5)</label>
+          <input id="overrideLikelihood" name="likelihood" type="number" min="1" max="5" value="${t.likelihood || 3}" required>
+        </div>
+        <div class="field field--console">
+          <label for="overrideImpact">Impact (1–5)</label>
+          <input id="overrideImpact" name="impact" type="number" min="1" max="5" value="${t.impact || 3}" required>
+        </div>
+        <div class="field field--console">
+          <label for="overrideDepartment">Responsible department</label>
+          <select id="overrideDepartment" name="department" required>${deptOptions}</select>
+        </div>
+        <div class="field field--console">
+          <label for="overrideReason">Override reason</label>
+          <textarea id="overrideReason" name="reason" rows="3" required placeholder="Explain why the AI classification should be corrected…"></textarea>
+        </div>
+        <button type="submit" class="btn-outline">Override AI classification</button>
+      </form>`
     : '';
 
-  const auditInner = t.auditNotes ? `<p>${escapeHtml(t.auditNotes)}</p>` : '';
+  return supDetailCard('AI analysis &amp; classification', `${aiInner}${overrideForm ? `<div class="rmu-governance-form">${overrideForm}</div>` : ''}`, { compact: true });
+}
 
-  const detailInner = monitoring
-    ? `<dl class="detail-dl detail-dl--console">
-        <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
+function rmuRecommendationsCard(ticket) {
+  const items = ticket.rmuRecommendations || [];
+  if (!items.length) return '';
+  const rows = [...items]
+    .reverse()
+    .map(
+      (r) => `<li class="audit-trail-item">
+        <div class="audit-trail-meta">
+          <span class="audit-trail-action">Recommendation</span>
+          <span class="audit-trail-user">${escapeHtml(r.authorName || r.authorUsername)}</span>
+          <span class="audit-trail-time">${escapeHtml(formatDate(r.at))}</span>
+        </div>
+        <p class="audit-trail-current__plan">${escapeHtml(r.body)}</p>
+      </li>`,
+    )
+    .join('');
+  return supDetailCard('RMU recommendations', `<ul class="audit-trail-list">${rows}</ul>`);
+}
+
+function escalationsCard(ticket) {
+  const items = ticket.escalations || [];
+  if (!items.length) return '';
+  const rows = [...items]
+    .reverse()
+    .map(
+      (e) => `<li class="audit-trail-item">
+        <div class="audit-trail-meta">
+          <span class="audit-trail-action">Escalated to ${escapeHtml(e.escalateTo)}</span>
+          <span class="audit-trail-user">${escapeHtml(e.byName || e.byUsername)}</span>
+          <span class="audit-trail-time">${escapeHtml(formatDate(e.at))}</span>
+        </div>
+        <p class="audit-trail-current__plan">${escapeHtml(e.reason)}</p>
+      </li>`,
+    )
+    .join('');
+  return supDetailCard('Escalations', `<ul class="audit-trail-list">${rows}</ul>`);
+}
+
+function threadCommentsBlock(ticket, ref) {
+  const comments = ticket.threadComments || [];
+  const list = comments.length
+    ? `<ul class="thread-list">${comments
+        .filter((c) => !c.parentId)
+        .map((c) => {
+          const replies = comments.filter((r) => r.parentId === c.id);
+          return `<li class="thread-item">
+            <div class="thread-item__meta">
+              <strong>${escapeHtml(c.authorName || c.authorUsername)}</strong>
+              <span class="text-muted">${escapeHtml(formatDate(c.at))}</span>
+            </div>
+            <p>${escapeHtml(c.body)}</p>
+            ${replies.map((r) => `<div class="thread-reply"><strong>${escapeHtml(r.authorName || r.authorUsername)}</strong>: ${escapeHtml(r.body)}</div>`).join('')}
+          </li>`;
+        })
+        .join('')}</ul>`
+    : '<p class="sup-muted-block">No governance comments yet.</p>';
+
+  return supDetailCard(
+    'Governance comments',
+    `${list}
+    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/thread-comment" class="stack-form stack-form--console">
+      <div class="field field--console">
+        <label for="rmu-thread-comment">Comment</label>
+        <textarea id="rmu-thread-comment" name="comment" rows="3" required placeholder="Comment visible to the reporter and responsible department…"></textarea>
+      </div>
+      <button type="submit" class="btn-outline">Post comment</button>
+    </form>`,
+  );
+}
+
+function governanceActionsPanel(ticket, ref) {
+  const body = officerDecisionActions([
+    {
+      variant: 'accept',
+      title: 'Recommend improvement',
+      hint: 'Suggest process or control improvements without owning the ticket.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/recommend" class="stack-form stack-form--console">
+        <div class="field field--console">
+          <label for="rmuRecommendation">Recommendation</label>
+          <textarea id="rmuRecommendation" name="recommendation" rows="4" required placeholder="e.g. Recommend quarterly inspection of electrical panels in this building…"></textarea>
+        </div>
+        <button type="submit" class="btn-accept--outline">Submit recommendation</button>
+      </form>`,
+    },
+    {
+      variant: 'return',
+      title: 'Escalate',
+      hint: 'Escalate when SLA, compliance, or risk severity requires higher attention.',
+      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/escalate" class="stack-form stack-form--console">
+        <div class="field field--console">
+          <label for="escalateTo">Escalate to</label>
+          <select id="escalateTo" name="escalateTo" required>
+            <option value="executive">Executive Committee</option>
+            <option value="audit_officer">Compliance Officer</option>
+            <option value="dept_head">Department Head (owner)</option>
+          </select>
+        </div>
+        <div class="field field--console">
+          <label for="escalationReason">Reason</label>
+          <textarea id="escalationReason" name="reason" rows="4" required placeholder="Describe why this ticket needs escalation…"></textarea>
+        </div>
+        <button type="submit" class="btn-danger--outline">Escalate ticket</button>
+      </form>`,
+    },
+  ]);
+
+  return supDecisionPanel({
+    title: 'Governance actions',
+    desc: 'The RMU may recommend, comment, escalate, and monitor — but cannot own, implement, or close tickets.',
+    bodyHtml: body,
+  });
+}
+
+function ticketReadonlySections(ticket) {
+  const t = ticket;
+  const riskLevel = ticketRiskLevel(t);
+  const categoryLabel = t.categoryLabel || getCategoryLabel(t.category);
+  const due = t.mitigationDueAt || t.actionPlan?.targetDate;
+
+  const detailInner = `<dl class="detail-dl detail-dl--console">
+        <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.reporterDepartment || '—')})</dd>
         <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
         <dt>Risk level</dt><dd>${riskLevelBadge(riskLevel)}</dd>
         <dt>Category</dt><dd>${escapeHtml(categoryLabel)}</dd>
         <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
         <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
-      </dl>
-      <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`
-    : `<dl class="detail-dl detail-dl--console">
-        <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
-        <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
-        <dt>Category</dt><dd>${escapeHtml(categoryLabel)}</dd>
-        <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
-        <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
+        ${due ? `<dt>SLA / target date</dt><dd>${escapeHtml(formatDate(due))}${t.isOverdue ? ' <span class="pill pill--bad">Overdue</span>' : ''}</dd>` : ''}
       </dl>
       <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`;
 
   const evidence = evidenceSection(t, {
     attachmentBasePath: '/officer/attachments',
-    compact: monitoring,
+    compact: false,
     theme: 'console',
     interactive: true,
   });
 
   return `<div class="sup-detail-stack">
+    ${ownershipMonitorCard(t)}
     ${supDetailCard('Risk details', detailInner)}
     ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
     ${evidence}
-    ${!monitoring && t.ai ? supDetailCard('AI classification', aiInner, { compact: true }) : ''}
-    ${!monitoring && t.officerNotes ? supDetailCard(`Solution / mitigation plan${t.mitigationPlanVersion ? ` <span class="text-muted">(v${t.mitigationPlanVersion})</span>` : ''}`, solutionInner, { accent: true }) : ''}
-    ${t.auditNotes && t.status === 'audit_returned' ? supDetailCard('Audit Officer feedback', auditInner) : ''}
   </div>`;
 }
 
@@ -265,7 +430,7 @@ function mitigationPlanHistorySection(history) {
             h.action === 'created'
               ? 'Plan created'
               : h.action === 'updated_and_resubmitted'
-                ? 'Plan updated & resubmitted for audit'
+                ? 'Plan updated & resubmitted for compliance review'
                 : 'Plan updated';
           return `<li class="audit-trail-item">
             <div class="audit-trail-meta">
@@ -301,64 +466,6 @@ function mitigationPlanHistorySection(history) {
   </section>`;
 }
 
-function editMitigationPlanSection(ticket, { inSplitRow = false } = {}) {
-  if (!canOfficerEditMitigation(ticket)) return '';
-
-  const ref = ticket.reference;
-  const dueValue = ticket.mitigationDueAt
-    ? new Date(ticket.mitigationDueAt).toISOString().slice(0, 10)
-    : '';
-  const cardClass = inSplitRow
-    ? 'card card--accent officer-split-col'
-    : 'card card--accent';
-  const isAuditReturned = ticket.status === 'audit_returned';
-  const panelDesc = isAuditReturned
-    ? 'The Audit Officer returned this plan. Update it and resubmit for review.'
-    : 'This ticket is under audit review. You can still adjust the mitigation plan if needed.';
-  const cardHint = isAuditReturned
-    ? 'Update the plan and resubmit it to the Audit Officer.'
-    : 'Adjust approved actions, owners, or the due date while audit review is in progress.';
-
-  const formHtml = `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/update-mitigation" class="stack-form stack-form--console">
-      ${officerFormField({
-        id: 'editMitigationPlan',
-        label: 'Mitigation plan',
-        hint: 'Required. Update the approved actions, owners, and expectations.',
-        inputHtml: `<textarea id="editMitigationPlan" name="mitigationPlan" rows="${inSplitRow ? 8 : 6}" required>${escapeHtml(ticket.officerNotes || '')}</textarea>`,
-      })}
-      ${officerFormField({
-        id: 'editMitigationDueAt',
-        label: 'Implementation due date',
-        hint: 'When the department should complete the mitigation.',
-        inputHtml: `<input id="editMitigationDueAt" name="mitigationDueAt" type="date" value="${escapeHtml(dueValue)}" required>`,
-      })}
-      <button type="submit" class="btn-accept--outline">Save mitigation plan</button>
-    </form>`;
-
-  if (inSplitRow) {
-    return `<section class="${cardClass}">
-    <h2>Edit mitigation plan</h2>
-    ${formHtml}
-  </section>`;
-  }
-
-  return supDecisionPanel({
-    title: 'Edit mitigation plan',
-    desc: panelDesc,
-    bodyHtml: officerDecisionActions(
-      [
-        {
-          variant: 'accept',
-          title: 'Mitigation plan',
-          hint: cardHint,
-          formHtml,
-        },
-      ],
-      { single: true },
-    ),
-  });
-}
-
 function officerPageLayout(opts) {
   const { stats, user, ...rest } = opts;
   const notifications = opts.notifications || layoutNotifications(user);
@@ -367,11 +474,11 @@ function officerPageLayout(opts) {
 
 function quickActionsBar(stats) {
   const actions = [
-    { href: '/officer/review', label: 'Review queue', count: stats.awaitingReview },
-    { href: '/officer/review?filter=audit_returned', label: 'Returned by audit', count: stats.returnedByAudit },
-    { href: '/officer/final-validation', label: 'Final validation', count: stats.awaitingFinalValidation },
-    { href: '/officer/monitoring', label: 'Monitoring', count: stats.inMitigation },
-    { href: '/officer/tickets', label: 'All reports', count: stats.total },
+    { href: '/officer/tickets', label: 'Risk register', count: stats.total },
+    { href: '/officer/overdue', label: 'Overdue & SLA', count: stats.overdueMitigation },
+    { href: '/officer/ai-review', label: 'AI review', count: stats.awaitingReview },
+    { href: '/officer/action-plans', label: 'Action plans', count: stats.awaitingFinalValidation },
+    { href: '/officer/monitoring', label: 'Active monitoring', count: stats.inMitigation },
   ];
 
   return `<div class="ticket-filters officer-quick-actions" aria-label="Quick actions">
@@ -449,37 +556,43 @@ function officerOverviewPage(user, dashboard, flash) {
     <div class="sup-page-head">
       <div>
         <h1>Dashboard</h1>
-        <p class="sup-page-desc">Welcome, Risk Management Officer — overview of risk reports, validation queues, and mitigation status.</p>
+        <p class="sup-page-desc">Welcome, Risk Governance Office — monitor organizational risks, SLA compliance, AI classifications, and department action plans. The RMU does not own tickets.</p>
       </div>
-      <a href="/officer/review" class="filter-pill filter-pill--head">Review queue <span class="filter-pill__count">${stats.awaitingReview}</span></a>
+      <a href="/officer/overdue" class="filter-pill filter-pill--head">Overdue <span class="filter-pill__count">${stats.overdueMitigation}</span></a>
     </div>
     <div class="sup-kpi-grid sup-kpi-grid--officer">
-      ${kpiCard('/officer/tickets', KPI_ICONS.total, stats.total, 'Total reports', 'sup-kpi--accent')}
-      ${kpiCard('/officer/review', KPI_ICONS.review, stats.pendingReview, 'Pending review')}
-      ${kpiCard('/officer/final-validation', KPI_ICONS.final, stats.awaitingFinalValidation, 'Final validation')}
-      ${kpiCard('/officer/monitoring', KPI_ICONS.mitigation, stats.inMitigation, 'In mitigation')}
-      ${kpiCard('/officer/monitoring', KPI_ICONS.overdue, stats.overdueMitigation, 'Overdue', stats.overdueMitigation ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/officer/tickets', KPI_ICONS.total, stats.total, 'Risk register', 'sup-kpi--accent')}
+      ${kpiCard('/officer/monitoring', KPI_ICONS.mitigation, stats.open, 'Open risks')}
+      ${kpiCard('/officer/overdue', KPI_ICONS.overdue, stats.overdueMitigation, 'Overdue / SLA', stats.overdueMitigation ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/officer/ai-review', KPI_ICONS.review, stats.awaitingReview, 'AI review')}
+      ${kpiCard('/officer/action-plans', KPI_ICONS.final, stats.awaitingFinalValidation, 'Action plans')}
       <div class="sup-kpi">
         <span class="sup-kpi__icon">${KPI_ICONS.closed}</span>
         <span class="sup-kpi__body">
-          <span class="sup-kpi__value">${stats.closed}</span>
-          <span class="sup-kpi__label">Closed</span>
+          <span class="sup-kpi__value">${stats.complianceOpen || 0}</span>
+          <span class="sup-kpi__label">Compliance risks</span>
         </span>
       </div>
-      ${kpiCard('/officer/review?filter=audit_returned', KPI_ICONS.returned, stats.returnedByAudit, 'Returned by audit', stats.returnedByAudit > 0 ? 'sup-kpi--warn' : '')}
+      <div class="sup-kpi">
+        <span class="sup-kpi__icon">${KPI_ICONS.returned}</span>
+        <span class="sup-kpi__body">
+          <span class="sup-kpi__value">${stats.escalated || 0}</span>
+          <span class="sup-kpi__label">Escalated</span>
+        </span>
+      </div>
     </div>
     ${quickActionsBar(stats)}
     <div class="officer-dash-grid">
       <section class="sup-card">
         <div class="sup-card__head">
-          <h2>Risk reports per department</h2>
-          <a href="/officer/tickets" class="sup-link">View all</a>
+          <h2>Risks by department</h2>
+          <a href="/officer/tickets" class="sup-link">View register</a>
         </div>
         <div class="sup-card__body">${departmentTiles(departments)}</div>
       </section>
       <section class="sup-card">
         <div class="sup-card__head">
-          <h2>Risk incident matrix</h2>
+          <h2>Organization risk matrix</h2>
         </div>
         <div class="sup-card__body">${riskMatrixGrid(matrix)}</div>
       </section>
@@ -534,65 +647,77 @@ function queueListPage(user, { title, desc, tickets, flash, error, activeNav, em
 }
 
 function reviewQueuePage(user, tickets, flash, opts = {}) {
-  const auditReturned = opts.filter === 'audit_returned';
   return queueListPage(user, {
-    title: auditReturned ? 'Returned by audit' : 'Review queue',
-    desc: auditReturned
-      ? 'Mitigation solutions returned by the Audit Officer. Revise the plan and resubmit for audit review.'
-      : 'Risk reports submitted by department supervisors awaiting your validation (accept and assign mitigation, or return for revision).',
+    title: 'AI classification review',
+    desc: 'Review AI analysis and override classifications when necessary. The RMU monitors but does not own these tickets.',
     tickets,
     flash,
     error: opts.error,
-    activeNav: 'reports',
-    emptyMessage: auditReturned
-      ? 'No tickets returned by the Audit Officer.'
-      : 'No tickets awaiting RMO review.',
+    activeNav: 'ai-review',
+    emptyMessage: 'No tickets currently flagged for AI review.',
     stats: opts.stats,
   });
 }
 
 function finalValidationQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
-    title: 'Final validation',
-    desc: 'Accomplishment reports awaiting effectiveness validation — close the ticket or return for further implementation.',
+    title: 'Department action plans',
+    desc: 'Review action plans submitted by owning departments. Recommend improvements or escalate — do not implement solutions.',
     tickets,
     flash,
     error: opts.error,
-    activeNav: 'final',
-    emptyMessage: 'No tickets awaiting final validation.',
+    activeNav: 'action-plans',
+    emptyMessage: 'No department action plans to review.',
+    stats: opts.stats,
+  });
+}
+
+function overdueQueuePage(user, tickets, flash, opts = {}) {
+  return queueListPage(user, {
+    title: 'Overdue & SLA',
+    desc: 'Tickets past their target date or SLA threshold. Monitor and escalate as needed.',
+    tickets,
+    flash,
+    error: opts.error,
+    activeNav: 'overdue',
+    emptyMessage: 'No overdue tickets.',
     stats: opts.stats,
   });
 }
 
 function monitoringQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
-    title: 'Implementation monitoring',
-    desc: 'Tickets with approved mitigation plans currently with departments for implementation.',
+    title: 'Active monitoring',
+    desc: 'All active organizational risks across the department ownership lifecycle.',
     tickets,
     flash,
     activeNav: 'monitoring',
-    emptyMessage: 'No tickets currently in mitigation.',
+    emptyMessage: 'No active tickets to monitor.',
     stats: opts.stats,
   });
 }
 
 function allTicketsPage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
-    title: 'Risk Reports',
-    desc: 'Organization-wide risk tickets (excluding drafts).',
+    title: 'Organization risk register',
+    desc: 'Complete view of organizational risk tickets (excluding drafts).',
     tickets,
     flash,
-    activeNav: 'reports',
+    activeNav: 'register',
     emptyMessage: 'No submitted tickets yet.',
     stats: opts.stats,
   });
 }
 
-function ticketMitigationPage(user, ticket, { flash, error, stats } = {}) {
+function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, activeNav } = {}) {
   const t = ticket;
   const ref = t.reference;
-  const backHref = t.status === 'audit_returned' ? '/officer/review' : '/officer/monitoring';
-  const editable = canOfficerEditMitigation(t);
+  const accomplishment = getAccomplishmentForTicket(t);
+  const accBlock = accomplishment
+    ? accomplishmentReportSection(accomplishment, {
+        notice: 'Accomplishment on record — RMU monitors only; cannot close or return for implementation.',
+      })
+    : '';
 
   const body = `
     ${flashMessage(flash)}
@@ -601,244 +726,37 @@ function ticketMitigationPage(user, ticket, { flash, error, stats } = {}) {
       title: t.title,
       ref,
       statusHtml: statusPill(t.status, t.isOverdue),
-      backHref,
-      backLabel: t.status === 'audit_returned' ? 'Back to review queue' : 'Back to monitoring',
-    })}
-    ${ticketReadonlySections(t, { monitoring: true })}
-    ${officerPlanSection(t, ref, { editable })}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
-    ${commentSectionsBlock(t, ref)}`;
-
-  return officerPageLayout({
-    title: `Mitigation plan ${ref}`,
-    user,
-    activeNav: t.status === 'audit_returned' ? 'reports' : 'monitoring',
-    body,
-    stats,
-  });
-}
-
-function ticketReviewPage(user, ticket, { flash, error, stats } = {}) {
-  const t = ticket;
-  const ref = t.reference;
-  const defaultDue = new Date();
-  defaultDue.setDate(defaultDue.getDate() + 14);
-  const dueValue = defaultDue.toISOString().slice(0, 10);
-
-  const decisionBody = officerDecisionActions([
-    {
-      variant: 'accept',
-      title: 'Accept &amp; assign mitigation',
-      hint: 'Approve this report and send your mitigation plan to the Audit Officer.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/accept" class="stack-form stack-form--console">
-        ${officerFormField({
-          id: 'mitigationPlan',
-          label: 'Mitigation plan',
-          hint: 'Required. Describe approved actions, responsible owners, and what success looks like.',
-          inputHtml: `<textarea id="mitigationPlan" name="mitigationPlan" rows="4" required placeholder="e.g. Replace overloaded outlet, assign maintenance lead, inspect adjacent rooms within 48 hours…"></textarea>`,
-        })}
-        ${officerFormField({
-          id: 'mitigationDueAt',
-          label: 'Implementation due date',
-          hint: 'Target date for the department to complete the mitigation.',
-          inputHtml: `<input id="mitigationDueAt" name="mitigationDueAt" type="date" value="${dueValue}">`,
-        })}
-        <button type="submit" class="btn-accept--outline">Accept &amp; submit for audit</button>
-      </form>`,
-    },
-    {
-      variant: 'return',
-      title: 'Return for revision',
-      hint: 'Send the report back to the department if details are missing or need correction.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console">
-        ${officerFormField({
-          id: 'rejectionNotes',
-          label: 'Feedback for the department',
-          hint: 'Required. Be specific about what must be updated before resubmission.',
-          inputHtml: `<textarea id="rejectionNotes" name="rejectionNotes" rows="4" required placeholder="e.g. Add photos of the affected area and confirm who was on site when the incident occurred…"></textarea>`,
-        })}
-        <button type="submit" class="btn-danger--outline">Return to department</button>
-      </form>`,
-    },
-  ]);
-
-  const body = `
-    ${flashMessage(flash)}
-    ${error ? flashMessage(error, 'error') : ''}
-    ${supTicketHead({
-      title: t.title,
-      ref,
-      statusHtml: statusPill(t.status, t.isOverdue),
-      backHref: '/officer/review',
-      backLabel: 'Back to review queue',
+      backHref: backHref || '/officer/tickets',
+      backLabel: 'Back to risk register',
     })}
     ${ticketReadonlySections(t)}
-    ${commentSectionsBlock(t, ref)}
-    ${supDecisionPanel({
-      title: 'Your decision',
-      desc: 'Review the risk report above, then choose whether to accept it or return it to the department.',
-      bodyHtml: decisionBody,
-    })}`;
-
-  return officerPageLayout({
-    title: `Review ${ref}`,
-    user,
-    activeNav: 'reports',
-    body,
-    stats,
-  });
-}
-
-function ticketFinalValidationPage(user, ticket, accomplishment, { flash, error, stats } = {}) {
-  const t = ticket;
-  const ref = t.reference;
-  const acc = accomplishment;
-
-  const accBlock = accomplishmentReportSection(acc);
-
-  const decisionBody = officerDecisionActions([
-    {
-      variant: 'accept',
-      title: 'Close ticket',
-      hint: 'Confirm the mitigation was effective and close this risk report.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console">
-        ${officerFormField({
-          id: 'closingNotes',
-          label: 'Closing notes',
-          hint: 'Optional. Summarize the validation outcome for the record.',
-          inputHtml: `<textarea id="closingNotes" name="closingNotes" rows="3" placeholder="e.g. Mitigation verified on site; no further action required…"></textarea>`,
-        })}
-        <button type="submit" class="btn-accept--outline">Close ticket</button>
-      </form>`,
-    },
-    {
-      variant: 'return',
-      title: 'Return for further implementation',
-      hint: 'Send the accomplishment report back if gaps remain in the mitigation work.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/return-accomplishment" class="stack-form stack-form--console">
-        ${officerFormField({
-          id: 'returnNotes',
-          label: 'Feedback for the department',
-          hint: 'Required. Explain what still needs to be completed or documented.',
-          inputHtml: `<textarea id="returnNotes" name="returnNotes" rows="4" required placeholder="e.g. Provide updated photos and a signed completion checklist…"></textarea>`,
-        })}
-        <button type="submit" class="btn-danger--outline">Return to department</button>
-      </form>`,
-    },
-  ]);
-
-  const body = `
-    ${flashMessage(flash)}
-    ${error ? flashMessage(error, 'error') : ''}
-    ${supTicketHead({
-      title: t.title,
-      ref,
-      statusHtml: statusPill(t.status, t.isOverdue),
-      backHref: '/officer/final-validation',
-      backLabel: 'Back to final validation',
-    })}
-    ${ticketReadonlySections(t)}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
+    ${aiReviewCard(t, ref)}
+    ${actionPlanReadonlyCard(t)}
     ${accBlock}
-    ${commentSectionsBlock(t, ref)}
-    ${supDecisionPanel({
-      title: 'Final validation',
-      desc: 'Review the accomplishment report above, then close the ticket or return it for further work.',
-      bodyHtml: decisionBody,
-    })}`;
-
-  return officerPageLayout({
-    title: `Final validation ${ref}`,
-    user,
-    activeNav: 'final',
-    body,
-    stats,
-  });
-}
-
-function ticketViewPage(user, ticket, { flash, backHref, activeNav, layout, stats, extraBody } = {}) {
-  const t = ticket;
-  const ref = t.reference;
-  const monitoring = layout === 'monitoring';
-  const nav = activeNav || 'reports';
-  const back = backHref || '/officer/tickets';
-  const backLabel = monitoring ? 'Back to monitoring' : 'Back to risk reports';
-
-  const body = monitoring
-    ? `
-    ${flashMessage(flash)}
-    ${supTicketHead({
-      title: t.title,
-      ref,
-      statusHtml: statusPill(t.status, t.isOverdue),
-      backHref: back,
-      backLabel,
-    })}
-    ${ticketReadonlySections(t, { monitoring: true })}
-    ${officerPlanSection(t, ref, { editable: canOfficerEditMitigation(t) })}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
-    ${commentSectionsBlock(t, ref)}
-    ${extraBody || ''}`
-    : `
-    ${flashMessage(flash)}
-    ${supTicketHead({
-      title: t.title,
-      ref,
-      statusHtml: statusPill(t.status, t.isOverdue),
-      backHref: back,
-      backLabel,
-    })}
-    ${ticketReadonlySections(t)}
-    ${canOfficerEditMitigation(t) ? editMitigationPlanSection(t) : ''}
-    ${(t.mitigationPlanHistory || []).length ? mitigationPlanHistorySection(t.mitigationPlanHistory) : ''}
+    ${rmuRecommendationsCard(t)}
+    ${escalationsCard(t)}
+    ${governanceActionsPanel(t, ref)}
+    ${threadCommentsBlock(t, ref)}
     ${commentSectionsBlock(t, ref)}`;
 
   return officerPageLayout({
-    title: t.reference,
+    title: ref,
     user,
-    activeNav: nav,
+    activeNav: activeNav || 'register',
     body,
     stats,
   });
 }
-
-const MONITORING_VIEW_STATUSES = ['in_mitigation', 'under_audit', 'returned', 'reopened'];
 
 function renderOfficerTicketPage(user, ticket, opts) {
-  if (ticket.status === 'under_review') {
-    return ticketReviewPage(user, ticket, opts);
-  }
-  if (ticket.status === 'under_audit' || ticket.status === 'audit_returned') {
-    return ticketMitigationPage(user, ticket, opts);
-  }
-  if (ticket.status === 'pending_audit') {
-    const accomplishment = getAccomplishmentForTicket(ticket);
-    const accBlock = accomplishmentReportSection(accomplishment, {
-      notice: 'Awaiting Audit Officer review. You can monitor this ticket but cannot close it from the RMO console.',
-    });
-    return ticketViewPage(user, ticket, {
-      ...opts,
-      layout: 'monitoring',
-      backHref: '/officer/monitoring',
-      activeNav: 'monitoring',
-      extraBody: accBlock,
-    });
-  }
-  if (MONITORING_VIEW_STATUSES.includes(ticket.status)) {
-    return ticketViewPage(user, ticket, {
-      ...opts,
-      layout: 'monitoring',
-      backHref: '/officer/monitoring',
-      activeNav: 'monitoring',
-    });
-  }
-  return ticketViewPage(user, ticket, opts);
+  return ticketGovernancePage(user, ticket, opts);
 }
 
 module.exports = {
   officerOverviewPage,
   reviewQueuePage,
   finalValidationQueuePage,
+  overdueQueuePage,
   monitoringQueuePage,
   allTicketsPage,
   renderOfficerTicketPage,

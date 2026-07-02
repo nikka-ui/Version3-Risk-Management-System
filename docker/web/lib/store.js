@@ -41,6 +41,7 @@ function seedDepartments(now) {
   return SEED_DEPARTMENTS.map((d, i) => ({
     id: `dept-${i + 1}`,
     ...d,
+    autoApproveLowModerate: d.autoApproveLowModerate === true,
     head: d.head || null,
     createdAt: now,
     updatedAt: now,
@@ -142,7 +143,7 @@ function loadStore() {
         id: `dept-rmo-${Date.now()}`,
         name: 'RMO',
         code: 'RMO',
-        description: 'Risk Management Office',
+        description: 'Risk Governance Office (RMU)',
         head: null,
         status: 'active',
         active: true,
@@ -162,10 +163,18 @@ function loadStore() {
         head: null,
         status: 'active',
         active: true,
+        autoApproveLowModerate: false,
         createdAt: now,
         updatedAt: now,
       });
       migrated = true;
+    }
+    for (const dept of cache.departments || []) {
+      if (dept.autoApproveLowModerate === undefined) {
+        dept.autoApproveLowModerate = false;
+        dept.updatedAt = now;
+        migrated = true;
+      }
     }
     if (!cache.positions?.length) {
       cache.positions = SEED_POSITIONS.map((name, i) => ({
@@ -243,6 +252,30 @@ function loadStore() {
       }
       if (!t.mitigationPlanVersion && t.officerNotes && t.status !== 'returned') {
         t.mitigationPlanVersion = 1;
+        migrated = true;
+      }
+      if (!t.rmuRecommendations) {
+        t.rmuRecommendations = [];
+        migrated = true;
+      }
+      if (!t.escalations) {
+        t.escalations = [];
+        migrated = true;
+      }
+      if (t.ai && !t.ai.overrideHistory) {
+        t.ai.overrideHistory = [];
+        migrated = true;
+      }
+      if (!t.threadComments) {
+        t.threadComments = [];
+        migrated = true;
+      }
+      if (!t.auditTrail) {
+        t.auditTrail = [];
+        migrated = true;
+      }
+      if (!t.reporterDepartment && t.department && t.status === 'draft') {
+        t.reporterDepartment = t.department;
         migrated = true;
       }
     }
@@ -552,6 +585,7 @@ function createDepartment({ name, code, description, head, status }) {
     head: head ? String(head).trim() : null,
     status: status === 'inactive' ? 'inactive' : 'active',
     active: status !== 'inactive',
+    autoApproveLowModerate: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -572,6 +606,9 @@ function updateDepartment(id, fields) {
   if (fields.status !== undefined) {
     dept.status = fields.status === 'inactive' ? 'inactive' : 'active';
     dept.active = fields.status !== 'inactive';
+  }
+  if (fields.autoApproveLowModerate !== undefined) {
+    dept.autoApproveLowModerate = Boolean(fields.autoApproveLowModerate);
   }
   dept.updatedAt = new Date().toISOString();
   saveStore();

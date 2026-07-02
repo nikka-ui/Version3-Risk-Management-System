@@ -7,16 +7,17 @@ const SEED_DEPARTMENTS = [
   { code: 'IT', name: 'Information Technology', description: 'IT infrastructure and systems', status: 'active' },
   { code: 'HR', name: 'Human Resources', description: 'Human resources and talent management', status: 'active' },
   { code: 'BD', name: 'Business Development', description: 'Business development and partnerships', status: 'active' },
-  { code: 'RMO', name: 'RMO', description: 'Risk Management Office', status: 'active' },
+  { code: 'RMO', name: 'RMO', description: 'Risk Governance Office (RMU)', status: 'active' },
   { code: 'PCEO', name: 'PCEO', description: 'President and Chief Executive Office', status: 'active' },
   { code: 'IA', name: 'Internal Audit', description: 'Internal audit and assurance', status: 'active' },
 ];
 
 const SEED_POSITIONS = [
   'Department Supervisor',
-  'Risk Management Officer',
-  'Audit Officer',
+  'Risk Governance Officer',
+  'Compliance Officer',
   'Executive Director',
+  'Executive Committee Member',
   'Finance Supervisor',
   'Operations Supervisor',
   'System Administrator',
@@ -42,16 +43,16 @@ const DEFAULT_SYSTEM_SETTINGS = {
   mfaEnabled: false,
 };
 
-const ADMIN_ASSIGNABLE_ROLES = ['supervisor', 'rm_officer', 'audit_officer', 'executive', 'admin'];
+const ADMIN_ASSIGNABLE_ROLES = ['supervisor', 'dept_head', 'rm_officer', 'audit_officer', 'executive', 'president', 'admin'];
 
 /** Fixed user filter options for Audit Logs (label shown in UI → username stored in logs). */
 const AUDIT_LOG_USER_FILTERS = [
   { label: 'personnel', username: 'personnel' },
   { label: 'system admin', username: 'sys-admin' },
   { label: 'admin', username: 'admin' },
-  { label: 'rm-officer', username: 'rm-officer' },
-  { label: 'executive', username: 'executive' },
-  { label: 'audit officer', username: 'audit-officer' },
+  { label: 'rmu', username: 'rm-officer' },
+  { label: 'executive committee', username: 'executive' },
+  { label: 'compliance officer', username: 'audit-officer' },
 ];
 
 module.exports = {

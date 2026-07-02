@@ -6,9 +6,11 @@ const {
   requireAuth,
   requireAdmin,
   requireSupervisor,
+  requireDeptHead,
   requireRmOfficer,
   requireAuditOfficer,
   requireExecutive,
+  requirePresident,
   sessionUser,
 } = require('./lib/auth');
 const { loginPage, dashboardPage } = require('./lib/templates');
@@ -32,15 +34,26 @@ const {
   newRiskReportPreviewPage,
   actionsPage,
   accomplishmentsPage,
+  filteredTicketsPage,
+  reporterProfilePage,
+  reporterNotificationsPage,
 } = require('./lib/templates/supervisor');
 const {
   officerOverviewPage,
   reviewQueuePage,
   finalValidationQueuePage,
+  overdueQueuePage,
   monitoringQueuePage,
   allTicketsPage,
   renderOfficerTicketPage,
 } = require('./lib/templates/officer');
+const {
+  deptHeadOverviewPage,
+  deptHeadInboxPage,
+  deptHeadActivePage,
+  deptHeadAllTicketsPage,
+  renderDeptHeadTicketPage,
+} = require('./lib/templates/dept-head');
 const {
   auditOverviewPage,
   auditReviewQueuePage,
@@ -53,7 +66,19 @@ const {
   allTicketsPage: executiveAllTicketsPage,
   criticalTicketsPage,
   ticketDetailPage: executiveTicketDetailPage,
+  heatmapPage: executiveHeatmapPage,
+  reportsPage: executiveReportsPage,
+  trendsPage: executiveTrendsPage,
+  statisticsPage: executiveStatisticsPage,
+  departmentPerformancePage: executiveDepartmentPerformancePage,
 } = require('./lib/templates/executive');
+const {
+  presidentOverviewPage,
+  pendingQueuePage,
+  highTicketsPage,
+  criticalTicketsPage: presidentCriticalTicketsPage,
+  ticketDetailPage: presidentTicketDetailPage,
+} = require('./lib/templates/president');
 const {
   getSupervisorStats,
   listTicketsForSupervisor,
@@ -76,18 +101,18 @@ const {
   getOfficerStats,
   getOfficerDashboardData,
   listTicketsForOfficer,
-  listOfficerReviewQueue,
-  listOfficerAuditReturnedQueue,
-  listOfficerFinalValidationQueue,
+  listRmuOverdueQueue,
+  listRmuAiReviewQueue,
+  listRmuActionPlanQueue,
   listOfficerMonitoringQueue,
   getTicketByRefForOfficer,
   findAttachmentForOfficer,
-  rejectTicketForOfficer,
-  acceptAndAssignMitigation,
-  updateMitigationPlanForOfficer,
+  addTicketComment,
+  addRmuRecommendation,
+  escalateTicketForRmu,
+  overrideAiClassificationForRmu,
+  addRmuThreadComment,
   ticketForRole,
-  closeTicketAsOfficer,
-  returnAccomplishmentForRevision,
   getTicketByRefForAudit,
   listTicketsForAudit,
   listAuditReviewQueue,
@@ -98,13 +123,37 @@ const {
   returnSolutionToRmo,
   closeTicketAsAudit,
   returnAccomplishmentAsAudit,
-  addTicketComment,
+  addReporterThreadComment,
+  getTicketByRefForDeptHead,
+  listTicketsForDeptHead,
+  listDeptHeadInbox,
+  listDeptHeadActive,
+  getDeptHeadStats,
+  acceptOwnership,
+  rejectOwnership,
+  reassignTicket,
+  saveActionPlan,
+  assignPersonnel,
+  uploadDeptDocuments,
+  addProgressUpdate,
+  submitFinalResolution,
+  addDeptHeadThreadComment,
+  editThreadComment,
+  toggleThreadReaction,
+  findAttachmentForDeptHead,
   getExecutiveStats,
+  getExecutiveDashboardData,
   listTicketsForExecutive,
   getTicketByRefForExecutive,
   findAttachmentForExecutive,
   addExecutiveComment,
   replyToExecutiveComment,
+  getPresidentStats,
+  listTicketsForPresident,
+  listPresidentPendingQueue,
+  getTicketByRefForPresident,
+  findAttachmentForPresident,
+  recordPresidentDecision,
   publicTicket,
   listTicketsForAdmin,
   getAdminTicketStats,
@@ -114,7 +163,7 @@ const {
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { logAdminAction, notifyAdmin, getAdminDashboardData } = require('./lib/admin');
-const { markTicketNotificationsRead } = require('./lib/notifications');
+const { markTicketNotificationsRead, layoutNotifications } = require('./lib/notifications');
 const { markNotificationsReadForUser } = require('./lib/store');
 const { handleEvidenceUpload } = require('./lib/upload');
 const { initializeAttachmentStorage, hydrateTicketEvidence } = require('./lib/attachments');
@@ -194,22 +243,44 @@ function flashFromQuery(query) {
     preview_generated: 'AI preview generated successfully.',
     draft_updated: 'Draft updated successfully.',
     draft_deleted: 'Draft deleted successfully.',
-    submitted: 'Risk report submitted for RMO review.',
+    submitted: 'Risk ticket submitted. AI analysis complete — ticket routed to the responsible department.',
     evidence_added: 'Evidence reference added.',
     accomplishment_submitted: 'Accomplishment report submitted for audit review.',
+    comment_posted: 'Comment posted to the ticket thread.',
+    notifications_read: 'All notifications marked as read.',
     mitigation_assigned: 'Mitigation assignment simulated (development).',
-    rmo_accepted: 'Mitigation solution submitted to the Audit Officer for review.',
+    rmo_accepted: 'Mitigation solution submitted to the Compliance Officer for review.',
     rmo_rejected: 'Report returned to department for revision.',
     rmo_closed: 'Ticket closed after final validation.',
     rmo_returned: 'Accomplishment returned for further implementation.',
-    audit_approved: 'Solution approved. Department may begin implementation.',
-    audit_returned: 'Solution returned to the RMO for revision.',
-    audit_closed: 'Accomplishment approved. Ticket closed.',
-    audit_accomplishment_returned: 'Accomplishment returned to the department for further action.',
+    audit_approved: 'Compliance validation completed. Action plan approved for implementation or presidential review.',
+    audit_returned: 'Action plan returned to the department for revision.',
+    audit_closed: 'Compliance review completed. Ticket forwarded for presidential final decision or closed.',
+    audit_accomplishment_returned: 'Revisions requested. Accomplishment returned to the department.',
     comment_added: 'Comment posted.',
-    executive_comment_added: 'Executive comment posted.',
+    ownership_accepted: 'Ownership accepted. This ticket is now in progress under your department.',
+    ownership_rejected: 'Ownership rejected. The Risk Management Unit will re-route the ticket.',
+    ticket_reassigned: 'Reassignment requested. The reporter and new department have been notified.',
+    action_plan_saved: 'Action plan saved.',
+    action_plan_submitted: 'Action plan submitted to Compliance for validation.',
+    personnel_assigned: 'Personnel assigned to the ticket.',
+    documents_uploaded_dept: 'Documents uploaded successfully.',
+    progress_submitted: 'Progress update submitted.',
+    resolution_submitted: 'Final resolution submitted. Awaiting the President\u2019s decision.',
+    resolution_submitted_president: 'Final resolution submitted. Awaiting the President\u2019s decision (High/Critical risk).',
+    resolution_submitted_auto: 'Final resolution auto-approved per department policy (Low/Moderate risk).',
+    resolution_submitted_resolved: 'Final resolution accepted. Ticket resolved (Low/Moderate risk — no presidential review required).',
+    president_approve: 'Presidential approval recorded.',
+    president_reject: 'Action plan rejected. Ticket returned to the department.',
+    president_return: 'Ticket returned to the department for further work.',
+    president_close: 'Ticket closed.',
+    dept_comment_posted: 'Comment posted to the ticket thread.',
+    executive_comment_added: 'Executive Committee comment posted.',
     executive_reply_added: 'Reply posted.',
-    rmo_plan_updated: 'Mitigation plan updated successfully.',
+    rmo_recommendation: 'Governance recommendation recorded.',
+    rmu_escalated: 'Ticket escalated successfully.',
+    rmu_ai_overridden: 'AI classification overridden.',
+    rmu_thread_comment: 'Governance comment posted.',
     not_found: 'Ticket not found.',
     invalid: null,
   };
@@ -223,9 +294,11 @@ function flashFromQuery(query) {
 function dashboardPath(user) {
   if (user?.role === 'admin') return '/admin';
   if (user?.role === 'supervisor') return '/supervisor';
+  if (user?.role === 'dept_head') return '/dept';
   if (user?.role === 'rm_officer') return '/officer';
   if (user?.role === 'audit_officer') return '/audit';
   if (user?.role === 'executive') return '/executive';
+  if (user?.role === 'president') return '/president';
   return '/dashboard';
 }
 
@@ -366,6 +439,9 @@ app.get('/dashboard', requireAuth, (req, res) => {
   if (req.session.user.role === 'supervisor') {
     return res.redirect('/supervisor');
   }
+  if (req.session.user.role === 'dept_head') {
+    return res.redirect('/dept');
+  }
   if (req.session.user.role === 'rm_officer') {
     return res.redirect('/officer');
   }
@@ -375,10 +451,13 @@ app.get('/dashboard', requireAuth, (req, res) => {
   if (req.session.user.role === 'executive') {
     return res.redirect('/executive');
   }
+  if (req.session.user.role === 'president') {
+    return res.redirect('/president');
+  }
   res.type('html').send(dashboardPage(req.session.user));
 });
 
-/* —— Department Supervisor —— */
+/* —— Ticket Reporter —— */
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -433,6 +512,7 @@ app.post('/supervisor/tickets/new/preview', requireSupervisor, handleEvidenceUpl
   const result = await createTicket(user.username, user.displayName, req.body, {
     referenceOverride,
     uploadedFiles: req.files,
+    reporterDepartment: user.department,
   });
 
   if (result.error) {
@@ -556,6 +636,7 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
     return res.redirect(`/supervisor/tickets/${raw.reference}/edit`);
   }
   const ticket = await ticketForRole(raw, 'supervisor');
+  markTicketNotificationsRead(req.session.user, req.params.ref);
   res.type('html').send(
     ticketFormPage(user, ticket, {
       mode: 'view',
@@ -568,7 +649,9 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
 
 app.post('/supervisor/tickets', requireSupervisor, asyncRoute(async (req, res) => {
   const user = req.session.user;
-  const result = await createTicket(user.username, user.displayName, req.body);
+  const result = await createTicket(user.username, user.displayName, req.body, {
+    reporterDepartment: user.department,
+  });
   if (result.error) {
     return res.redirect('/supervisor/tickets/new?error=' + encodeURIComponent(result.error));
   }
@@ -640,6 +723,100 @@ app.post('/supervisor/tickets/:ref/simulate-mitigation', requireSupervisor, (req
   return res.redirect(`/supervisor/tickets/${req.params.ref}?flash=mitigation_assigned`);
 });
 
+app.get('/supervisor/drafts', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    filteredTicketsPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
+      filter: 'draft',
+      title: 'Draft reports',
+      desc: 'Reports saved but not yet submitted. Edit or delete drafts before submission.',
+      activeNav: 'drafts',
+      stats: supervisorStats(user.username),
+    }),
+  );
+});
+
+app.get('/supervisor/submitted', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    filteredTicketsPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
+      filter: 'submitted',
+      title: 'Submitted reports',
+      desc: 'Tickets submitted for AI analysis and automatic routing to the responsible department.',
+      activeNav: 'submitted',
+      stats: supervisorStats(user.username),
+    }),
+  );
+});
+
+app.get('/supervisor/returned', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    filteredTicketsPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
+      filter: 'returned',
+      title: 'Returned reports',
+      desc: 'Reports returned by the Risk Management Unit for revision and resubmission.',
+      activeNav: 'returned',
+      stats: supervisorStats(user.username),
+    }),
+  );
+});
+
+app.get('/supervisor/profile', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    reporterProfilePage(user, flashFromQuery(req.query), supervisorStats(user.username)),
+  );
+});
+
+app.get('/supervisor/notifications', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    reporterNotificationsPage(
+      user,
+      layoutNotifications(user, 50),
+      flashFromQuery(req.query),
+      supervisorStats(user.username),
+    ),
+  );
+});
+
+app.post('/supervisor/notifications/read-all', requireSupervisor, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  return res.redirect('/supervisor/notifications?flash=notifications_read');
+});
+
+app.post('/supervisor/tickets/:ref/comment', requireSupervisor, (req, res) => {
+  const ref = req.params.ref;
+  const result = addReporterThreadComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/supervisor/tickets/${ref}?flash=comment_posted`);
+});
+
+app.post('/supervisor/tickets/:ref/comment/edit', requireSupervisor, (req, res) => {
+  const ref = req.params.ref;
+  const result = editThreadComment(ref, req.session.user, req.body, {
+    ticketGetter: (r, u) => getTicketByRef(r, u.username),
+  });
+  if (result.error) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/supervisor/tickets/${ref}?flash=comment_posted`);
+});
+
+app.post('/supervisor/tickets/:ref/comment/react', requireSupervisor, (req, res) => {
+  const ref = req.params.ref;
+  const result = toggleThreadReaction(ref, req.session.user, req.body, {
+    ticketGetter: (r, u) => getTicketByRef(r, u.username),
+  });
+  if (result.error) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/supervisor/tickets/${ref}#comment-${encodeURIComponent(req.body.commentId || '')}`);
+});
+
 app.get('/supervisor/actions', requireSupervisor, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
@@ -664,7 +841,191 @@ app.get('/supervisor/accomplishments', requireSupervisor, (req, res) => {
   );
 });
 
-/* —— Risk Management Officer —— */
+/* —— Department Head / Vice President —— */
+
+function deptNoCache(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  return next();
+}
+
+app.use('/dept', deptNoCache);
+
+function deptStats(user) {
+  return getDeptHeadStats(user);
+}
+
+app.get('/dept', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadOverviewPage(user, deptStats(user), flashFromQuery(req.query), listTicketsForDeptHead(user)),
+  );
+});
+
+app.get('/dept/inbox', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadInboxPage(user, listDeptHeadInbox(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/active', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadActivePage(user, listDeptHeadActive(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/tickets', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadAllTicketsPage(user, listTicketsForDeptHead(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/tickets/:ref', requireDeptHead, asyncRoute(async (req, res) => {
+  const user = req.session.user;
+  markTicketNotificationsRead(user, req.params.ref);
+  const raw = getTicketByRefForDeptHead(req.params.ref, user);
+  if (!raw) {
+    return res.redirect('/dept/tickets?flash=not_found');
+  }
+  const ticket = await ticketForRole(raw, 'dept_head');
+  res.type('html').send(
+    renderDeptHeadTicketPage(user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+}));
+
+app.get('/dept/attachments/:id', requireDeptHead, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForDeptHead(req.params.id, req.session.user);
+  await sendAttachment(res, found);
+}));
+
+app.post('/dept/tickets/:ref/accept', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = acceptOwnership(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=ownership_accepted`);
+});
+
+app.post('/dept/tickets/:ref/reject', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = rejectOwnership(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/dept/inbox?flash=ownership_rejected');
+});
+
+app.post('/dept/tickets/:ref/reassign', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = reassignTicket(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect('/dept/inbox?flash=ticket_reassigned');
+});
+
+app.post('/dept/tickets/:ref/action-plan', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = saveActionPlan(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=${result.flashKey || 'action_plan_saved'}`);
+});
+
+app.post('/dept/tickets/:ref/personnel', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = assignPersonnel(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=personnel_assigned`);
+});
+
+app.post('/dept/tickets/:ref/documents', requireDeptHead, handleEvidenceUpload, asyncRoute(async (req, res) => {
+  const ref = req.params.ref;
+  if (req.uploadError) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = await uploadDeptDocuments(ref, req.session.user, { uploadedFiles: req.files });
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=documents_uploaded_dept`);
+}));
+
+app.post('/dept/tickets/:ref/progress', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = addProgressUpdate(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=progress_submitted`);
+});
+
+app.post('/dept/tickets/:ref/resolution', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = submitFinalResolution(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=${result.flashKey || 'resolution_submitted'}`);
+});
+
+app.post('/dept/tickets/:ref/comment', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = addDeptHeadThreadComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=dept_comment_posted`);
+});
+
+app.post('/dept/tickets/:ref/comment/edit', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = editThreadComment(ref, req.session.user, req.body, {
+    ticketGetter: (r, u) => getTicketByRefForDeptHead(r, u),
+  });
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=dept_comment_posted`);
+});
+
+app.post('/dept/tickets/:ref/comment/react', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = toggleThreadReaction(ref, req.session.user, req.body, {
+    ticketGetter: (r, u) => getTicketByRefForDeptHead(r, u),
+  });
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}#comment-${encodeURIComponent(req.body.commentId || '')}`);
+});
+
+app.post('/dept/notifications/read-all', requireDeptHead, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/dept';
+  return res.redirect(back);
+});
+
+/* —— Risk Governance Office (RMU) —— */
 
 function officerNoCache(req, res, next) {
   res.set('Cache-Control', 'no-store');
@@ -680,28 +1041,48 @@ app.get('/officer', requireRmOfficer, (req, res) => {
   );
 });
 
-app.get('/officer/review', requireRmOfficer, (req, res) => {
-  const filter = req.query.filter === 'audit_returned' ? 'audit_returned' : null;
-  const tickets = filter === 'audit_returned' ? listOfficerAuditReturnedQueue() : listOfficerReviewQueue();
+app.get('/officer/ai-review', requireRmOfficer, (req, res) => {
   res.type('html').send(
     reviewQueuePage(
       req.session.user,
-      tickets,
+      listRmuAiReviewQueue(),
       flashFromQuery(req.query),
       {
         error: req.query.error ? decodeURIComponent(req.query.error) : null,
         stats: getOfficerStats(),
-        filter,
+      },
+    ),
+  );
+});
+
+app.get('/officer/review', requireRmOfficer, (req, res) => {
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return res.redirect(`/officer/ai-review${qs}`);
+});
+
+app.get('/officer/action-plans', requireRmOfficer, (req, res) => {
+  res.type('html').send(
+    finalValidationQueuePage(
+      req.session.user,
+      listRmuActionPlanQueue(),
+      flashFromQuery(req.query),
+      {
+        error: req.query.error ? decodeURIComponent(req.query.error) : null,
+        stats: getOfficerStats(),
       },
     ),
   );
 });
 
 app.get('/officer/final-validation', requireRmOfficer, (req, res) => {
+  return res.redirect('/officer/action-plans');
+});
+
+app.get('/officer/overdue', requireRmOfficer, (req, res) => {
   res.type('html').send(
-    finalValidationQueuePage(
+    overdueQueuePage(
       req.session.user,
-      listOfficerFinalValidationQueue(),
+      listRmuOverdueQueue(),
       flashFromQuery(req.query),
       {
         error: req.query.error ? decodeURIComponent(req.query.error) : null,
@@ -752,50 +1133,40 @@ app.get('/officer/attachments/:id', requireRmOfficer, asyncRoute(async (req, res
   await sendAttachment(res, found);
 }));
 
-app.post('/officer/tickets/:ref/accept', requireRmOfficer, (req, res) => {
+app.post('/officer/tickets/:ref/recommend', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
-  const result = acceptAndAssignMitigation(ref, req.session.user.username, req.body);
+  const result = addRmuRecommendation(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
-  return res.redirect(`/officer/monitoring?flash=rmo_accepted`);
+  return res.redirect(`/officer/tickets/${ref}?flash=rmo_recommendation`);
 });
 
-app.post('/officer/tickets/:ref/reject', requireRmOfficer, (req, res) => {
+app.post('/officer/tickets/:ref/escalate', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
-  const result = rejectTicketForOfficer(ref, req.session.user.username, req.body);
+  const result = escalateTicketForRmu(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
-  return res.redirect('/officer/review?flash=rmo_rejected');
+  return res.redirect(`/officer/tickets/${ref}?flash=rmu_escalated`);
 });
 
-app.post('/officer/tickets/:ref/close', requireRmOfficer, (req, res) => {
+app.post('/officer/tickets/:ref/override-ai', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
-  const result = closeTicketAsOfficer(ref, req.session.user.username, req.body);
+  const result = overrideAiClassificationForRmu(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
-  return res.redirect('/officer/final-validation?flash=rmo_closed');
+  return res.redirect(`/officer/tickets/${ref}?flash=rmu_ai_overridden`);
 });
 
-app.post('/officer/tickets/:ref/return-accomplishment', requireRmOfficer, (req, res) => {
+app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
-  const result = returnAccomplishmentForRevision(ref, req.session.user.username, req.body);
+  const result = addRmuThreadComment(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
-  return res.redirect('/officer/monitoring?flash=rmo_returned');
-});
-
-app.post('/officer/tickets/:ref/update-mitigation', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = updateMitigationPlanForOfficer(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  const flash = result.ticket?.status === 'under_audit' ? 'rmo_plan_updated' : 'rmo_plan_updated';
-  return res.redirect(`/officer/tickets/${ref}?flash=${flash}`);
+  return res.redirect(`/officer/tickets/${ref}?flash=rmu_thread_comment`);
 });
 
 app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
@@ -822,7 +1193,7 @@ app.post('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) =
   return res.redirect(`/officer/tickets/${ref}?flash=executive_reply_added`);
 });
 
-/* —— Audit Officer —— */
+/* —— Compliance Officer (routes retain /audit and requireAuditOfficer for compatibility) —— */
 
 app.get('/audit', requireAuditOfficer, (req, res) => {
   res.type('html').send(
@@ -943,27 +1314,25 @@ app.post('/audit/notifications/read-all', requireAuditOfficer, (req, res) => {
   return res.redirect(back);
 });
 
-/* —— Executive —— */
+/* —— Executive Committee (view only) —— */
 
 app.get('/executive', requireExecutive, (req, res) => {
   res.type('html').send(
     executiveOverviewPage(
       req.session.user,
-      getExecutiveStats(),
+      getExecutiveDashboardData(),
       flashFromQuery(req.query),
     ),
   );
 });
 
-app.get('/executive/critical', requireExecutive, (req, res) => {
-  const stats = getExecutiveStats();
-  const tickets = listTicketsForExecutive({ level: 'critical' });
+app.get('/executive/heatmap', requireExecutive, (req, res) => {
   res.type('html').send(
-    criticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query), stats),
+    executiveHeatmapPage(req.session.user, getExecutiveDashboardData(), flashFromQuery(req.query)),
   );
 });
 
-app.get('/executive/tickets', requireExecutive, (req, res) => {
+app.get('/executive/register', requireExecutive, (req, res) => {
   const stats = getExecutiveStats();
   const level = typeof req.query.level === 'string' ? req.query.level : '';
   const category = typeof req.query.category === 'string' ? req.query.category : '';
@@ -977,12 +1346,49 @@ app.get('/executive/tickets', requireExecutive, (req, res) => {
   );
 });
 
+app.get('/executive/reports', requireExecutive, (req, res) => {
+  res.type('html').send(
+    executiveReportsPage(req.session.user, getExecutiveDashboardData(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/executive/trends', requireExecutive, (req, res) => {
+  res.type('html').send(
+    executiveTrendsPage(req.session.user, getExecutiveDashboardData(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/executive/statistics', requireExecutive, (req, res) => {
+  res.type('html').send(
+    executiveStatisticsPage(req.session.user, getExecutiveDashboardData(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/executive/departments', requireExecutive, (req, res) => {
+  res.type('html').send(
+    executiveDepartmentPerformancePage(req.session.user, getExecutiveDashboardData(), flashFromQuery(req.query)),
+  );
+});
+
+app.get('/executive/critical', requireExecutive, (req, res) => {
+  const stats = getExecutiveStats();
+  const tickets = listTicketsForExecutive({ level: 'critical' });
+  res.type('html').send(
+    criticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query), stats),
+  );
+});
+
+app.get('/executive/tickets', requireExecutive, (req, res) => {
+  const q = new URLSearchParams(req.query).toString();
+  return res.redirect(`/executive/register${q ? `?${q}` : ''}`);
+});
+
 app.get('/executive/tickets/:ref', requireExecutive, asyncRoute(async (req, res) => {
   const ref = req.params.ref;
   markTicketNotificationsRead(req.session.user, ref);
   const raw = getTicketByRefForExecutive(ref);
   if (!raw) {
-    return res.redirect('/executive/tickets?flash=not_found');
+    return res.redirect('/executive/register?flash=not_found');
   }
   const ticket = await ticketForRole(raw, 'executive');
   res.type('html').send(
@@ -1011,6 +1417,79 @@ app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
 app.post('/executive/notifications/read-all', requireExecutive, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/executive';
+  return res.redirect(back);
+});
+
+/* —— President —— */
+
+app.get('/president', requirePresident, (req, res) => {
+  res.type('html').send(
+    presidentOverviewPage(
+      req.session.user,
+      getPresidentStats(),
+      flashFromQuery(req.query),
+    ),
+  );
+});
+
+app.get('/president/pending', requirePresident, (req, res) => {
+  const stats = getPresidentStats();
+  const tickets = listPresidentPendingQueue();
+  res.type('html').send(
+    pendingQueuePage(req.session.user, tickets, flashFromQuery(req.query), stats),
+  );
+});
+
+app.get('/president/high', requirePresident, (req, res) => {
+  const stats = getPresidentStats();
+  const tickets = listTicketsForPresident({ level: 'high' });
+  res.type('html').send(
+    highTicketsPage(req.session.user, tickets, flashFromQuery(req.query), stats),
+  );
+});
+
+app.get('/president/critical', requirePresident, (req, res) => {
+  const stats = getPresidentStats();
+  const tickets = listTicketsForPresident({ level: 'critical' });
+  res.type('html').send(
+    presidentCriticalTicketsPage(req.session.user, tickets, flashFromQuery(req.query), stats),
+  );
+});
+
+app.get('/president/tickets/:ref', requirePresident, asyncRoute(async (req, res) => {
+  const ref = req.params.ref;
+  markTicketNotificationsRead(req.session.user, ref);
+  const raw = getTicketByRefForPresident(ref);
+  if (!raw) {
+    return res.redirect('/president/pending?flash=not_found');
+  }
+  const ticket = await ticketForRole(raw, 'president');
+  res.type('html').send(
+    presidentTicketDetailPage(req.session.user, ticket, {
+      flash: flashFromQuery(req.query),
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: getPresidentStats(),
+    }),
+  );
+}));
+
+app.post('/president/tickets/:ref/decision', requirePresident, (req, res) => {
+  const ref = req.params.ref;
+  const result = recordPresidentDecision(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/president/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/president/tickets/${ref}?flash=${result.flashKey || 'president_approve'}`);
+});
+
+app.get('/president/attachments/:id', requirePresident, asyncRoute(async (req, res) => {
+  const found = await findAttachmentForPresident(req.params.id);
+  await sendAttachment(res, found);
+}));
+
+app.post('/president/notifications/read-all', requirePresident, (req, res) => {
+  markNotificationsReadForUser(req.session.user);
+  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/president';
   return res.redirect(back);
 });
 

@@ -4,15 +4,23 @@ const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notifica
 
 const NAV_ITEMS = [
   { id: 'overview', href: '/executive', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'critical', href: '/executive/critical', label: 'Critical risks', icon: 'critical', statKey: 'criticalCount' },
-  { id: 'tickets', href: '/executive/tickets', label: 'All reports', icon: 'reports' },
+  { id: 'heatmap', href: '/executive/heatmap', label: 'Heatmap', icon: 'heatmap' },
+  { id: 'register', href: '/executive/register', label: 'Risk Register', icon: 'register', statKey: 'total' },
+  { id: 'reports', href: '/executive/reports', label: 'Reports', icon: 'reports' },
+  { id: 'trends', href: '/executive/trends', label: 'Trends', icon: 'trends' },
+  { id: 'statistics', href: '/executive/statistics', label: 'Statistics', icon: 'statistics' },
+  { id: 'departments', href: '/executive/departments', label: 'Department Performance', icon: 'departments' },
 ];
 
 function navIcon(name) {
   const icons = {
     dashboard: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
-    critical: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    heatmap: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>`,
+    register: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>`,
     reports: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
+    trends: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+    statistics: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    departments: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9v.01M9 12v.01M9 15v.01M9 18v.01"/></svg>`,
   };
   return icons[name] || '';
 }
@@ -22,8 +30,8 @@ function sidebarNav(activeNav, stats = {}) {
     const active = activeNav === item.id ? ' supervisor-sidebar__link--active' : '';
     const count = item.statKey ? Number(stats[item.statKey] || 0) : 0;
     const badge =
-      count > 0
-        ? `<span class="supervisor-sidebar__badge supervisor-sidebar__badge--critical" aria-label="${count} critical">${count}</span>`
+      count > 0 && item.id === 'register'
+        ? `<span class="supervisor-sidebar__badge" aria-label="${count} reports">${count}</span>`
         : '';
     return `<a href="${item.href}" class="supervisor-sidebar__link${active}">
       <span class="supervisor-sidebar__icon">${navIcon(item.icon)}</span>
@@ -58,11 +66,11 @@ function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifica
       </div>
       <div class="supervisor-sidebar__titles">
         <span class="supervisor-sidebar__system">Risk Management</span>
-        <span class="supervisor-sidebar__role">Executive</span>
+        <span class="supervisor-sidebar__role">Executive Committee</span>
       </div>
     </div>
     <p class="supervisor-sidebar__section">Menu</p>
-    <nav class="supervisor-sidebar__nav" aria-label="Executive navigation">
+    <nav class="supervisor-sidebar__nav" aria-label="Executive Committee navigation">
       ${sidebarNav(activeNav, stats)}
     </nav>
     <div class="supervisor-sidebar__user">
@@ -81,7 +89,7 @@ function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifica
       <div class="console-topbar__title">${escapeHtml(title)}</div>
       <div class="console-topbar__actions">
         ${notifHtml}
-        <span class="console-topbar__role-pill console-topbar__role-pill--executive">Executive</span>
+        <span class="console-topbar__role-pill console-topbar__role-pill--executive">View only</span>
       </div>
     </header>
     <main class="supervisor-main">${body}</main>

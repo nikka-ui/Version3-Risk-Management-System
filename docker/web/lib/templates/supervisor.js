@@ -1,9 +1,11 @@
-const { RISK_CATEGORIES, DEPARTMENTS, getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
+const { RISK_CATEGORIES, getCategoryLabel, getStatusLabel, getStatusTone, getPriorityLabel, getPriorityTone } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { canSupervisorSubmitAccomplishment } = require('../tickets');
 const { supervisorAppLayout } = require('./supervisor-layout');
 const { flashMessage } = require('./layout');
 const { evidenceSection } = require('./evidence');
+const { threadDiscussionSection } = require('./thread-discussion');
+const { layoutNotifications } = require('../notifications');
 
 function categoryOptions(selected) {
   return RISK_CATEGORIES.map(
@@ -21,6 +23,19 @@ function likelihoodOptions(selected) {
 function statusPill(status, overdue) {
   const tone = overdue ? 'bad' : getStatusTone(status);
   return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
+}
+
+function priorityPill(priority) {
+  if (!priority) return '<span class="text-muted">—</span>';
+  const tone = getPriorityTone(priority);
+  return `<span class="pill pill--${tone} priority-pill">${escapeHtml(getPriorityLabel(priority))}</span>`;
+}
+
+function confidenceBadge(confidence) {
+  if (confidence == null) return '—';
+  const pct = Math.round(Number(confidence) * 100);
+  const tone = pct >= 85 ? 'done' : pct >= 70 ? 'info' : 'warn';
+  return `<span class="pill pill--${tone} confidence-pill">${pct}%</span>`;
 }
 
 function rmoReturnFeedbackBlock(notes, hint) {
@@ -101,8 +116,15 @@ function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showAct
     .join('');
 }
 
-function supervisorPage(title, user, activeNav, body, stats) {
-  return supervisorAppLayout({ title, user, activeNav, body, stats });
+function supervisorPage(title, user, activeNav, body, stats, notifications) {
+  return supervisorAppLayout({
+    title,
+    user,
+    activeNav,
+    body,
+    stats,
+    notifications: notifications || layoutNotifications(user),
+  });
 }
 
 function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
@@ -133,16 +155,19 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
     ${flashMessage(flash)}
     <div class="sup-page-head">
       <div>
-        <h1>Overview</h1>
-        <p class="sup-page-desc">Track risk reports, pending actions, and accomplishments for your department.</p>
+        <h1>Dashboard</h1>
+        <p class="sup-page-desc">Report organizational risks, track AI-routed tickets, and monitor status from submission through closure.</p>
       </div>
-      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ New report</a>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
+    </div>
+    <div class="routing-flow-banner" role="note">
+      <strong>Automatic routing:</strong> Submit your report → AI analyzes and classifies → Responsible department is assigned — you do not choose the handling department.
     </div>
     <div class="sup-kpi-grid">
       ${kpiCard('/supervisor/tickets', KPI_ICONS.tickets, stats.total, 'My tickets')}
-      ${kpiCard('/supervisor/tickets?filter=draft', KPI_ICONS.drafts, stats.drafts, 'Drafts')}
-      ${kpiCard('/supervisor/actions', KPI_ICONS.action, stats.actionRequired, 'Action required', 'sup-kpi--accent')}
-      ${kpiCard('/supervisor/tickets?filter=returned', KPI_ICONS.returned, stats.returned, 'Returned by RMO', stats.returned > 0 ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/supervisor/drafts', KPI_ICONS.drafts, stats.drafts, 'Draft reports')}
+      ${kpiCard('/supervisor/submitted', KPI_ICONS.tickets, stats.submitted, 'Submitted reports')}
+      ${kpiCard('/supervisor/returned', KPI_ICONS.returned, stats.returned, 'Returned reports', stats.returned > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/supervisor/tickets', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/supervisor/tickets?filter=closed', KPI_ICONS.closed, stats.closed, 'Closed')}
       ${kpiCard('/supervisor/accomplishments', KPI_ICONS.done, stats.accomplishments, 'Accomplishments')}
@@ -169,7 +194,7 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
       </div>
     </section>`;
 
-  return supervisorPage('Overview', user, 'overview', body, stats);
+  return supervisorPage('Dashboard', user, 'overview', body, stats);
 }
 
 function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {}) {
@@ -194,9 +219,9 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
     <div class="sup-page-head">
       <div>
         <h1>My tickets</h1>
-        <p class="sup-page-desc">Manage draft reports (create, edit, delete) before submission. Submitted tickets are read-only.</p>
+        <p class="sup-page-desc">All risk tickets you have reported — from drafts through closure. Responsible department is assigned by AI on submit.</p>
       </div>
-      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ New report</a>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
     </div>
     <div class="ticket-filters console-quick-actions">
       <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All <span class="filter-pill__count">${tickets.length}</span></a>
@@ -261,22 +286,93 @@ function fiveW1HFields(ticket, editable) {
   </div>`;
 }
 
+function timelineSection(timeline = []) {
+  if (!timeline.length) {
+    return `<section class="sup-card sup-card--history">
+      <h2>Ticket timeline</h2>
+      <p class="text-muted">Lifecycle events will appear here after submission.</p>
+    </section>`;
+  }
+  const items = timeline
+    .map(
+      (e) => `<li class="ticket-timeline-item">
+        <div class="ticket-timeline-item__dot" aria-hidden="true"></div>
+        <div class="ticket-timeline-item__body">
+          <div class="ticket-timeline-item__meta">
+            <strong>${escapeHtml(e.action)}</strong>
+            <span class="ticket-timeline-item__time">${escapeHtml(formatDate(e.at))}</span>
+          </div>
+          ${e.detail ? `<p class="ticket-timeline-item__detail">${escapeHtml(e.detail)}</p>` : ''}
+          ${e.actorName ? `<span class="ticket-timeline-item__actor">${escapeHtml(e.actorName)}</span>` : ''}
+        </div>
+      </li>`,
+    )
+    .join('');
+  return `<section class="sup-card sup-card--history">
+    <h2>Ticket timeline</h2>
+    <p class="section-hint">Complete lifecycle from submission through routing, review, and closure.</p>
+    <ol class="ticket-timeline">${items}</ol>
+  </section>`;
+}
+
+function threadCommentsSection(ticket, ref, user) {
+  return threadDiscussionSection(ticket, ref, {
+    title: 'Threaded discussion',
+    hint: 'Comments, replies, @mentions, attachments, and reactions — similar to Jira.',
+    postAction: `/supervisor/tickets/${ref}/comment`,
+    editAction: `/supervisor/tickets/${ref}/comment/edit`,
+    reactAction: `/supervisor/tickets/${ref}/comment/react`,
+    canPost: ticket.status !== 'draft',
+    canReact: ticket.status !== 'draft',
+    canEditOwn: true,
+    currentUsername: user?.username,
+  });
+}
+
+function aiAnalysisPanel(ticket, { preview = false } = {}) {
+  const ai = ticket?.ai || {};
+  const riskCategoryLabel = getCategoryLabel(ai.riskCategory || ticket?.category);
+  const riskLevel = ai.riskLevel || riskLevelFromSeverityLocal(
+    ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2,
+  );
+  const dept = ticket.department || ai.responsibleDepartment || '—';
+  const priority = ticket.priority || ai.priority;
+
+  return `<section class="enterprise-card enterprise-card--ai ai-panel">
+    <div class="enterprise-section-head enterprise-section-head--tight">
+      <h2>${preview ? 'AI PREVIEW' : 'AI CLASSIFICATION &amp; ROUTING'}</h2>
+      <div class="ai-badge">
+        <span class="ai-badge__dot" aria-hidden="true"></span>
+        <span>${preview ? 'Preview' : 'Post-submission analysis'}</span>
+      </div>
+    </div>
+    <div class="ai-preview-grid">
+      <div class="ai-summary">
+        <div class="ai-summary-head"><strong>Incident summary</strong></div>
+        <p>${escapeHtml(ai.summary || '—')}</p>
+        ${ai.suggestedMitigation ? `<div class="ai-mitigation-suggestion"><strong>Suggested initial mitigation</strong><p>${escapeHtml(ai.suggestedMitigation)}</p></div>` : ''}
+      </div>
+      <div class="ai-analysis">
+        <div class="ai-analysis-card">
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Risk category</span><span class="ai-analysis-value">${escapeHtml(riskCategoryLabel)}</span></div>
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Risk level</span><span>${riskLevelBadge(riskLevel)}</span></div>
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Responsible department</span><span class="ai-analysis-value ai-dept-value">${escapeHtml(dept)}</span></div>
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Priority</span><span>${priorityPill(priority)}</span></div>
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Confidence</span><span>${confidenceBadge(ai.confidence)}</span></div>
+          <div class="ai-analysis-row"><span class="ai-analysis-label">Likelihood × Impact</span><span class="ai-analysis-value">${ai.likelihood ?? '—'}/5 × ${ai.impact ?? '—'}/5</span></div>
+        </div>
+      </div>
+    </div>
+    ${!preview && ticket.routedAt ? `<p class="routing-confirmation text-muted">Automatically routed to <strong>${escapeHtml(dept)}</strong> on ${escapeHtml(formatDate(ticket.routedAt))}.</p>` : ''}
+    ${preview ? '<p class="text-muted routing-note">Final department assignment is confirmed when you submit the ticket.</p>' : ''}
+  </section>`;
+}
+
 function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const t = ticket || {};
   const ref = t.reference || '';
 
-  const aiBlock =
-    t.ai
-      ? `<section class="card card--ai">
-          <h2>AI classification</h2>
-          <p class="text-muted">${escapeHtml(t.ai.summary)}</p>
-          <dl class="detail-dl">
-            <dt>Severity</dt><dd>${t.ai.severity}/5</dd>
-            <dt>Confidence</dt><dd>${Math.round(t.ai.confidence * 100)}%</dd>
-            <dt>Manual review</dt><dd>${t.ai.manualReviewRequired ? 'Required' : 'No'}</dd>
-          </dl>
-        </section>`
-      : '';
+  const aiBlock = t.ai || t.department ? aiAnalysisPanel(t) : '';
 
   const officerBlock =
     t.status === 'returned' && t.officerNotes
@@ -303,9 +399,11 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
         <h2>Risk details</h2>
         <dl class="detail-dl">
           <dt>Title</dt><dd>${escapeHtml(t.title)}</dd>
-          <dt>Department</dt><dd>${escapeHtml(t.department)}</dd>
+          <dt>Your department</dt><dd>${escapeHtml(t.reporterDepartment || '—')}</dd>
+          <dt>Responsible department</dt><dd>${escapeHtml(t.department || t.ai?.responsibleDepartment || 'Pending AI routing')}</dd>
           <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
           <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
+          <dt>Priority</dt><dd>${priorityPill(t.priority || t.ai?.priority)}</dd>
           <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
         </dl>
         <p style="margin-top:1rem">${escapeHtml(t.description || '—')}</p>
@@ -543,13 +641,25 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
         </section>`
       : '';
 
+  const finalDecisionBlock = t.finalDecision
+    ? `<section class="sup-card sup-card--accent">
+        <h2>Final decision</h2>
+        <p><strong>${escapeHtml(t.finalDecision.decision || 'Closed')}</strong></p>
+        <p>${escapeHtml(t.finalDecision.summary || t.finalDecision.notes || '')}</p>
+        <p class="text-muted">By ${escapeHtml(t.finalDecision.authorName || 'Approving authority')} · ${escapeHtml(formatDate(t.finalDecision.at))}</p>
+      </section>`
+    : '';
+  const closedNoDecision = ['closed', 'resolved'].includes(t.status) && !t.finalDecision
+    ? `<section class="sup-card"><h2>Final decision</h2><p class="text-muted">This ticket has been closed. Final decision details will appear here when recorded by the approving authority.</p></section>`
+    : '';
+
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
     <div class="page-head page-head--row">
       <div>
         <h1>${escapeHtml(t.title || 'Ticket')}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)}</p>
+        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)} ${t.priority || t.ai?.priority ? `· ${priorityPill(t.priority || t.ai?.priority)}` : ''}</p>
       </div>
       <a href="/supervisor/tickets" class="btn-outline">Back to tickets</a>
     </div>
@@ -559,7 +669,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
     ${supervisorFeedbackBlock}
     ${evidenceSectionHtml}
     ${addEvidenceForm}
-    ${accomplishmentForm}`;
+    ${accomplishmentForm}
+    ${timelineSection(t.timeline || [])}
+    ${threadCommentsSection(t, ref, user)}
+    ${finalDecisionBlock || closedNoDecision}`;
 
   return supervisorPage(ref, user, 'tickets', body, stats);
 }
@@ -603,14 +716,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
     : '/supervisor/tickets/new/preview';
   const pageTitle = isRevise ? 'REVISE RISK REPORT' : isEdit ? 'EDIT DRAFT REPORT' : 'NEW RISK REPORT';
   const pageDesc = isRevise
-    ? 'Your report was returned by the RMO. Update the details and evidence, then resubmit for review.'
+    ? 'Your report was returned by the Risk Management Unit. Update the details and evidence, then resubmit.'
     : isEdit
       ? 'Update your draft report. Only drafts can be edited or deleted before submission.'
-      : 'Submit a structured incident report. AI will generate the risk analysis preview.';
-  const deptOptions = DEPARTMENTS.map((d) => {
-    const selected = (isEdit ? t.department : d === 'Operations') === d ? 'selected' : '';
-    return `<option value="${escapeHtml(d)}" ${selected}>${escapeHtml(d)}</option>`;
-  }).join('');
+      : 'Submit a structured incident report. AI will classify the risk and assign the responsible department — you do not choose the handling department.';
+  const reporterDept = user.department || t.reporterDepartment || 'Not set on profile';
   const existingAttachments = isEdit ? renderExistingAttachments(t) : '';
   const rmoFeedbackBlock = isRevise
     ? rmoReturnFeedbackBlock(
@@ -634,6 +744,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
 
       <form method="post" action="${formAction}" class="enterprise-form" id="riskForm" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="referenceOverride" value="${escapeHtml(isEdit ? t.reference : ticketRef)}">
+        <input type="hidden" name="reporterDepartment" value="${escapeHtml(reporterDept)}">
 
         <section class="enterprise-card">
           <div class="enterprise-section-head">
@@ -649,14 +760,13 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
               <label for="title">${reqLabel('Risk Title', { required: true })}</label>
               <input id="title" name="title" type="text" required aria-required="true" placeholder="Short, specific risk title" class="enterprise-input" value="${escapeHtml(t.title || '')}">
             </div>
-            <div class="field field--required" data-required="department">
-              <label for="department">${reqLabel('Department', { required: true })}</label>
-              <select id="department" name="department" required aria-required="true" class="enterprise-select">
-                ${deptOptions}
-              </select>
+            <div class="field">
+              <label>Your department</label>
+              <input type="text" class="enterprise-input" value="${escapeHtml(reporterDept)}" readonly aria-readonly="true" tabindex="-1">
+              <p class="field-hint">Reporting unit only. AI assigns the responsible handling department on submit.</p>
             </div>
             <div class="field field--required" data-required="location">
-              <label for="location">${reqLabel('Location', { required: true })}</label>
+              <label for="location">${reqLabel('Incident location', { required: true })}</label>
               <input id="location" name="location" type="text" required aria-required="true" placeholder="Building / unit / site" class="enterprise-input" value="${escapeHtml(t.location || '')}">
             </div>
           </div>
@@ -768,7 +878,6 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         const isReviseMode = ${isRevise ? 'true' : 'false'};
         const initialSnapshot = ${JSON.stringify({
           title: t.title || '',
-          department: t.department || '',
           location: t.location || '',
           what: w.what || '',
           why: w.why || '',
@@ -888,7 +997,6 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           if (document.querySelectorAll('input[name="removeAttachmentIds"]:checked').length > 0) return true;
           return (
             document.getElementById('title').value.trim() !== initialSnapshot.title ||
-            document.getElementById('department').value.trim() !== initialSnapshot.department ||
             document.getElementById('location').value.trim() !== initialSnapshot.location ||
             document.getElementById('what').value.trim() !== initialSnapshot.what ||
             document.getElementById('why').value.trim() !== initialSnapshot.why ||
@@ -901,7 +1009,6 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
 
         function updateRequiredIndicators() {
           const title = document.getElementById('title').value.trim();
-          const department = document.getElementById('department').value.trim();
           const location = document.getElementById('location').value.trim();
           const what = document.getElementById('what').value.trim();
           const why = document.getElementById('why').value.trim();
@@ -910,7 +1017,6 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           const revisionHint = document.getElementById('revisionRequiredHint');
 
           setFieldInvalid('title', !title);
-          setFieldInvalid('department', !department);
           setFieldInvalid('location', !location);
           setFieldInvalid('what', !what);
           setFieldInvalid('why', !why);
@@ -923,7 +1029,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
             revisionHint.classList.toggle('revision-required-hint--visible', isReviseMode && !revised);
           }
 
-          const ready = title && department && location && what && why && !evidenceMissing && revised;
+          const ready = title && location && what && why && !evidenceMissing && revised;
           nextBtn.disabled = !ready;
           if (ready) nextBtn.classList.add('btn-enterprise-next-ready');
           else nextBtn.classList.remove('btn-enterprise-next-ready');
@@ -960,7 +1066,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         });
 
         // Smart validation as the user types.
-        ['title','department','location','what','why','where','when','who','how'].forEach(id => {
+        ['title','location','what','why','where','when','who','how'].forEach(id => {
           const el = document.getElementById(id);
           if (!el) return;
           el.addEventListener('input', updateNextState);
@@ -993,9 +1099,6 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
 
 function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, showUploadToast = false, revisionBlocked = false } = {}) {
   const isRevise = ticket?.status === 'returned';
-  const ai = ticket?.ai || {};
-  const riskCategoryLabel = getCategoryLabel(ai.riskCategory || ticket?.category);
-  const riskLevel = ai.riskLevel || riskLevelFromSeverityLocal(ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2);
 
   const body = `
     ${flashMessage(flash)}
@@ -1016,53 +1119,11 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
         ${progressSteps(2)}
         <div class="enterprise-title">
           <h1>${isRevise ? 'REVISE RISK REPORT' : 'NEW RISK REPORT'}</h1>
-          <p class="page-desc">${isRevise ? 'Review your updates and resubmit to the RMO when ready.' : 'AI preview generated from your incident details. Review and submit when ready.'}</p>
+          <p class="page-desc">${isRevise ? 'Review your updates. On resubmit, AI will re-analyze and route the ticket to the responsible department.' : 'Review the AI-generated summary, classification, and proposed routing before submitting.'}</p>
         </div>
       </div>
 
-      <section class="enterprise-card enterprise-card--ai ai-panel">
-        <div class="enterprise-section-head enterprise-section-head--tight">
-          <h2>AI PREVIEW</h2>
-          <div class="ai-badge">
-            <span class="ai-badge__dot" aria-hidden="true"></span>
-            <span>AI Preview</span>
-          </div>
-        </div>
-
-        <div class="ai-preview-grid">
-          <div class="ai-summary">
-            <div class="ai-summary-head">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="ai-icon">
-                <path d="M12 2C8 2 5 5 5 9C5 13 8 16 12 16C16 16 19 13 19 9C19 5 16 2 12 2Z" stroke="#476C9B" stroke-width="2"/>
-                <path d="M4 22C6.5 19.5 9.5 18 12 18C14.5 18 17.5 19.5 20 22" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-              <strong>Automatic summary</strong>
-            </div>
-            <p>${escapeHtml(ai.summary || '—')}</p>
-          </div>
-
-          <div class="ai-analysis">
-            <div class="ai-analysis-card">
-              <div class="ai-analysis-row">
-                <span class="ai-analysis-label">Likelihood</span>
-                <span class="ai-analysis-value">${escapeHtml(ai.likelihood ?? '—')}/5</span>
-              </div>
-              <div class="ai-analysis-row">
-                <span class="ai-analysis-label">Impact</span>
-                <span class="ai-analysis-value">${escapeHtml(ai.impact ?? '—')}/5</span>
-              </div>
-              <div class="ai-analysis-row">
-                <span class="ai-analysis-label">Risk Category</span>
-                <span class="ai-analysis-value">${escapeHtml(riskCategoryLabel)}</span>
-              </div>
-              <div class="ai-analysis-row">
-                <span class="ai-analysis-label">Risk Level</span>
-                <span>${riskLevelBadge(riskLevel)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      ${aiAnalysisPanel(ticket, { preview: true })}
 
       <section class="enterprise-card">
         <div class="enterprise-section-head">
@@ -1081,12 +1142,12 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </span>
-            ${isRevise ? 'FINAL STEP: RESUBMIT TO RMO' : 'REVIEW &amp; SUBMISSION'}
+            ${isRevise ? 'FINAL STEP: RESUBMIT TICKET' : 'REVIEW &amp; SUBMISSION'}
           </h2>
           <p class="section-hint">${
             isRevise
-              ? 'This is the final step. Confirm and click "Resubmit to RMO" to send your revised report back for review — it will not return to the officer until you do.'
-              : 'Ensure the information is accurate. You will submit this report for Risk Management Officer review.'
+              ? 'Confirm and resubmit. AI will re-analyze and automatically route the ticket to the responsible department.'
+              : 'Ensure the information is accurate. On submit, AI will classify the risk and route the ticket — you do not choose the handling department.'
           }</p>
         </div>
 
@@ -1094,9 +1155,9 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
           <div class="review-confirm" id="reviewConfirmBox">
             <label class="confirm-check" id="confirmCheckLabel">
               <input type="checkbox" id="confirmBox" name="confirmBox" value="1" aria-describedby="reviewConfirmHint">
-              <span>I confirm that the information provided is accurate${isRevise ? ' and ready to resubmit to the RMO' : ''}.</span>
+              <span>I confirm that the information provided is accurate${isRevise ? ' and ready to resubmit' : ''}.</span>
             </label>
-            <p class="review-confirm-hint" id="reviewConfirmHint">Required — check this box to enable ${isRevise ? 'Resubmit to RMO' : 'Submit Report'}.</p>
+            <p class="review-confirm-hint" id="reviewConfirmHint">Required — check this box to enable ${isRevise ? 'Resubmit ticket' : 'Submit ticket'}.</p>
             <div class="review-note text-muted">Ticket: <span class="mono">${escapeHtml(ticket.reference)}</span></div>
           </div>
 
@@ -1106,7 +1167,7 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
               ${isRevise ? '' : `<button type="submit" formaction="/supervisor/tickets/new/preview/${escapeHtml(ticket.reference)}/save" formmethod="post" class="btn-enterprise-outline">Save Draft</button>`}
             </div>
             <button type="button" class="btn-enterprise-primary btn-enterprise-submit btn-enterprise-primary--inactive" id="submitBtn">
-              ${isRevise ? 'Resubmit to RMO' : 'Submit Report'}
+              ${isRevise ? 'Resubmit ticket' : 'Submit ticket'}
             </button>
             <button type="submit" id="submitBtnNative" class="visually-hidden" tabindex="-1" aria-hidden="true">Submit</button>
           </div>
@@ -1117,7 +1178,7 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
     <script>
       (function () {
         const revisionBlocked = ${revisionBlocked ? 'true' : 'false'};
-        const submitVerb = ${isRevise ? "'Resubmit to RMO'" : "'Submit Report'"};
+        const submitVerb = ${isRevise ? "'Resubmit ticket'" : "'Submit ticket'"};
         const confirmBox = document.getElementById('confirmBox');
         const confirmLabel = document.getElementById('confirmCheckLabel');
         const submitBtn = document.getElementById('submitBtn');
@@ -1282,7 +1343,109 @@ function accomplishmentsPage(user, accomplishments, flash, stats = {}) {
       </div>
     </section>`;
 
-  return supervisorPage('Accomplishments', user, 'accomplishments', body, stats);
+  return supervisorPage('Accomplishment reports', user, 'accomplishments', body, stats);
+}
+
+function filteredTicketsPage(user, tickets, flash, { filter, title, desc, activeNav, stats = {} } = {}) {
+  const isClosedStatus = (t) => ['closed', 'resolved'].includes(t.status);
+  const filtered =
+    filter === 'draft'
+      ? tickets.filter((t) => t.status === 'draft')
+      : filter === 'returned'
+        ? tickets.filter((t) => t.status === 'returned')
+        : filter === 'submitted'
+          ? tickets.filter((t) => t.status !== 'draft')
+          : filter === 'closed'
+            ? tickets.filter(isClosedStatus)
+            : tickets;
+  const rows = ticketTableRows(filtered, { showActions: filter === 'draft' || filter === 'returned' });
+  const body = `
+    ${flashMessage(flash)}
+    <div class="sup-page-head">
+      <div>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="sup-page-desc">${escapeHtml(desc)}</p>
+      </div>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
+    </div>
+    <section class="sup-card sup-card--table">
+      <div class="table-wrap">
+        <table class="data-table data-table--compact sup-table tickets-table tickets-table--crud">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Files</th>
+              <th>Updated</th>
+              ${filter === 'draft' || filter === 'returned' ? '<th>Actions</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>${rows || `<tr><td colspan="${filter === 'draft' || filter === 'returned' ? 7 : 6}" class="empty">No tickets in this view.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`;
+  return supervisorPage(title, user, activeNav, body, stats);
+}
+
+function reporterProfilePage(user, flash, stats = {}) {
+  const body = `
+    ${flashMessage(flash)}
+    <div class="sup-page-head">
+      <div>
+        <h1>Profile</h1>
+        <p class="sup-page-desc">Your Ticket Reporter account details.</p>
+      </div>
+    </div>
+    <section class="sup-card">
+      <dl class="detail-dl detail-dl--profile">
+        <dt>Display name</dt><dd>${escapeHtml(user.displayName || '—')}</dd>
+        <dt>Username</dt><dd class="mono">${escapeHtml(user.username)}</dd>
+        <dt>Email</dt><dd>${escapeHtml(user.email || '—')}</dd>
+        <dt>Employee ID</dt><dd>${escapeHtml(user.employeeId || '—')}</dd>
+        <dt>Department</dt><dd>${escapeHtml(user.department || '—')}</dd>
+        <dt>Position</dt><dd>${escapeHtml(user.position || '—')}</dd>
+        <dt>Role</dt><dd>${escapeHtml(user.roleLabel || 'Ticket Reporter')}</dd>
+      </dl>
+      <p class="text-muted section-hint">Contact your system administrator to update profile details or reset your password.</p>
+    </section>`;
+  return supervisorPage('Profile', user, 'profile', body, stats);
+}
+
+function reporterNotificationsPage(user, notifications, flash, stats = {}) {
+  const items = notifications.length
+    ? notifications
+        .map((n) => {
+          const unreadCls = n.read ? '' : ' notif-page-item--unread';
+          return `<li class="notif-page-item${unreadCls}">
+            <a href="${escapeHtml(n.href || '#')}" class="notif-page-item__link">
+              <span class="notif-page-item__title">${escapeHtml(n.title || 'Notification')}</span>
+              <span class="notif-page-item__message">${escapeHtml(n.message || '')}</span>
+              <span class="notif-page-item__time">${escapeHtml(formatDate(n.at))}</span>
+            </a>
+          </li>`;
+        })
+        .join('')
+    : '<li class="notif-page-item notif-page-item--empty">No notifications yet. Status updates on your tickets will appear here.</li>';
+
+  const body = `
+    ${flashMessage(flash)}
+    <div class="sup-page-head">
+      <div>
+        <h1>Notifications</h1>
+        <p class="sup-page-desc">Ticket status updates, routing confirmations, and return notices.</p>
+      </div>
+      ${
+        notifications.some((n) => !n.read)
+          ? `<form method="post" action="/supervisor/notifications/read-all"><button type="submit" class="btn-outline">Mark all read</button></form>`
+          : ''
+      }
+    </div>
+    <section class="sup-card">
+      <ul class="notif-page-list">${items}</ul>
+    </section>`;
+  return supervisorPage('Notifications', user, 'notifications', body, stats);
 }
 
 module.exports = {
@@ -1293,4 +1456,7 @@ module.exports = {
   newRiskReportPreviewPage,
   actionsPage,
   accomplishmentsPage,
+  filteredTicketsPage,
+  reporterProfilePage,
+  reporterNotificationsPage,
 };

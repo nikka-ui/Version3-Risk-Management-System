@@ -94,10 +94,11 @@ function supervisorNav(active) {
 function officerNav(active) {
   const items = [
     { id: 'overview', href: '/officer', label: 'Overview' },
-    { id: 'review', href: '/officer/review', label: 'Review queue' },
-    { id: 'final', href: '/officer/final-validation', label: 'Final validation' },
+    { id: 'register', href: '/officer/tickets', label: 'Risk register' },
+    { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA' },
+    { id: 'ai-review', href: '/officer/ai-review', label: 'AI review' },
+    { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans' },
     { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
-    { id: 'tickets', href: '/officer/tickets', label: 'All tickets' },
   ];
   const links = items
     .map(
@@ -111,7 +112,7 @@ function officerNav(active) {
 function auditNav(active) {
   const items = [
     { id: 'overview', href: '/audit', label: 'Overview' },
-    { id: 'review', href: '/audit/review', label: 'Solution queue' },
+    { id: 'review', href: '/audit/review', label: 'Compliance review' },
     { id: 'final', href: '/audit/final-validation', label: 'Accomplishment review' },
     { id: 'tickets', href: '/audit/tickets', label: 'All tickets' },
   ];
@@ -126,9 +127,13 @@ function auditNav(active) {
 
 function executiveNav(active) {
   const items = [
-    { id: 'overview', href: '/executive', label: 'Overview' },
-    { id: 'critical', href: '/executive/critical', label: 'Critical risks' },
-    { id: 'tickets', href: '/executive/tickets', label: 'All reports' },
+    { id: 'overview', href: '/executive', label: 'Dashboard' },
+    { id: 'heatmap', href: '/executive/heatmap', label: 'Heatmap' },
+    { id: 'register', href: '/executive/register', label: 'Risk Register' },
+    { id: 'reports', href: '/executive/reports', label: 'Reports' },
+    { id: 'trends', href: '/executive/trends', label: 'Trends' },
+    { id: 'statistics', href: '/executive/statistics', label: 'Statistics' },
+    { id: 'departments', href: '/executive/departments', label: 'Department Performance' },
   ];
   const links = items
     .map(
@@ -265,8 +270,8 @@ function executiveCommentsSection(comments, { postAction, replyAction, canPost, 
   const cardClass = ['card', 'card--executive-comments', compact ? 'card--compact' : ''].filter(Boolean).join(' ');
 
   return `<section class="${cardClass}">
-    <h2>Executive oversight comments</h2>
-    <p class="text-muted section-hint">Visible to the RMO and Audit Officer, who may reply. Not visible to the Department Supervisor.</p>
+    <h2>Executive Committee comments</h2>
+    <p class="text-muted section-hint">Visible to the RMO and Compliance Officer, who may reply. Comments are limited to High and Critical risk reports. Not visible to the Department Supervisor.</p>
     <ul class="comment-list${compact ? ' comment-list--scroll' : ''}">${items}</ul>
     ${postForm}
   </section>`;

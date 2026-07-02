@@ -2,10 +2,10 @@
 
 const DEFAULT_DEPARTMENT = 'Operations';
 
-// Department dropdown options for the supervisor "New Risk Report" form.
-// (Mirrors the V2 spec list shown in the UI requirements.)
+// Organizational departments — AI assigns the responsible department on ticket submission.
 const DEPARTMENTS = [
   'Admin',
+  'Administration',
   'Corp Plan',
   'Corp Sec',
   'Finance/Accounting',
@@ -24,11 +24,26 @@ const RISK_CATEGORIES = [
   { id: 'compliance', label: 'Compliance' },
   { id: 'strategic', label: 'Strategic' },
   { id: 'reputational', label: 'Reputational' },
+  { id: 'environmental', label: 'Environmental Risk' },
+];
+
+const TICKET_PRIORITIES = [
+  { id: 'urgent', label: 'Urgent' },
+  { id: 'high', label: 'High' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'low', label: 'Low' },
 ];
 
 const TICKET_STATUSES = {
   draft: { label: 'Draft', supervisorCanEdit: true },
   submitted: { label: 'Submitted', supervisorCanEdit: false },
+  // —— Department ownership lifecycle (President's revised model) ——
+  assigned: { label: 'Assigned to Department', supervisorCanEdit: false },
+  ownership_rejected: { label: 'Ownership Rejected', supervisorCanEdit: false },
+  in_progress: { label: 'In Progress (Department)', supervisorCanEdit: false },
+  pending_president: { label: 'Awaiting President Approval', supervisorCanEdit: false },
+  pending_president_final: { label: 'Awaiting President Final Decision', supervisorCanEdit: false },
+  // —— Legacy Risk Management Unit / Audit workflow ——
   under_review: { label: 'Under RMO Review', supervisorCanEdit: false },
   returned: { label: 'Returned for Revision', supervisorCanEdit: true },
   under_audit: { label: 'Under Audit Review', supervisorCanEdit: false },
@@ -46,26 +61,43 @@ const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
 const SUPERVISOR_ACCOMPLISHMENT_STATUSES = ['in_mitigation', 'reopened'];
 
 /**
- * Tickets awaiting RMO validation. Includes solutions sent back by the Audit
- * Officer (architecture step 4: insufficient → return to RMO), so the RMO can
- * revise the mitigation plan and resubmit it for audit.
+ * Tickets awaiting RMU AI classification review (governance oversight — no ownership).
  */
-const OFFICER_REVIEW_STATUSES = ['under_review', 'audit_returned'];
+const RMU_AI_REVIEW_STATUSES = ['submitted', 'assigned', 'in_progress', 'ownership_rejected'];
 
-/** Reserved for future RMO effectiveness validation (after audit closes accomplishment review). */
+/** Active tickets the RMU monitors for SLA and lifecycle compliance. */
+const RMU_MONITORING_STATUSES = [
+  'assigned',
+  'in_progress',
+  'ownership_rejected',
+  'pending_president',
+  'pending_president_final',
+  'under_review',
+  'returned',
+  'under_audit',
+  'audit_returned',
+  'in_mitigation',
+  'reopened',
+  'pending_audit',
+];
+
+/** Tickets with department action plans for RMU review. */
+const RMU_ACTION_PLAN_STATUSES = ['in_progress', 'pending_president', 'reopened'];
+
+/** Open compliance-category risks for RMU monitoring. */
+const RMU_COMPLIANCE_CATEGORY = 'compliance';
+
+/** Legacy RMO workflow queues — disabled; RMU does not own tickets or close them. */
+const OFFICER_REVIEW_STATUSES = [];
 const OFFICER_FINAL_VALIDATION_STATUSES = [];
+const OFFICER_MITIGATION_EDIT_STATUSES = [];
+const OFFICER_MONITORING_STATUSES = RMU_MONITORING_STATUSES;
 
-/** Tickets RMO may monitor after audit approval / during implementation. */
-const OFFICER_MONITORING_STATUSES = ['under_audit', 'in_mitigation', 'returned', 'reopened', 'pending_audit'];
-
-/** Tickets awaiting Audit Officer review of the RMO mitigation solution. */
+/** Tickets awaiting Compliance Officer review of mitigation solutions. */
 const AUDIT_REVIEW_STATUSES = ['under_audit'];
 
-/** Accomplishment reports awaiting Audit Officer final review (supervisor submitted). */
+/** Accomplishment reports awaiting Compliance Officer final review (supervisor submitted). */
 const AUDIT_FINAL_VALIDATION_STATUSES = ['pending_audit'];
-
-/** RMO may edit the mitigation solution before Audit approval or ticket closure. */
-const OFFICER_MITIGATION_EDIT_STATUSES = ['under_audit', 'audit_returned'];
 
 /** Supervisor may view the approved mitigation plan (not draft / audit-in-progress versions). */
 const SUPERVISOR_MITIGATION_VISIBLE_STATUSES = [
@@ -78,6 +110,74 @@ const SUPERVISOR_MITIGATION_VISIBLE_STATUSES = [
 
 const GRACE_PERIOD_MS = 30 * 60 * 1000;
 
+/* —— Department Head / Vice President ownership lifecycle —— */
+
+/** Tickets routed to the department, awaiting the Department Head's acceptance decision. */
+const DEPT_HEAD_INBOX_STATUSES = ['assigned'];
+
+/** Tickets the Department Head owns and is actively working (accepted). */
+const DEPT_HEAD_ACTIVE_STATUSES = ['in_progress'];
+
+/** Statuses in which the Department Head may still open/act on the ticket at all. */
+const DEPT_HEAD_VISIBLE_STATUSES = [
+  'assigned',
+  'in_progress',
+  'ownership_rejected',
+  'under_audit',
+  'audit_returned',
+  'pending_president',
+  'in_mitigation',
+  'pending_audit',
+  'pending_president_final',
+  'resolved',
+  'closed',
+  'reopened',
+];
+
+/** Department Head may accept / reject / reassign ownership only before accepting. */
+const DEPT_HEAD_OWNERSHIP_DECISION_STATUSES = ['assigned'];
+
+/** Department Head may build the action plan, assign personnel, and report progress. */
+const DEPT_HEAD_EXECUTION_STATUSES = ['in_progress', 'reopened'];
+
+/**
+ * Canonical department aliases so a Department Head account (whose department is
+ * stored using the admin department names, e.g. "Information Technology") can be
+ * matched to the short department names the AI router assigns to a ticket
+ * (e.g. "IT"). Keys are canonical ids; values are lower-cased aliases.
+ */
+const DEPARTMENT_ALIASES = {
+  it: ['it', 'information technology', 'i.t.', 'it department'],
+  finance: ['finance', 'finance/accounting', 'accounting', 'finance and accounting', 'fin'],
+  hr: ['hr', 'hrms', 'human resources', 'human resource management'],
+  operations: ['operations', 'ops', 'operation'],
+  admin: ['admin', 'administration', 'administrative'],
+  internal_audit: ['internal audit', 'ia', 'audit'],
+  treasury: ['treasury'],
+  corp_plan: ['corp plan', 'corporate planning', 'planning'],
+  corp_sec: ['corp sec', 'corporate secretary', 'governance'],
+  mmcd: ['mmcd', 'maintenance', 'facilities'],
+  rmo: ['rmo', 'risk management office', 'risk management', 'risk management unit', 'risk governance office', 'rmu'],
+  business_dev: ['business development', 'bd', 'business dev'],
+  pceo: ['pceo', 'president and chief executive office', 'office of the president'],
+};
+
+function canonicalDepartment(name) {
+  const key = String(name || '').trim().toLowerCase();
+  if (!key) return '';
+  for (const [canonical, aliases] of Object.entries(DEPARTMENT_ALIASES)) {
+    if (aliases.includes(key)) return canonical;
+  }
+  return key;
+}
+
+/** True when a user department and a ticket department refer to the same office. */
+function departmentsMatch(deptA, deptB) {
+  const a = canonicalDepartment(deptA);
+  const b = canonicalDepartment(deptB);
+  return Boolean(a && b && a === b);
+}
+
 function getStatusLabel(status) {
   return TICKET_STATUSES[status]?.label || status;
 }
@@ -87,6 +187,11 @@ function getStatusTone(status) {
   const tones = {
     draft: 'muted',
     submitted: 'info',
+    assigned: 'info',
+    ownership_rejected: 'warn',
+    in_progress: 'rmo',
+    pending_president: 'pending',
+    pending_president_final: 'pending',
     under_review: 'rmo',
     returned: 'warn',
     under_audit: 'audit',
@@ -104,22 +209,46 @@ function getCategoryLabel(categoryId) {
   return RISK_CATEGORIES.find((c) => c.id === categoryId)?.label || categoryId;
 }
 
+function getPriorityLabel(priorityId) {
+  return TICKET_PRIORITIES.find((p) => p.id === priorityId)?.label || priorityId;
+}
+
+/** Maps a ticket priority to a pill tone. */
+function getPriorityTone(priorityId) {
+  const tones = { urgent: 'bad', high: 'warn', medium: 'info', low: 'muted' };
+  return tones[priorityId] || 'muted';
+}
+
 module.exports = {
   DEFAULT_DEPARTMENT,
   DEPARTMENTS,
   RISK_CATEGORIES,
+  TICKET_PRIORITIES,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
   SUPERVISOR_ACCOMPLISHMENT_STATUSES,
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
   OFFICER_MONITORING_STATUSES,
+  RMU_AI_REVIEW_STATUSES,
+  RMU_MONITORING_STATUSES,
+  RMU_ACTION_PLAN_STATUSES,
+  RMU_COMPLIANCE_CATEGORY,
   AUDIT_REVIEW_STATUSES,
   AUDIT_FINAL_VALIDATION_STATUSES,
   OFFICER_MITIGATION_EDIT_STATUSES,
   SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
+  DEPT_HEAD_INBOX_STATUSES,
+  DEPT_HEAD_ACTIVE_STATUSES,
+  DEPT_HEAD_VISIBLE_STATUSES,
+  DEPT_HEAD_OWNERSHIP_DECISION_STATUSES,
+  DEPT_HEAD_EXECUTION_STATUSES,
   GRACE_PERIOD_MS,
+  canonicalDepartment,
+  departmentsMatch,
   getStatusLabel,
   getStatusTone,
   getCategoryLabel,
+  getPriorityLabel,
+  getPriorityTone,
 };
