@@ -193,7 +193,7 @@ const {
   getSystemSettings,
   updateSystemSettings,
 } = require('./lib/store');
-const { ROLES } = require('./config/roles');
+const { isAssignableRole, roleDashboardPath } = require('./config/roles');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -292,14 +292,7 @@ function flashFromQuery(query) {
 }
 
 function dashboardPath(user) {
-  if (user?.role === 'admin') return '/admin';
-  if (user?.role === 'supervisor') return '/supervisor';
-  if (user?.role === 'dept_head') return '/dept';
-  if (user?.role === 'rm_officer') return '/officer';
-  if (user?.role === 'audit_officer') return '/audit';
-  if (user?.role === 'executive') return '/executive';
-  if (user?.role === 'president') return '/president';
-  return '/dashboard';
+  return roleDashboardPath(user?.role);
 }
 
 function asyncRoute(handler) {
@@ -433,26 +426,9 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/dashboard', requireAuth, (req, res) => {
-  if (req.session.user.role === 'admin') {
-    return res.redirect('/admin');
-  }
-  if (req.session.user.role === 'supervisor') {
-    return res.redirect('/supervisor');
-  }
-  if (req.session.user.role === 'dept_head') {
-    return res.redirect('/dept');
-  }
-  if (req.session.user.role === 'rm_officer') {
-    return res.redirect('/officer');
-  }
-  if (req.session.user.role === 'audit_officer') {
-    return res.redirect('/audit');
-  }
-  if (req.session.user.role === 'executive') {
-    return res.redirect('/executive');
-  }
-  if (req.session.user.role === 'president') {
-    return res.redirect('/president');
+  const target = roleDashboardPath(req.session.user.role);
+  if (target && target !== '/dashboard') {
+    return res.redirect(target);
   }
   res.type('html').send(dashboardPage(req.session.user));
 });
@@ -1560,7 +1536,7 @@ app.get('/admin/users/:username/edit', requireAdmin, (req, res) => {
 
 app.post('/admin/users', requireAdmin, (req, res) => {
   const { username, password, displayName, role, employeeId, email, department, position, confirmPassword } = req.body;
-  if (!ROLES[role]) return adminError(res, '/admin/users', 'Invalid role selected.');
+  if (!isAssignableRole(role)) return adminError(res, '/admin/users', 'Invalid role selected.');
   const result = createUser({
     username,
     password,

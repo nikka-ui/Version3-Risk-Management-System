@@ -7,6 +7,9 @@ services:
       - "${NGINX_HTTP_PORT:-8080}:80"
 
   web:
+    # Dev-only: run as root so the app can write to the bind-mounted
+    # ./web/data directory on Windows/WSL hosts. Production keeps USER node.
+    user: root
     environment:
       NODE_ENV: development
     volumes:

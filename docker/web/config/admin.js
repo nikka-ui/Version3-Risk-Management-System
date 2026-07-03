@@ -1,5 +1,7 @@
 /** Seed data and defaults for System Administrator modules. */
 
+const { ASSIGNABLE_ROLES } = require('./roles');
+
 const SEED_DEPARTMENTS = [
   { code: 'ADMIN', name: 'Administration', description: 'Corporate administration and governance', status: 'active' },
   { code: 'FIN', name: 'Finance', description: 'Finance and accounting operations', status: 'active' },
@@ -43,22 +45,13 @@ const DEFAULT_SYSTEM_SETTINGS = {
   mfaEnabled: false,
 };
 
-const ADMIN_ASSIGNABLE_ROLES = ['supervisor', 'dept_head', 'rm_officer', 'audit_officer', 'executive', 'president', 'admin'];
-
-/** Fixed user filter options for Audit Logs (label shown in UI → username stored in logs). */
-const AUDIT_LOG_USER_FILTERS = [
-  { label: 'personnel', username: 'personnel' },
-  { label: 'system admin', username: 'sys-admin' },
-  { label: 'admin', username: 'admin' },
-  { label: 'rmu', username: 'rm-officer' },
-  { label: 'executive committee', username: 'executive' },
-  { label: 'compliance officer', username: 'audit-officer' },
-];
+// Roles an administrator may assign in User Management. Derived from the
+// canonical role registry so it always matches the modules that exist.
+const ADMIN_ASSIGNABLE_ROLES = ASSIGNABLE_ROLES;
 
 module.exports = {
   SEED_DEPARTMENTS,
   SEED_POSITIONS,
   DEFAULT_SYSTEM_SETTINGS,
   ADMIN_ASSIGNABLE_ROLES,
-  AUDIT_LOG_USER_FILTERS,
 };

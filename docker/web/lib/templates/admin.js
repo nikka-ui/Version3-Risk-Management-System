@@ -1,5 +1,5 @@
 const { ROLES } = require('../../config/roles');
-const { ADMIN_ASSIGNABLE_ROLES, AUDIT_LOG_USER_FILTERS } = require('../../config/admin');
+const { ADMIN_ASSIGNABLE_ROLES } = require('../../config/admin');
 const { TICKET_STATUSES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { auditActionLabel } = require('../admin');
@@ -585,10 +585,12 @@ function ticketDetailPage(user, ticket, flash) {
 }
 
 function auditLogsPage(user, logs, flash, filters = {}, options = {}) {
-  const userOpts = AUDIT_LOG_USER_FILTERS.map(
-    (u) =>
-      `<option value="${escapeHtml(u.username)}" ${filters.user === u.username ? 'selected' : ''}>${escapeHtml(u.label)}</option>`,
-  ).join('');
+  const userOpts = (options.users || [])
+    .map(
+      (u) =>
+        `<option value="${escapeHtml(u)}" ${filters.user === u ? 'selected' : ''}>${escapeHtml(u)}</option>`,
+    )
+    .join('');
   const moduleOpts = (options.modules || [])
     .map((m) => `<option value="${escapeHtml(m)}" ${filters.module === m ? 'selected' : ''}>${escapeHtml(m)}</option>`)
     .join('');

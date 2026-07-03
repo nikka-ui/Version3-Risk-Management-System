@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { SEED_USERS } = require('../config/users');
-const { getRoleLabel } = require('../config/roles');
+const { getRoleLabel, isAssignableRole } = require('../config/roles');
 const {
   SEED_DEPARTMENTS,
   SEED_POSITIONS,
@@ -428,7 +428,7 @@ function updateUser(username, fields) {
   if (fields.employeeId !== undefined) user.employeeId = String(fields.employeeId).trim();
   if (fields.department !== undefined) user.department = String(fields.department).trim();
   if (fields.position !== undefined) user.position = String(fields.position).trim();
-  if (fields.role !== undefined && ROLES_SAFE(fields.role)) {
+  if (fields.role !== undefined && isAssignableRole(fields.role)) {
     if (user.builtIn && user.username === 'admin' && fields.role !== 'admin') {
       return { error: 'Cannot change role of the primary admin account.' };
     }
@@ -439,11 +439,6 @@ function updateUser(username, fields) {
   user.updatedAt = now;
   saveStore();
   return { user: publicUser(user), previous: { ...user } };
-}
-
-function ROLES_SAFE(role) {
-  const { ROLES } = require('../config/roles');
-  return Boolean(ROLES[role]);
 }
 
 function setUserStatus(username, active) {
