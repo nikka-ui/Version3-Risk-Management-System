@@ -96,7 +96,7 @@ function loginPage({ error, next }) {
 function dashboardPage(user) {
   const roleHints = {
     supervisor: 'Submit and track risk reports, upload evidence, and record accomplishments.',
-    rm_officer: 'Monitor organizational risks, review AI analysis and department action plans, recommend improvements, and escalate — without owning tickets.',
+    rm_officer: 'View organizational risks, monitor SLA and compliance, and participate in ticket discussion threads — without owning or editing tickets.',
     audit_officer: 'Review solutions and action plans before implementation proceeds.',
     executive: 'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. Comment on High and Critical risks only.',
     president: 'Final approving authority for High and Critical risks. Review resolutions, RMU recommendations, and compliance findings.',

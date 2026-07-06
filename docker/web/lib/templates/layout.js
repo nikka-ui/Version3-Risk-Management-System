@@ -1,4 +1,4 @@
-const { escapeHtml, formatDate } = require('../html');
+const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 
 function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
@@ -96,7 +96,6 @@ function officerNav(active) {
     { id: 'overview', href: '/officer', label: 'Overview' },
     { id: 'register', href: '/officer/tickets', label: 'Risk register' },
     { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA' },
-    { id: 'ai-review', href: '/officer/ai-review', label: 'AI review' },
     { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans' },
     { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
   ];
@@ -162,9 +161,28 @@ function adminNav(active) {
 
 function flashMessage(msg, type = 'success') {
   if (!msg) return '';
-  const cls = type === 'error' ? 'flash flash--error' : 'flash flash--success';
+  const cls =
+    type === 'error'
+      ? 'flash flash--error flash--auto-dismiss'
+      : 'flash flash--success flash--auto-dismiss';
   return `<div class="${cls}" role="status">${escapeHtml(msg)}</div>`;
 }
+
+const FLASH_AUTO_DISMISS_SCRIPT = `<script>
+(function () {
+  var DISMISS_MS = 5000;
+  function dismissFlash(el) {
+    if (!el || el.classList.contains('flash--dismissing')) return;
+    el.classList.add('flash--dismissing');
+    window.setTimeout(function () { el.remove(); }, 400);
+  }
+  document.querySelectorAll('.flash--auto-dismiss').forEach(function (el) {
+    window.setTimeout(function () { dismissFlash(el); }, DISMISS_MS);
+  });
+})();
+</script>`;
+
+const { renderRedditThread, redditPostForm, REDDIT_THREAD_SCRIPT } = require('./thread-discussion');
 
 /**
  * Shared comments / suggestions thread for a ticket (RMS flowchart: Audit
@@ -174,31 +192,22 @@ function flashMessage(msg, type = 'success') {
 function commentsSection(comments, { postAction, placeholder, compact, wrapClass, enabled = true } = {}) {
   if (!enabled) return '';
 
-  const items = (comments || []).length
-    ? comments
-        .map(
-          (c) => `<li class="comment">
-            <div class="comment-meta">
-              <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
-              <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
-              <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
-            </div>
-            <p class="comment-body">${escapeHtml(c.body)}</p>
-          </li>`,
-        )
-        .join('')
-    : '<li class="comment comment--empty text-muted">No comments yet.</li>';
+  const thread = renderRedditThread(comments, {
+    emptyMessage: 'No comments yet.',
+    canPost: false,
+    canReply: false,
+  });
 
   const form = postAction
-    ? `<form method="post" action="${postAction}" class="stack-form comment-form${compact ? ' comment-form--compact' : ''}">
-        <div class="field">
-          <label for="comment">${compact ? 'Add comment' : 'Add comment / suggestion'}</label>
-          <textarea id="comment" name="comment" rows="${compact ? 2 : 3}" required placeholder="${escapeHtml(
-            placeholder || 'Write a comment or suggestion about this risk report…',
-          )}"></textarea>
-        </div>
-        <button type="submit" class="btn-primary btn-primary--auto">${compact ? 'Post' : 'Post comment'}</button>
-      </form>`
+    ? redditPostForm('audit-comment', {
+        postAction,
+        canPost: true,
+        label: compact ? 'Add comment' : 'Add comment / suggestion',
+        placeholder: placeholder || 'Write a comment or suggestion about this risk report…',
+        showAttachments: false,
+        submitLabel: compact ? 'Post' : 'Post comment',
+        formClass: `reddit-compose${compact ? ' reddit-compose--compact' : ''}`,
+      })
     : '';
 
   const cardClass = ['card', wrapClass, compact ? 'card--compact' : ''].filter(Boolean).join(' ');
@@ -207,10 +216,11 @@ function commentsSection(comments, { postAction, placeholder, compact, wrapClass
     : '<p class="text-muted section-hint">Not visible to the Department Supervisor.</p>';
 
   return `<section class="${cardClass}">
-    <h2>${postAction ? 'Private comments' : 'Private comments'}</h2>
+    <h2>Private comments</h2>
     ${hint}
-    <ul class="comment-list${compact ? ' comment-list--scroll' : ''}">${items}</ul>
+    <div class="${compact ? 'reddit-thread--scroll' : ''}">${thread}</div>
     ${form}
+    ${REDDIT_THREAD_SCRIPT}
   </section>`;
 }
 
@@ -220,51 +230,27 @@ function commentsSection(comments, { postAction, placeholder, compact, wrapClass
 function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact, enabled = true } = {}) {
   if (!enabled) return '';
 
-  const all = comments || [];
-  const tops = all.filter((c) => !c.parentId);
-
-  const renderComment = (c, { isReply } = {}) => {
-    const roleCls = c.authorRole === 'executive' ? ' comment--executive' : '';
-    const replyForm = canReply && replyAction && !isReply
-      ? `<form method="post" action="${replyAction}" class="stack-form comment-form comment-form--reply">
-          <input type="hidden" name="parentId" value="${escapeHtml(c.id)}">
-          <div class="field">
-            <label for="reply-${escapeHtml(c.id)}">Reply to executive</label>
-            <textarea id="reply-${escapeHtml(c.id)}" name="comment" rows="2" required placeholder="Write your reply to the executive comment…"></textarea>
-          </div>
-          <button type="submit" class="btn-primary btn-primary--auto">Post reply</button>
-        </form>`
-      : '';
-
-    const replies = all
-      .filter((r) => r.parentId === c.id)
-      .map((r) => renderComment(r, { isReply: true }))
-      .join('');
-
-    return `<li class="comment${roleCls}${isReply ? ' comment--reply' : ''}">
-      <div class="comment-meta">
-        <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
-        <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
-        <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
-      </div>
-      <p class="comment-body">${escapeHtml(c.body)}</p>
-      ${replyForm}
-      ${replies ? `<ul class="comment-list comment-list--replies">${replies}</ul>` : ''}
-    </li>`;
-  };
-
-  const items = tops.length
-    ? tops.map((c) => renderComment(c)).join('')
-    : '<li class="comment comment--empty text-muted">No executive comments yet.</li>';
+  const thread = renderRedditThread(comments, {
+    postAction,
+    replyAction,
+    canPost: !!canReply,
+    canReply: !!canReply,
+    executive: true,
+    replyLabel: 'Reply to executive',
+    replyPlaceholder: 'Write your reply to the executive comment…',
+    emptyMessage: 'No executive comments yet.',
+  });
 
   const postForm = canPost && postAction
-    ? `<form method="post" action="${postAction}" class="stack-form comment-form${compact ? ' comment-form--compact' : ''}">
-        <div class="field">
-          <label for="executive-comment">${compact ? 'Add comment' : 'Add executive comment'}</label>
-          <textarea id="executive-comment" name="comment" rows="${compact ? 2 : 3}" required placeholder="Share oversight guidance on this risk report…"></textarea>
-        </div>
-        <button type="submit" class="btn-primary btn-primary--auto">${compact ? 'Post' : 'Post comment'}</button>
-      </form>`
+    ? redditPostForm('executive-comment', {
+        postAction,
+        canPost: true,
+        label: compact ? 'Add comment' : 'Add executive comment',
+        placeholder: 'Share oversight guidance on this risk report…',
+        showAttachments: false,
+        submitLabel: compact ? 'Post' : 'Post comment',
+        formClass: `reddit-compose${compact ? ' reddit-compose--compact' : ''}`,
+      })
     : '';
 
   const cardClass = ['card', 'card--executive-comments', compact ? 'card--compact' : ''].filter(Boolean).join(' ');
@@ -272,9 +258,10 @@ function executiveCommentsSection(comments, { postAction, replyAction, canPost, 
   return `<section class="${cardClass}">
     <h2>Executive Committee comments</h2>
     <p class="text-muted section-hint">Visible to the RMO and Compliance Officer, who may reply. Comments are limited to High and Critical risk reports. Not visible to the Department Supervisor.</p>
-    <ul class="comment-list${compact ? ' comment-list--scroll' : ''}">${items}</ul>
+    <div class="${compact ? 'reddit-thread--scroll' : ''}">${thread}</div>
     ${postForm}
+    ${REDDIT_THREAD_SCRIPT}
   </section>`;
 }
 
-module.exports = { appLayout, flashMessage, commentsSection, executiveCommentsSection };
+module.exports = { appLayout, flashMessage, FLASH_AUTO_DISMISS_SCRIPT, commentsSection, executiveCommentsSection };

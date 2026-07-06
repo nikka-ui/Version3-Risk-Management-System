@@ -6,7 +6,6 @@ const NAV_ITEMS = [
   { id: 'dashboard', href: '/officer', label: 'Dashboard', icon: 'dashboard' },
   { id: 'register', href: '/officer/tickets', label: 'Risk register', icon: 'reports', statKey: 'total' },
   { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA', icon: 'overdue', statKey: 'overdueMitigation' },
-  { id: 'ai-review', href: '/officer/ai-review', label: 'AI review', icon: 'review', statKey: 'awaitingReview' },
   { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans', icon: 'final', statKey: 'awaitingFinalValidation' },
   { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring', icon: 'monitoring', statKey: 'inMitigation' },
 ];
@@ -75,7 +74,7 @@ function officerAppLayout({ title, user, activeNav, body, stats = {}, notificati
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.username)}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.position || user.roleLabel || 'Risk Governance Officer')}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

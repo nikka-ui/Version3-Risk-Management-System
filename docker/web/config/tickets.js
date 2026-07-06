@@ -39,7 +39,7 @@ const TICKET_STATUSES = {
   submitted: { label: 'Submitted', supervisorCanEdit: false },
   // —— Department ownership lifecycle (President's revised model) ——
   assigned: { label: 'Assigned to Department', supervisorCanEdit: false },
-  ownership_rejected: { label: 'Ownership Rejected', supervisorCanEdit: false },
+  ownership_rejected: { label: 'Returned by Department', supervisorCanEdit: true },
   in_progress: { label: 'In Progress (Department)', supervisorCanEdit: false },
   pending_president: { label: 'Awaiting President Approval', supervisorCanEdit: false },
   pending_president_final: { label: 'Awaiting President Final Decision', supervisorCanEdit: false },
@@ -55,7 +55,10 @@ const TICKET_STATUSES = {
   reopened: { label: 'Reopened', supervisorCanEdit: true },
 };
 
-const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened'];
+const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened', 'ownership_rejected'];
+
+/** Ticket statuses where the reporter must revise and resubmit. */
+const REPORTER_REVISION_STATUSES = ['returned', 'ownership_rejected'];
 
 /** Supervisor may submit an accomplishment only after RMO assigns a mitigation plan. */
 const SUPERVISOR_ACCOMPLISHMENT_STATUSES = ['in_mitigation', 'reopened'];
@@ -226,6 +229,7 @@ module.exports = {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  REPORTER_REVISION_STATUSES,
   SUPERVISOR_ACCOMPLISHMENT_STATUSES,
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,

@@ -274,10 +274,6 @@ function loadStore() {
         t.auditTrail = [];
         migrated = true;
       }
-      if (!t.reporterDepartment && t.department && t.status === 'draft') {
-        t.reporterDepartment = t.department;
-        migrated = true;
-      }
     }
     if (migrated || (cache.reportLogs?.length ?? 0) !== lenBefore) {
       saveStore();

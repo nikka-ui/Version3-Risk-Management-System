@@ -1,4 +1,4 @@
-const { RISK_CATEGORIES, getCategoryLabel, getStatusLabel, getStatusTone, getPriorityLabel, getPriorityTone } = require('../../config/tickets');
+const { RISK_CATEGORIES, getCategoryLabel, getStatusLabel, getStatusTone, getPriorityLabel, getPriorityTone, REPORTER_REVISION_STATUSES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { canSupervisorSubmitAccomplishment } = require('../tickets');
 const { supervisorAppLayout } = require('./supervisor-layout');
@@ -40,7 +40,21 @@ function confidenceBadge(confidence) {
 
 function rmoReturnFeedbackBlock(notes, hint) {
   if (!notes?.trim()) return '';
-  return `<section class="rmo-feedback-alert" role="alert" aria-live="polite">
+  return revisionFeedbackBlock({
+    title: 'RMO feedback',
+    notes: notes.trim(),
+    hint,
+  });
+}
+
+function revisionFeedbackBlock({ title, notes, hint, ref, department, rejectedBy, rejectedAt }) {
+  if (!notes?.trim()) return '';
+  const meta = [
+    rejectedBy ? `From: ${rejectedBy}` : '',
+    department ? `Department: ${department}` : '',
+    rejectedAt ? formatDate(rejectedAt) : '',
+  ].filter(Boolean).join(' · ');
+  return `<section class="rmo-feedback-alert revision-feedback-alert" role="alert" aria-live="polite">
     <div class="rmo-feedback-alert__icon" aria-hidden="true">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 9V13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
@@ -49,11 +63,30 @@ function rmoReturnFeedbackBlock(notes, hint) {
       </svg>
     </div>
     <div class="rmo-feedback-alert__body">
-      <p class="rmo-feedback-alert__title">RMO feedback</p>
+      <p class="rmo-feedback-alert__title">${escapeHtml(title)}</p>
+      ${meta ? `<p class="rmo-feedback-alert__meta text-muted">${escapeHtml(meta)}</p>` : ''}
       <p class="rmo-feedback-alert__message">${escapeHtml(notes.trim())}</p>
       ${hint ? `<p class="rmo-feedback-alert__hint">${escapeHtml(hint)}</p>` : ''}
+      ${ref ? `<p class="rmo-feedback-alert__actions"><a href="/supervisor/tickets/${escapeHtml(ref)}/edit" class="sup-btn-primary sup-btn-primary--sm">Revise and resubmit</a></p>` : ''}
     </div>
   </section>`;
+}
+
+function deptReturnFeedbackBlock(ticket) {
+  const ownership = ticket?.ownership;
+  if (ticket?.status !== 'ownership_rejected' || !ownership?.rejectionReason) return '';
+  const rejectedBy = ownership.rejectedByPosition
+    ? `${ownership.rejectedByName || 'Department head'} — ${ownership.rejectedByPosition}`
+    : ownership.rejectedByName || 'Department head';
+  return revisionFeedbackBlock({
+    title: 'Returned by responsible department',
+    notes: ownership.rejectionReason,
+    hint: 'Update your report details or evidence, then resubmit. AI will re-analyze and route the ticket again.',
+    ref: ticket.reference,
+    department: ticket.department,
+    rejectedBy,
+    rejectedAt: ownership.rejectedAt,
+  });
 }
 
 const KPI_ICONS = {
@@ -95,7 +128,7 @@ function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showAct
             <button type="submit" class="btn-link btn-link--danger">Delete</button>
           </form>
         </div>`;
-      } else if (showActions && t.status === 'returned') {
+      } else if (showActions && REPORTER_REVISION_STATUSES.includes(t.status)) {
         actions = `<a href="/supervisor/tickets/${escapeHtml(t.reference)}/edit" class="btn-link">Revise</a>`;
       } else if (showActions && !isDraft) {
         actions = `<a href="${linkPrefix}${escapeHtml(t.reference)}" class="btn-link">View</a>`;
@@ -161,7 +194,7 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
       <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
     </div>
     <div class="routing-flow-banner" role="note">
-      <strong>Automatic routing:</strong> Submit your report → AI analyzes and classifies → Responsible department is assigned — you do not choose the handling department.
+      <strong>Automatic routing:</strong> Submit your report → AI analyzes <strong>incident details</strong> (what / why / where / how) → Responsible department is assigned. Your reporting unit does not affect assignment.
     </div>
     <div class="sup-kpi-grid">
       ${kpiCard('/supervisor/tickets', KPI_ICONS.tickets, stats.total, 'My tickets')}
@@ -203,7 +236,7 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
     filter === 'draft'
       ? tickets.filter((t) => t.status === 'draft')
       : filter === 'returned'
-        ? tickets.filter((t) => t.status === 'returned')
+        ? tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status))
         : filter === 'closed'
           ? tickets.filter(isClosedStatus)
           : filter === 'submitted'
@@ -211,7 +244,7 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
             : tickets;
   const rows = ticketTableRows(filtered, { showActions: true });
   const draftCount = tickets.filter((t) => t.status === 'draft').length;
-  const returnedCount = tickets.filter((t) => t.status === 'returned').length;
+  const returnedCount = tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status)).length;
   const closedCount = tickets.filter(isClosedStatus).length;
   const body = `
     ${flashMessage(flash)}
@@ -226,7 +259,7 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
     <div class="ticket-filters console-quick-actions">
       <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All <span class="filter-pill__count">${tickets.length}</span></a>
       <a href="/supervisor/tickets?filter=draft" class="filter-pill ${filter === 'draft' ? 'active' : ''}">Drafts <span class="filter-pill__count">${draftCount}</span></a>
-      <a href="/supervisor/tickets?filter=returned" class="filter-pill ${filter === 'returned' ? 'active' : ''}">Returned by RMO <span class="filter-pill__count">${returnedCount}</span></a>
+      <a href="/supervisor/tickets?filter=returned" class="filter-pill ${filter === 'returned' ? 'active' : ''}">Returned reports <span class="filter-pill__count">${returnedCount}</span></a>
       <a href="/supervisor/tickets?filter=submitted" class="filter-pill ${filter === 'submitted' ? 'active' : ''}">Submitted <span class="filter-pill__count">${tickets.length - draftCount}</span></a>
       <a href="/supervisor/tickets?filter=closed" class="filter-pill ${filter === 'closed' ? 'active' : ''}">Closed <span class="filter-pill__count">${closedCount}</span></a>
     </div>
@@ -317,8 +350,8 @@ function timelineSection(timeline = []) {
 
 function threadCommentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
-    title: 'Threaded discussion',
-    hint: 'Comments, replies, @mentions, attachments, and reactions — similar to Jira.',
+    title: 'Discussion thread',
+    hint: '',
     postAction: `/supervisor/tickets/${ref}/comment`,
     editAction: `/supervisor/tickets/${ref}/comment/edit`,
     reactAction: `/supervisor/tickets/${ref}/comment/react`,
@@ -364,6 +397,7 @@ function aiAnalysisPanel(ticket, { preview = false } = {}) {
       </div>
     </div>
     ${!preview && ticket.routedAt ? `<p class="routing-confirmation text-muted">Automatically routed to <strong>${escapeHtml(dept)}</strong> on ${escapeHtml(formatDate(ticket.routedAt))}.</p>` : ''}
+    <p class="text-muted routing-note routing-note--basis">Responsible department is assigned from <strong>risk title</strong> and <strong>incident details</strong> (what / why / where / how). Your reporting unit and who was involved are not used.</p>
     ${preview ? '<p class="text-muted routing-note">Final department assignment is confirmed when you submit the ticket.</p>' : ''}
   </section>`;
 }
@@ -373,6 +407,8 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const ref = t.reference || '';
 
   const aiBlock = t.ai || t.department ? aiAnalysisPanel(t) : '';
+
+  const deptRejectionBlock = deptReturnFeedbackBlock(t);
 
   const officerBlock =
     t.status === 'returned' && t.officerNotes
@@ -399,7 +435,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
         <h2>Risk details</h2>
         <dl class="detail-dl">
           <dt>Title</dt><dd>${escapeHtml(t.title)}</dd>
-          <dt>Your department</dt><dd>${escapeHtml(t.reporterDepartment || '—')}</dd>
+          <dt>Reporting unit</dt><dd>${escapeHtml(t.reporterDepartment || '—')} <span class="text-muted">(not used for AI routing)</span></dd>
           <dt>Responsible department</dt><dd>${escapeHtml(t.department || t.ai?.responsibleDepartment || 'Pending AI routing')}</dd>
           <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
           <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
@@ -662,10 +698,12 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
         <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)} ${t.priority || t.ai?.priority ? `· ${priorityPill(t.priority || t.ai?.priority)}` : ''}</p>
       </div>
       <a href="/supervisor/tickets" class="btn-outline">Back to tickets</a>
+      ${REPORTER_REVISION_STATUSES.includes(t.status) ? `<a href="/supervisor/tickets/${escapeHtml(ref)}/edit" class="sup-btn-primary">Revise and resubmit</a>` : ''}
     </div>
+    ${deptRejectionBlock}
+    ${officerBlock}
     ${formSection}
     ${aiBlock}
-    ${officerBlock}
     ${supervisorFeedbackBlock}
     ${evidenceSectionHtml}
     ${addEvidenceForm}
@@ -707,27 +745,34 @@ function riskLevelFromSeverityLocal(severity1to5) {
 }
 
 function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, mode = 'new', stats = {} } = {}) {
-  const isRevise = mode === 'revise' && ticket?.status === 'returned';
+  const isRevise = mode === 'revise' && REPORTER_REVISION_STATUSES.includes(ticket?.status);
+  const isDeptReturn = ticket?.status === 'ownership_rejected';
   const isEdit = (mode === 'edit' && ticket?.status === 'draft') || isRevise;
   const t = ticket || {};
   const w = t.fiveW1H || {};
   const formAction = isEdit
     ? `/supervisor/tickets/${escapeHtml(t.reference)}/edit`
     : '/supervisor/tickets/new/preview';
-  const pageTitle = isRevise ? 'REVISE RISK REPORT' : isEdit ? 'EDIT DRAFT REPORT' : 'NEW RISK REPORT';
+  const pageTitle = isRevise ? (isDeptReturn ? 'REVISE RETURNED REPORT' : 'REVISE RISK REPORT') : isEdit ? 'EDIT DRAFT REPORT' : 'NEW RISK REPORT';
   const pageDesc = isRevise
-    ? 'Your report was returned by the Risk Management Unit. Update the details and evidence, then resubmit.'
+    ? isDeptReturn
+      ? 'The responsible department returned this ticket. Update the details and evidence, then resubmit for AI routing.'
+      : 'Your report was returned by the Risk Management Unit. Update the details and evidence, then resubmit.'
     : isEdit
       ? 'Update your draft report. Only drafts can be edited or deleted before submission.'
-      : 'Submit a structured incident report. AI will classify the risk and assign the responsible department — you do not choose the handling department.';
-  const reporterDept = user.department || t.reporterDepartment || 'Not set on profile';
+      : 'Submit a structured incident report. AI assigns the handling department from the risk title and incident details — your profile department is not used.';
+  const reporterDept = user.department || t.reporterDepartment || '';
+  const reportingUnitNote = reporterDept
+    ? `<p class="reporting-unit-note" role="note">Reporting as <strong>${escapeHtml(reporterDept)}</strong> — this is recorded for audit only and does <strong>not</strong> affect AI department assignment.</p>`
+    : '';
   const existingAttachments = isEdit ? renderExistingAttachments(t) : '';
-  const rmoFeedbackBlock = isRevise
+  const rmoFeedbackBlock = isRevise && ticket?.status === 'returned'
     ? rmoReturnFeedbackBlock(
         t.officerNotes,
         'Address the feedback below, then continue to the AI preview and resubmit.',
       )
     : '';
+  const deptFeedbackBlock = isRevise && isDeptReturn ? deptReturnFeedbackBlock(t) : '';
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
@@ -741,10 +786,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         </div>
       </div>
       ${rmoFeedbackBlock}
+      ${deptFeedbackBlock}
+      ${reportingUnitNote}
 
       <form method="post" action="${formAction}" class="enterprise-form" id="riskForm" enctype="multipart/form-data" novalidate>
         <input type="hidden" name="referenceOverride" value="${escapeHtml(isEdit ? t.reference : ticketRef)}">
-        <input type="hidden" name="reporterDepartment" value="${escapeHtml(reporterDept)}">
 
         <section class="enterprise-card">
           <div class="enterprise-section-head">
@@ -755,15 +801,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
             </div>
           </div>
 
-          <div class="enterprise-grid enterprise-grid--3">
+          <div class="enterprise-grid enterprise-grid--2">
             <div class="field field--required" data-required="title">
               <label for="title">${reqLabel('Risk Title', { required: true })}</label>
-              <input id="title" name="title" type="text" required aria-required="true" placeholder="Short, specific risk title" class="enterprise-input" value="${escapeHtml(t.title || '')}">
-            </div>
-            <div class="field">
-              <label>Your department</label>
-              <input type="text" class="enterprise-input" value="${escapeHtml(reporterDept)}" readonly aria-readonly="true" tabindex="-1">
-              <p class="field-hint">Reporting unit only. AI assigns the responsible handling department on submit.</p>
+              <input id="title" name="title" type="text" required aria-required="true" placeholder="Short, specific risk title (e.g. Financial fraud in vendor payments)" class="enterprise-input" value="${escapeHtml(t.title || '')}">
+              <p class="field-hint">Used by AI routing together with incident details below.</p>
             </div>
             <div class="field field--required" data-required="location">
               <label for="location">${reqLabel('Incident location', { required: true })}</label>
@@ -775,7 +817,7 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
         <section class="enterprise-card">
           <div class="enterprise-section-head">
             <h2>INCIDENT DETAILS</h2>
-            <p class="section-hint">Use clear, factual language. AI preview is generated from these narratives.</p>
+            <p class="section-hint">AI department assignment uses these fields plus the risk title. Who was involved is not used for routing.</p>
           </div>
 
           <div class="incident-grid">
@@ -1094,11 +1136,11 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
     </script>
   `;
 
-  return supervisorPage(isRevise ? 'Revise report' : isEdit ? 'Edit draft' : 'New report', user, isRevise ? 'actions' : isEdit ? 'tickets' : 'new', body, stats);
+  return supervisorPage(isRevise ? 'Revise report' : isEdit ? 'Edit draft' : 'New report', user, isRevise ? 'returned' : isEdit ? 'tickets' : 'new', body, stats);
 }
 
 function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, showUploadToast = false, revisionBlocked = false } = {}) {
-  const isRevise = ticket?.status === 'returned';
+  const isRevise = REPORTER_REVISION_STATUSES.includes(ticket?.status);
 
   const body = `
     ${flashMessage(flash)}
@@ -1352,7 +1394,7 @@ function filteredTicketsPage(user, tickets, flash, { filter, title, desc, active
     filter === 'draft'
       ? tickets.filter((t) => t.status === 'draft')
       : filter === 'returned'
-        ? tickets.filter((t) => t.status === 'returned')
+        ? tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status))
         : filter === 'submitted'
           ? tickets.filter((t) => t.status !== 'draft')
           : filter === 'closed'

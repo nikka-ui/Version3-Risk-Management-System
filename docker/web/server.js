@@ -12,6 +12,7 @@ const {
   requireExecutive,
   requirePresident,
   sessionUser,
+  refreshSessionUser,
 } = require('./lib/auth');
 const { loginPage, dashboardPage } = require('./lib/templates');
 const {
@@ -108,9 +109,6 @@ const {
   getTicketByRefForOfficer,
   findAttachmentForOfficer,
   addTicketComment,
-  addRmuRecommendation,
-  escalateTicketForRmu,
-  overrideAiClassificationForRmu,
   addRmuThreadComment,
   ticketForRole,
   getTicketByRefForAudit,
@@ -194,6 +192,7 @@ const {
   updateSystemSettings,
 } = require('./lib/store');
 const { isAssignableRole, roleDashboardPath } = require('./config/roles');
+const { REPORTER_REVISION_STATUSES } = require('./config/tickets');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -259,7 +258,7 @@ function flashFromQuery(query) {
     audit_accomplishment_returned: 'Revisions requested. Accomplishment returned to the department.',
     comment_added: 'Comment posted.',
     ownership_accepted: 'Ownership accepted. This ticket is now in progress under your department.',
-    ownership_rejected: 'Ownership rejected. The Risk Management Unit will re-route the ticket.',
+    ownership_rejected: 'Ticket returned by the department. Revise your report and resubmit.',
     ticket_reassigned: 'Reassignment requested. The reporter and new department have been notified.',
     action_plan_saved: 'Action plan saved.',
     action_plan_submitted: 'Action plan submitted to Compliance for validation.',
@@ -508,7 +507,7 @@ app.get('/supervisor/tickets/:ref/edit', requireSupervisor, asyncRoute(async (re
   if (ensureReturnRevisionBaseline(ticket)) {
     saveStore();
   }
-  const mode = ticket.status === 'returned' ? 'revise' : 'edit';
+  const mode = REPORTER_REVISION_STATUSES.includes(ticket.status) ? 'revise' : 'edit';
   return res.type('html').send(
     newRiskReportStep1Page(user, ticket.reference, {
       mode,
@@ -573,7 +572,7 @@ app.get('/supervisor/tickets/new/preview/:ref', requireSupervisor, asyncRoute(as
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       stats: supervisorStats(user.username),
       showUploadToast: req.query.flash === 'evidence_uploaded',
-      revisionBlocked: ticket.status === 'returned' && !hasRevisionSinceReturn(ticket),
+      revisionBlocked: REPORTER_REVISION_STATUSES.includes(ticket.status) && !hasRevisionSinceReturn(ticket),
     }),
   );
 }));
@@ -731,7 +730,7 @@ app.get('/supervisor/returned', requireSupervisor, (req, res) => {
     filteredTicketsPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
       filter: 'returned',
       title: 'Returned reports',
-      desc: 'Reports returned by the Risk Management Unit for revision and resubmission.',
+      desc: 'Reports returned by the Risk Management Unit or responsible department for revision and resubmission.',
       activeNav: 'returned',
       stats: supervisorStats(user.username),
     }),
@@ -1005,6 +1004,9 @@ app.post('/dept/notifications/read-all', requireDeptHead, (req, res) => {
 
 function officerNoCache(req, res, next) {
   res.set('Cache-Control', 'no-store');
+  if (req.session?.user?.username) {
+    refreshSessionUser(req, req.session.user.username);
+  }
   return next();
 }
 
@@ -1018,22 +1020,11 @@ app.get('/officer', requireRmOfficer, (req, res) => {
 });
 
 app.get('/officer/ai-review', requireRmOfficer, (req, res) => {
-  res.type('html').send(
-    reviewQueuePage(
-      req.session.user,
-      listRmuAiReviewQueue(),
-      flashFromQuery(req.query),
-      {
-        error: req.query.error ? decodeURIComponent(req.query.error) : null,
-        stats: getOfficerStats(),
-      },
-    ),
-  );
+  return res.redirect('/officer/tickets');
 });
 
 app.get('/officer/review', requireRmOfficer, (req, res) => {
-  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  return res.redirect(`/officer/ai-review${qs}`);
+  return res.redirect('/officer/tickets');
 });
 
 app.get('/officer/action-plans', requireRmOfficer, (req, res) => {
@@ -1109,33 +1100,6 @@ app.get('/officer/attachments/:id', requireRmOfficer, asyncRoute(async (req, res
   await sendAttachment(res, found);
 }));
 
-app.post('/officer/tickets/:ref/recommend', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = addRmuRecommendation(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=rmo_recommendation`);
-});
-
-app.post('/officer/tickets/:ref/escalate', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = escalateTicketForRmu(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=rmu_escalated`);
-});
-
-app.post('/officer/tickets/:ref/override-ai', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = overrideAiClassificationForRmu(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=rmu_ai_overridden`);
-});
-
 app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, (req, res) => {
   const ref = req.params.ref;
   const result = addRmuThreadComment(ref, req.session.user, req.body);
@@ -1145,28 +1109,10 @@ app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, (req, res) =>
   return res.redirect(`/officer/tickets/${ref}?flash=rmu_thread_comment`);
 });
 
-app.post('/officer/tickets/:ref/comment', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = addTicketComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=comment_added`);
-});
-
 app.post('/officer/notifications/read-all', requireRmOfficer, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/officer';
   return res.redirect(back);
-});
-
-app.post('/officer/tickets/:ref/executive-reply', requireRmOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = replyToExecutiveComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/officer/tickets/${ref}?flash=executive_reply_added`);
 });
 
 /* —— Compliance Officer (routes retain /audit and requireAuditOfficer for compatibility) —— */

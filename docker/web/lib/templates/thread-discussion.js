@@ -1,6 +1,23 @@
-const { escapeHtml, formatDate } = require('../html');
+const { escapeHtml, formatDate, formatRelativeTime } = require('../html');
 
 const REACTION_OPTIONS = ['👍', '❤️', '🎉', '👀'];
+
+const AVATAR_COLORS = [
+  '#ff4500', '#7193ff', '#46d160', '#ffb000', '#ff66ac', '#7c53c3', '#24a0ed', '#898989',
+];
+
+function avatarInitials(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (parts[0] || '?').slice(0, 2).toUpperCase();
+}
+
+function avatarColor(seed) {
+  let hash = 0;
+  const s = String(seed || '');
+  for (let i = 0; i < s.length; i += 1) hash = (hash * 31 + s.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
 function highlightMentions(text) {
   const escaped = escapeHtml(text);
@@ -10,7 +27,7 @@ function highlightMentions(text) {
   );
 }
 
-function renderReactions(comment, ref, { reactAction } = {}) {
+function renderReactions(comment, { reactAction } = {}) {
   const reactions = comment.reactions || {};
   const entries = Object.entries(reactions).filter(([, users]) => users?.length);
   const buttons = reactAction
@@ -19,7 +36,7 @@ function renderReactions(comment, ref, { reactAction } = {}) {
         return `<form method="post" action="${escapeHtml(reactAction)}" class="inline-form reaction-form">
           <input type="hidden" name="commentId" value="${escapeHtml(comment.id)}">
           <input type="hidden" name="reaction" value="${escapeHtml(emoji)}">
-          <button type="submit" class="reaction-btn${active ? ' is-active' : ''}" title="React with ${emoji}">${emoji}</button>
+          <button type="submit" class="reddit-action-btn reddit-action-btn--react${active ? ' is-active' : ''}" title="React with ${emoji}">${emoji}</button>
         </form>`;
       }).join('')
     : '';
@@ -31,7 +48,7 @@ function renderReactions(comment, ref, { reactAction } = {}) {
     : '';
 
   return summary || buttons
-    ? `<div class="comment-reactions">${summary}${buttons}</div>`
+    ? `<div class="reddit-reactions">${summary}${buttons}</div>`
     : '';
 }
 
@@ -40,50 +57,69 @@ function renderAttachments(attachments = []) {
   const items = attachments
     .map((a) => `<li><a href="${escapeHtml(a.href || '#')}" target="_blank" rel="noopener">${escapeHtml(a.name || 'Attachment')}</a></li>`)
     .join('');
-  return `<ul class="comment-attachments">${items}</ul>`;
+  return `<ul class="reddit-attachments">${items}</ul>`;
 }
 
-function renderComment(c, comments, ref, opts, { isReply } = {}) {
+function kindTag(c) {
+  if (c.kind === 'reassignment') return '<span class="reddit-tag reddit-tag--reassign">Reassignment</span>';
+  if (c.kind === 'system') return '<span class="reddit-tag reddit-tag--system">System</span>';
+  return '';
+}
+
+function renderRedditComment(c, comments, opts, { isReply, depth = 0 } = {}) {
   const {
     postAction,
+    replyAction,
     editAction,
     reactAction,
     canPost = true,
+    canReply = true,
     canReact = true,
     canEditOwn = false,
     currentUsername,
+    replyLabel = 'Reply',
+    replyPlaceholder = 'Write a reply… Use @username to mention someone.',
+    executive = false,
   } = opts;
 
-  const replies = comments
-    .filter((r) => r.parentId === c.id)
-    .map((r) => renderComment(r, comments, ref, opts, { isReply: true }))
+  const effectivePostAction = replyAction || postAction;
+  const authorName = c.authorName || c.authorUsername || 'Unknown';
+  const initials = avatarInitials(authorName);
+  const color = avatarColor(c.authorUsername || authorName);
+  const fullTime = formatDate(c.at);
+  const relTime = formatRelativeTime(c.at);
+
+  const childReplies = comments.filter((r) => r.parentId === c.id);
+  const children = childReplies
+    .map((r) => renderRedditComment(r, comments, opts, { isReply: true, depth: depth + 1 }))
     .join('');
 
-  const kindTag = () => {
-    if (c.kind === 'reassignment') return '<span class="comment-tag comment-tag--reassign">Reassignment</span>';
-    if (c.kind === 'system') return '<span class="comment-tag comment-tag--system">System</span>';
-    return '';
-  };
-
   const edited = c.editedAt
-    ? `<span class="comment-edited" title="Edited ${escapeHtml(formatDate(c.editedAt))}">(edited)</span>`
+    ? `<span class="reddit-edited" title="Edited ${escapeHtml(formatDate(c.editedAt))}">(edited)</span>`
     : '';
 
-  const replyForm = !isReply && canPost && postAction
-    ? `<form method="post" action="${escapeHtml(postAction)}" class="stack-form comment-form comment-form--reply">
-        <input type="hidden" name="parentId" value="${escapeHtml(c.id)}">
-        <div class="field">
-          <label class="visually-hidden" for="reply-${escapeHtml(c.id)}">Reply</label>
-          <textarea id="reply-${escapeHtml(c.id)}" name="comment" rows="2" required placeholder="Write a reply… Use @username to mention someone."></textarea>
-        </div>
-        <button type="submit" class="btn-outline btn-primary--auto">Reply</button>
-      </form>`
+  const roleBadge = c.authorPosition || c.roleLabel || c.authorRole
+    ? `<span class="reddit-role">${escapeHtml(c.authorPosition || c.roleLabel || c.authorRole)}</span>`
+    : '';
+
+  const replyForm = !isReply && canReply && canPost && effectivePostAction
+    ? `<details class="reddit-reply-box">
+        <summary class="reddit-action-btn">${escapeHtml(replyLabel)}</summary>
+        <form method="post" action="${escapeHtml(effectivePostAction)}" class="stack-form reddit-reply-form">
+          <input type="hidden" name="parentId" value="${escapeHtml(c.id)}">
+          <div class="field">
+            <label class="visually-hidden" for="reply-${escapeHtml(c.id)}">${escapeHtml(replyLabel)}</label>
+            <textarea id="reply-${escapeHtml(c.id)}" name="comment" rows="3" required placeholder="${escapeHtml(replyPlaceholder)}"></textarea>
+          </div>
+          <button type="submit" class="btn-outline btn-primary--auto">${escapeHtml(replyLabel)}</button>
+        </form>
+      </details>`
     : '';
 
   const editForm = canEditOwn && editAction && currentUsername && c.authorUsername === currentUsername && c.kind === 'comment'
-    ? `<details class="comment-edit">
-        <summary class="comment-edit__toggle">Edit</summary>
-        <form method="post" action="${escapeHtml(editAction)}" class="stack-form comment-form comment-form--edit">
+    ? `<details class="reddit-edit-box">
+        <summary class="reddit-action-btn">Edit</summary>
+        <form method="post" action="${escapeHtml(editAction)}" class="stack-form reddit-reply-form">
           <input type="hidden" name="commentId" value="${escapeHtml(c.id)}">
           <div class="field">
             <textarea name="comment" rows="3" required>${escapeHtml(c.body)}</textarea>
@@ -93,30 +129,107 @@ function renderComment(c, comments, ref, opts, { isReply } = {}) {
       </details>`
     : '';
 
-  return `<li class="comment${isReply ? ' comment--reply' : ''}${c.kind && c.kind !== 'comment' ? ' comment--event' : ''}" id="comment-${escapeHtml(c.id)}">
-    <div class="comment-meta">
-      <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
-      <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
-      ${kindTag()}
-      <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
-      ${edited}
+  const eventCls = c.kind && c.kind !== 'comment' ? ' reddit-comment--event' : '';
+  const executiveCls = executive && c.authorRole === 'executive' ? ' reddit-comment--executive' : '';
+
+  const reactionBar = canReact ? renderReactions(c, { reactAction }) : '';
+  const reactions = reactionBar
+    ? `<details class="reddit-react-box">
+        <summary class="reddit-action-btn">React</summary>
+        ${reactionBar}
+      </details>`
+    : '';
+
+  return `<div class="reddit-comment${eventCls}${executiveCls}" id="comment-${escapeHtml(c.id)}" data-depth="${depth}">
+    <div class="reddit-comment__rail">
+      <button type="button" class="reddit-collapse-btn" data-reddit-collapse aria-label="Collapse thread" title="Collapse">−</button>
     </div>
-    <div class="comment-body">${highlightMentions(c.body)}</div>
-    ${renderAttachments(c.attachments)}
-    ${canReact ? renderReactions(c, ref, { reactAction }) : ''}
-    ${editForm}
-    ${replyForm}
-    ${replies ? `<ul class="comment-list comment-list--replies">${replies}</ul>` : ''}
-  </li>`;
+    <div class="reddit-comment__main">
+      <header class="reddit-comment__header">
+        <span class="reddit-avatar" style="background:${color}" aria-hidden="true">${escapeHtml(initials)}</span>
+        <span class="reddit-author">${escapeHtml(authorName)}</span>
+        ${roleBadge}
+        ${kindTag(c)}
+        <span class="reddit-sep" aria-hidden="true">·</span>
+        <time class="reddit-time" datetime="${escapeHtml(c.at || '')}" title="${escapeHtml(fullTime)}">${escapeHtml(relTime)}</time>
+        ${edited}
+      </header>
+      <div class="reddit-body">${highlightMentions(c.body)}</div>
+      ${renderAttachments(c.attachments)}
+      <div class="reddit-actions">
+        ${reactions}
+        ${replyForm}
+        ${editForm}
+      </div>
+      ${children ? `<div class="reddit-comment__children">${children}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderRedditThread(comments, opts = {}) {
+  const tops = (comments || []).filter((c) => !c.parentId);
+  if (!tops.length) {
+    const emptyMsg = opts.emptyMessage || 'No comments yet. Start the discussion below.';
+    return `<div class="reddit-thread reddit-thread--empty"><p class="reddit-empty">${escapeHtml(emptyMsg)}</p></div>`;
+  }
+  const items = tops.map((c) => renderRedditComment(c, comments, opts)).join('');
+  return `<div class="reddit-thread">${items}</div>`;
+}
+
+const REDDIT_THREAD_SCRIPT = `<script>
+(function () {
+  document.querySelectorAll('[data-reddit-collapse]').forEach(function (btn) {
+    if (btn.dataset.redditBound) return;
+    btn.dataset.redditBound = '1';
+    btn.addEventListener('click', function () {
+      var comment = btn.closest('.reddit-comment');
+      if (!comment) return;
+      var collapsed = comment.classList.toggle('is-collapsed');
+      btn.textContent = collapsed ? '+' : '−';
+      btn.setAttribute('aria-label', collapsed ? 'Expand thread' : 'Collapse thread');
+      btn.setAttribute('title', collapsed ? 'Expand' : 'Collapse');
+    });
+  });
+})();
+</script>`;
+
+function redditPostForm(ref, opts = {}) {
+  const {
+    postAction,
+    canPost = true,
+    label = 'Add comment',
+    placeholder = 'Write a comment… Use @username to mention someone.',
+    showAttachments = true,
+    submitLabel = 'Post comment',
+    formClass = 'reddit-compose',
+  } = opts;
+
+  if (!canPost || !postAction) return '';
+
+  const attachField = showAttachments
+    ? `<div class="field">
+        <label for="thread-attach-${escapeHtml(ref)}">Attachments <span class="text-muted">(optional)</span></label>
+        <input id="thread-attach-${escapeHtml(ref)}" name="attachments" type="file" multiple>
+      </div>`
+    : '';
+
+  return `<form method="post" action="${escapeHtml(postAction)}" class="stack-form ${formClass}" enctype="multipart/form-data">
+    <div class="field">
+      <label for="thread-comment-${escapeHtml(ref)}">${escapeHtml(label)}</label>
+      <textarea id="thread-comment-${escapeHtml(ref)}" name="comment" rows="3" required placeholder="${escapeHtml(placeholder)}"></textarea>
+    </div>
+    ${attachField}
+    <button type="submit" class="btn-primary btn-primary--auto">${escapeHtml(submitLabel)}</button>
+  </form>`;
 }
 
 /**
- * Jira-like threaded discussion: comments, replies, mentions, attachments, reactions, timestamps, edited indicator.
+ * Reddit-style threaded discussion: comments, replies, mentions, attachments, reactions.
  */
 function threadDiscussionSection(ticket, ref, opts = {}) {
   const {
-    title = 'Threaded discussion',
-    hint = 'Comments, replies, mentions (@username), attachments, and reactions — similar to Jira.',
+    title = 'Discussion thread',
+    hint = '',
     postAction,
     editAction,
     reactAction,
@@ -125,42 +238,51 @@ function threadDiscussionSection(ticket, ref, opts = {}) {
     canEditOwn = false,
     currentUsername,
     showWhenDraft = false,
+    emptyMessage,
+    showAttachments = true,
+    composeLabel,
+    composePlaceholder,
+    submitLabel,
   } = opts;
 
   if (ticket.status === 'draft' && !showWhenDraft) {
-    return `<section class="sup-card">
-      <h2>${escapeHtml(title)}</h2>
-      <p class="text-muted">Threaded discussion is available after the ticket is submitted.</p>
+    return `<section class="sup-card sup-card--thread">
+      <div class="sup-card__head"><h2>${escapeHtml(title)}</h2></div>
+      <div class="sup-card__body">
+        <p class="text-muted">Discussion is available after the ticket is submitted.</p>
+      </div>
     </section>`;
   }
 
   const comments = ticket.threadComments || [];
-  const tops = comments.filter((c) => !c.parentId);
-  const renderOpts = { postAction, editAction, reactAction, canPost, canReact, canEditOwn, currentUsername };
+  const thread = renderRedditThread(comments, {
+    postAction,
+    editAction,
+    reactAction,
+    canPost,
+    canReact,
+    canEditOwn,
+    currentUsername,
+    emptyMessage,
+  });
 
-  const items = tops.length
-    ? tops.map((c) => renderComment(c, comments, ref, renderOpts)).join('')
-    : '<li class="comment comment--empty text-muted">No comments yet. Start the discussion below.</li>';
-
-  const postForm = canPost && postAction
-    ? `<form method="post" action="${escapeHtml(postAction)}" class="stack-form comment-form" enctype="multipart/form-data">
-        <div class="field">
-          <label for="thread-comment-${escapeHtml(ref)}">Add comment</label>
-          <textarea id="thread-comment-${escapeHtml(ref)}" name="comment" rows="3" required placeholder="Write a comment… Use @username to mention someone."></textarea>
-        </div>
-        <div class="field">
-          <label for="thread-attach-${escapeHtml(ref)}">Attachments <span class="text-muted">(optional)</span></label>
-          <input id="thread-attach-${escapeHtml(ref)}" name="attachments" type="file" multiple>
-        </div>
-        <button type="submit" class="btn-primary btn-primary--auto">Post comment</button>
-      </form>`
-    : '';
+  const postForm = redditPostForm(ref, {
+    postAction,
+    canPost,
+    label: composeLabel,
+    placeholder: composePlaceholder,
+    showAttachments,
+    submitLabel,
+  });
 
   return `<section class="sup-card sup-card--thread">
-    <h2>${escapeHtml(title)}</h2>
-    ${hint ? `<p class="section-hint">${escapeHtml(hint)}</p>` : ''}
-    <ul class="comment-list">${items}</ul>
-    ${postForm}
+    ${title ? `<div class="sup-card__head"><h2>${escapeHtml(title)}</h2></div>` : ''}
+    <div class="sup-card__body">
+      ${hint ? `<p class="section-hint">${escapeHtml(hint)}</p>` : ''}
+      ${thread}
+      ${postForm}
+      ${REDDIT_THREAD_SCRIPT}
+    </div>
   </section>`;
 }
 
@@ -173,6 +295,10 @@ function threadDiscussionPanel(ticket, ref, opts = {}) {
 module.exports = {
   threadDiscussionSection,
   threadDiscussionPanel,
+  renderRedditThread,
+  renderRedditComment,
+  redditPostForm,
   highlightMentions,
+  REDDIT_THREAD_SCRIPT,
   REACTION_OPTIONS,
 };

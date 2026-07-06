@@ -617,6 +617,20 @@ form.inline {
   border: 1px solid #fecaca;
 }
 
+.flash--auto-dismiss {
+  transition: opacity 0.35s ease, margin-bottom 0.35s ease, padding 0.35s ease, max-height 0.35s ease;
+  overflow: hidden;
+}
+
+.flash--dismissing {
+  opacity: 0;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  max-height: 0 !important;
+  border-width: 0;
+}
+
 .text-muted {
   color: var(--text-muted);
   font-size: 0.8125rem;
@@ -1630,6 +1644,332 @@ body.attachment-drawer-open {
   border-top: 1px solid var(--border);
 }
 
+/* —— Reddit-style comment threads —— */
+.reddit-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0;
+}
+
+.reddit-thread--empty {
+  padding: 0.5rem 0 0.75rem;
+}
+
+.reddit-empty {
+  margin: 0;
+  color: #787c7e;
+  font-size: 0.9rem;
+}
+
+.reddit-thread--scroll {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.reddit-comment {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0 0.65rem;
+  padding: 0.75rem 0;
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.reddit-comment__rail {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+.reddit-collapse-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #edeff1;
+  background: #fff;
+  color: #878a8c;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.reddit-collapse-btn:hover {
+  border-color: #0079d3;
+  color: #0079d3;
+  background: #f6f7f8;
+}
+
+.reddit-comment__main {
+  min-width: 0;
+}
+
+.reddit-comment__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.35rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+}
+
+.reddit-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.55rem;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+}
+
+.reddit-author {
+  font-weight: 700;
+  color: #1a1a1b;
+  font-size: 0.8rem;
+}
+
+.reddit-role {
+  color: #0079d3;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.reddit-sep {
+  color: #787c7e;
+  font-weight: 700;
+}
+
+.reddit-time {
+  color: #787c7e;
+  font-size: 0.75rem;
+}
+
+.reddit-edited {
+  color: #787c7e;
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+.reddit-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.reddit-tag--reassign {
+  background: rgba(0, 121, 211, 0.12);
+  color: #0079d3;
+}
+
+.reddit-tag--system {
+  background: #fff7e6;
+  color: #9a6700;
+}
+
+.reddit-body {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #1c1c1c;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 0.25rem;
+}
+
+.reddit-comment--event .reddit-body {
+  color: #3f3f46;
+}
+
+.reddit-comment--executive .reddit-author {
+  color: #c2410c;
+}
+
+.reddit-comment--executive .reddit-avatar {
+  background: #ea580c !important;
+}
+
+.reddit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  margin-top: 0.15rem;
+}
+
+.reddit-action-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #878a8c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.reddit-action-btn:hover,
+.reddit-action-btn.is-active {
+  background: #e5ebee;
+  color: #1a1a1b;
+}
+
+.reddit-action-btn--react {
+  font-size: 0.85rem;
+  padding: 0.15rem 0.35rem;
+}
+
+.reddit-reply-box,
+.reddit-edit-box,
+.reddit-react-box {
+  display: inline;
+}
+
+.reddit-reply-box > summary,
+.reddit-edit-box > summary,
+.reddit-react-box > summary {
+  list-style: none;
+}
+
+.reddit-reply-box > summary::-webkit-details-marker,
+.reddit-edit-box > summary::-webkit-details-marker,
+.reddit-react-box > summary::-webkit-details-marker {
+  display: none;
+}
+
+.reddit-react-box .reddit-reactions {
+  margin-top: 0.35rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.reddit-reply-form {
+  margin: 0.65rem 0 0.35rem;
+  padding: 0.75rem;
+  background: #f6f7f8;
+  border: 1px solid #edeff1;
+  border-radius: 8px;
+}
+
+.reddit-reply-form textarea {
+  min-height: 4.5rem;
+}
+
+.reddit-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  margin: 0.25rem 0;
+}
+
+.reddit-attachments {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+}
+
+.reddit-thread > .reddit-comment {
+  border-bottom: 1px solid #edeff1;
+}
+
+.reddit-thread > .reddit-comment:last-child {
+  border-bottom: none;
+}
+
+.reddit-comment__children {
+  margin-top: 0.35rem;
+  margin-left: 0.15rem;
+  padding-left: 1.35rem;
+  border-left: 2px solid #d7dadc;
+}
+
+.reddit-comment__children .reddit-comment__children {
+  padding-left: 1.5rem;
+  border-left-color: #c8cbcf;
+}
+
+.reddit-comment__children > .reddit-comment {
+  position: relative;
+}
+
+.reddit-comment__children > .reddit-comment::before {
+  content: '';
+  position: absolute;
+  left: calc(-1.35rem - 1px);
+  top: 1.25rem;
+  width: 0.85rem;
+  height: 2px;
+  background: #d7dadc;
+  border-radius: 0 0 0 2px;
+}
+
+.reddit-comment.is-collapsed .reddit-body,
+.reddit-comment.is-collapsed .reddit-attachments,
+.reddit-comment.is-collapsed .reddit-reactions,
+.reddit-comment.is-collapsed .reddit-actions,
+.reddit-comment.is-collapsed .reddit-comment__children {
+  display: none;
+}
+
+.reddit-comment.is-collapsed .reddit-comment__header .reddit-role,
+.reddit-comment.is-collapsed .reddit-comment__header .reddit-tag,
+.reddit-comment.is-collapsed .reddit-comment__header .reddit-edited,
+.reddit-comment.is-collapsed .reddit-comment__header .reddit-sep,
+.reddit-comment.is-collapsed .reddit-comment__header .reddit-time {
+  display: none;
+}
+
+.reddit-comment.is-collapsed .reddit-comment__header::after {
+  content: '[collapsed]';
+  color: #787c7e;
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-left: 0.25rem;
+}
+
+.reddit-compose {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #edeff1;
+}
+
+.reddit-compose--compact {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.sup-card--thread {
+  padding-bottom: 0;
+}
+
+.sup-card--thread > .sup-card__head h2 {
+  margin-bottom: 0;
+}
+
+.dept-activity__panel--thread .reddit-compose,
+.dept-activity__panel[data-activity-panel="comments"] .reddit-compose {
+  margin-top: 1rem;
+}
+
+
 .card--ai {
   border-color: #bfdbfe;
   background: #f8fafc;
@@ -1756,6 +2096,26 @@ body.attachment-drawer-open {
   color: #64748b;
   margin: 0.5rem 0 0;
   line-height: 1.45;
+}
+
+.rmo-feedback-alert__meta {
+  font-size: 0.8125rem;
+  color: #64748b;
+  margin: 0.25rem 0 0.35rem;
+}
+
+.rmo-feedback-alert__actions {
+  margin: 0.75rem 0 0;
+}
+
+.sup-btn-primary--sm {
+  display: inline-block;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.875rem;
+}
+
+.revision-feedback-alert {
+  margin-bottom: 1.25rem;
 }
 
 .supervisor-main .rmo-feedback-alert {
@@ -2067,14 +2427,29 @@ body.attachment-drawer-open {
   gap: 1rem;
 }
 
+.enterprise-grid--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
 .enterprise-grid--3 {
   grid-template-columns: 1fr 1fr 1fr;
 }
 
 @media (max-width: 950px) {
+  .enterprise-grid--2,
   .enterprise-grid--3 {
     grid-template-columns: 1fr;
   }
+}
+
+.reporting-unit-note {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 0.92rem;
 }
 
 .incident-grid {
@@ -5052,18 +5427,16 @@ a.officer-kpi:hover {
   font-size: 1.35rem;
 }
 
-.audit-console .comment-list {
+.audit-console .reddit-thread {
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
-.audit-console .comment {
+.audit-console .reddit-comment {
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--sup-border);
 }
 
-.audit-console .comment:last-child {
+.audit-console .reddit-comment:last-child {
   border-bottom: none;
 }
 
@@ -5118,7 +5491,7 @@ a.officer-kpi:hover {
   color: var(--sup-muted);
 }
 
-.audit-console .comment--executive {
+.audit-console .reddit-comment--executive {
   padding: 0.9rem 1rem;
   border: 1px solid var(--sup-border);
   border-left: 3px solid var(--sup-accent);
@@ -5126,22 +5499,22 @@ a.officer-kpi:hover {
   background: var(--sup-accent-soft);
 }
 
-.audit-console .comment--executive .comment-role {
+.audit-console .reddit-comment--executive .reddit-role {
   color: var(--sup-accent-strong);
 }
 
-.audit-console .comment--executive .comment-body {
+.audit-console .reddit-comment--executive .reddit-body {
   color: var(--sup-ink);
 }
 
-/* Reply form sits as a clean sub-block inside the executive comment */
-.audit-console .comment-form--reply {
+.audit-console .reddit-reply-form {
   margin-top: 0.9rem;
   padding-top: 0.9rem;
   border-top: 1px solid var(--sup-border);
+  background: #fff;
 }
 
-.audit-console .comment-form--reply textarea {
+.audit-console .reddit-reply-form textarea {
   background: #fff;
 }
 
@@ -5864,13 +6237,293 @@ a.officer-kpi:hover {
 /* —— Department Head / Vice President console —— */
 
 .dept-head-console .decision-action-card--reassign {
-  border-color: rgba(124, 58, 237, 0.4);
-  background: linear-gradient(180deg, #faf8ff 0%, #fff 100%);
+  border-color: rgba(37, 99, 235, 0.4);
+  background: linear-gradient(180deg, var(--sup-accent-soft) 0%, #fff 100%);
 }
 
 .dept-head-console .console-topbar__role-pill {
-  background: rgba(124, 58, 237, 0.12);
-  color: #6d28d9;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--sup-accent-strong);
+}
+
+/* Ownership action bar (buttons only — forms open in modals) */
+.dept-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--sup-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--sup-accent-soft) 0%, #fff 100%);
+}
+
+.dept-action-bar--compact {
+  background: #fff;
+}
+
+.dept-action-bar__copy strong {
+  display: block;
+  font-size: 0.9375rem;
+  color: var(--sup-ink);
+  margin-bottom: 0.2rem;
+}
+
+.dept-action-bar__copy p {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--sup-muted);
+  line-height: 1.5;
+  max-width: 36rem;
+}
+
+.dept-action-bar__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.dept-action-bar__buttons > .dept-action-form {
+  display: contents;
+}
+
+.dept-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+
+.dept-action-btn--accept {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.dept-action-btn--accept:hover {
+  background: #d1fae5;
+}
+
+.dept-action-btn--reject {
+  background: #fffbfb;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.dept-action-btn--reject:hover {
+  background: #fef2f2;
+}
+
+.dept-action-btn--reassign {
+  background: var(--sup-accent-soft);
+  border-color: rgba(37, 99, 235, 0.35);
+  color: var(--sup-accent-strong);
+}
+
+.dept-action-btn--reassign:hover {
+  background: #dbeafe;
+}
+
+/* Sidebar placement — stacked full-width buttons, stays visible while scrolling */
+.dept-action-bar--side {
+  flex-direction: column;
+  align-items: stretch;
+  margin-bottom: 0;
+  padding: 1.1rem 1.15rem 1.15rem;
+  border: 2px solid rgba(37, 99, 235, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #dbeafe 0%, var(--sup-accent-soft) 45%, #fff 100%);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.14);
+}
+
+.dept-action-bar--side .dept-action-bar__copy strong {
+  font-size: 1rem;
+  color: #1e40af;
+}
+
+.dept-action-bar--side .dept-action-bar__copy p {
+  max-width: none;
+  color: #6b7280;
+}
+
+.dept-action-bar--side .dept-action-bar__buttons {
+  flex-direction: column;
+  width: 100%;
+  gap: 0.65rem;
+}
+
+.dept-action-bar--side .dept-action-form {
+  display: block;
+  width: 100%;
+}
+
+.dept-action-bar--side .dept-action-btn {
+  width: 100%;
+  white-space: normal;
+  text-align: center;
+  padding: 0.75rem 1rem;
+  line-height: 1.35;
+  font-size: 0.875rem;
+  font-weight: 700;
+  border-width: 2px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.dept-action-bar--side .dept-action-btn--accept {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  border-color: #047857;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(5, 150, 105, 0.4);
+}
+
+.dept-action-bar--side .dept-action-btn--accept:hover {
+  background: linear-gradient(180deg, #059669 0%, #047857 100%);
+  border-color: #065f46;
+  color: #fff;
+}
+
+.dept-action-bar--side .dept-action-btn--reject {
+  background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+  border-color: #b91c1c;
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(220, 38, 38, 0.35);
+}
+
+.dept-action-bar--side .dept-action-btn--reject:hover {
+  background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%);
+  border-color: #991b1b;
+  color: #fff;
+}
+
+.dept-action-bar--side .dept-action-btn--reassign {
+  background: linear-gradient(180deg, #3b82f6 0%, var(--sup-accent) 100%);
+  border-color: var(--sup-accent-strong);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4);
+}
+
+.dept-action-bar--side .dept-action-btn--reassign:hover {
+  background: linear-gradient(180deg, var(--sup-accent) 0%, var(--sup-accent-strong) 100%);
+  border-color: #1e40af;
+  color: #fff;
+}
+
+/* Department Head modals */
+.dept-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.dept-modal[hidden] {
+  display: none !important;
+}
+
+.dept-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.45);
+}
+
+.dept-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 32rem);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 48px rgba(16, 24, 40, 0.18);
+  padding: 1.25rem 1.35rem 1.35rem;
+}
+
+.dept-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.dept-modal__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--sup-ink, #111827);
+}
+
+.dept-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--sup-muted, #667085);
+  cursor: pointer;
+}
+
+.dept-modal__close:hover {
+  background: #f2f4f7;
+  color: var(--sup-ink, #111827);
+}
+
+.dept-modal__desc {
+  margin: 0 0 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--sup-muted);
+}
+
+.dept-modal__form {
+  margin-top: 0.25rem;
+}
+
+.dept-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+}
+
+body.dept-modal-open {
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .dept-action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dept-action-bar__buttons {
+    flex-direction: column;
+  }
+
+  .dept-action-btn {
+    width: 100%;
+  }
 }
 
 .dept-detail {
@@ -5907,6 +6560,49 @@ a.officer-kpi:hover {
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--sup-ink);
+}
+
+.dept-transfer-note {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--sup-accent-soft) 0%, #fff 100%);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.dept-transfer-note strong {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sup-accent-strong);
+  margin-bottom: 0.2rem;
+}
+
+.dept-transfer-note p {
+  margin: 0;
+  color: var(--sup-ink);
+}
+
+.dept-transfer-note__from {
+  font-weight: 600;
+  color: var(--sup-accent-strong);
+}
+
+.dept-status-notice {
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.dept-status-notice--error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }
 
 @media (max-width: 1080px) {
@@ -5947,8 +6643,8 @@ a.officer-kpi:hover {
 }
 
 .dept-activity__tab.is-active {
-  color: #6d28d9;
-  border-bottom-color: #7c3aed;
+  color: var(--sup-accent-strong);
+  border-bottom-color: var(--sup-accent);
 }
 
 .dept-activity__count {
@@ -5961,8 +6657,8 @@ a.officer-kpi:hover {
 }
 
 .dept-activity__tab.is-active .dept-activity__count {
-  background: rgba(124, 58, 237, 0.14);
-  color: #6d28d9;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--sup-accent-strong);
 }
 
 /* Comment kind tags */
@@ -5976,8 +6672,8 @@ a.officer-kpi:hover {
 }
 
 .comment-tag--reassign {
-  background: rgba(124, 58, 237, 0.14);
-  color: #6d28d9;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--sup-accent-strong);
 }
 
 .comment-tag--system {
@@ -6098,8 +6794,8 @@ a.officer-kpi:hover {
 
 .dept-people__role {
   font-size: 0.8rem;
-  color: #6d28d9;
-  background: rgba(124, 58, 237, 0.1);
+  color: var(--sup-accent-strong);
+  background: rgba(37, 99, 235, 0.1);
   padding: 0.05rem 0.5rem;
   border-radius: 999px;
 }
@@ -6120,7 +6816,7 @@ a.officer-kpi:hover {
 }
 
 .dept-progress__item {
-  border-left: 3px solid #7c3aed;
+  border-left: 3px solid var(--sup-accent);
   padding: 0.15rem 0 0.15rem 0.75rem;
 }
 
@@ -6134,8 +6830,8 @@ a.officer-kpi:hover {
 }
 
 .dept-progress__pct {
-  background: rgba(124, 58, 237, 0.14);
-  color: #6d28d9;
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--sup-accent-strong);
   font-weight: 700;
   border-radius: 999px;
   padding: 0.05rem 0.5rem;
@@ -6163,7 +6859,7 @@ a.officer-kpi:hover {
   margin-top: 0.75rem;
   padding: 0.65rem 0.75rem;
   border-radius: 10px;
-  background: rgba(124, 58, 237, 0.06);
+  background: rgba(37, 99, 235, 0.06);
 }
 
 .dept-suggested strong {

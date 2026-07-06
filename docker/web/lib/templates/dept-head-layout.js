@@ -1,6 +1,7 @@
 const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
+const { FLASH_AUTO_DISMISS_SCRIPT } = require('./layout');
 
 const NAV_ITEMS = [
   { id: 'dashboard', href: '/dept', label: 'Dashboard', icon: 'dashboard' },
@@ -54,7 +55,7 @@ function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notificat
     <div class="supervisor-sidebar__brand">
       <div class="supervisor-sidebar__logo" aria-hidden="true">
         <svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect width="32" height="32" rx="8" fill="#7c3aed"/>
+          <rect width="32" height="32" rx="8" fill="#2563eb"/>
           <path d="M16 7L23 11V17C23 21.5 19.5 24.5 16 26C12.5 24.5 9 21.5 9 17V11L16 7Z" stroke="#fff" stroke-width="1.75" stroke-linejoin="round"/>
           <path d="M12 16L15 19L20 14" stroke="#fff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -72,7 +73,7 @@ function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notificat
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.username)}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.position || user.department || 'Department Head')}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">
@@ -90,6 +91,7 @@ function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notificat
     <main class="supervisor-main">${body}</main>
   </div>
   ${NOTIFICATION_PANEL_SCRIPT}
+  ${FLASH_AUTO_DISMISS_SCRIPT}
 </body>
 </html>`;
 }

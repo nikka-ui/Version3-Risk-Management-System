@@ -11,7 +11,7 @@ const { flashMessage } = require('./layout');
 const { deptHeadAppLayout } = require('./dept-head-layout');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
-const { supTicketHead, supDetailCard, supDecisionPanel } = require('./console-ui');
+const { supTicketHead, supDetailCard } = require('./console-ui');
 const { threadDiscussionSection } = require('./thread-discussion');
 
 /* —— shared bits —— */
@@ -243,6 +243,19 @@ function fiveW1HReadonly(ticket) {
   </div>`;
 }
 
+function transferIndication(ticket) {
+  const from = ticket.ownership?.reassignedFrom;
+  if (!from) return '';
+  const latest = [...(ticket.reassignments || [])].reverse()[0];
+  const at = latest?.at ? formatDate(latest.at) : '';
+  return `<div class="dept-transfer-note" role="note">
+    <div class="dept-transfer-note__body">
+      <strong>Department transfer</strong>
+      <p>Transferred from <span class="dept-transfer-note__from">${escapeHtml(from)}</span> to ${escapeHtml(ticket.department || '—')}${at ? ` · ${escapeHtml(at)}` : ''}</p>
+    </div>
+  </div>`;
+}
+
 function detailsSidebar(ticket) {
   const riskLevel = ticketRiskLevel(ticket);
   const owner = ticket.ownership?.ownerName
@@ -468,148 +481,137 @@ function presidentDecisionCard(ticket) {
   )).join('');
 }
 
-function ownershipDecisionPanel(ticket, ref) {
-  const deptOptions = DEPARTMENTS.filter((d) => d !== ticket.department)
+function departmentSelectOptions(excludeDepartment) {
+  return DEPARTMENTS.filter((d) => d !== excludeDepartment)
     .map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`)
     .join('');
-
-  return supDecisionPanel({
-    title: 'Ownership decision',
-    desc: 'This ticket was routed to your department. Accept ownership to begin work, reject it with a reason, or transfer it to the correct department.',
-    bodyHtml: `<div class="decision-actions">
-      <section class="decision-action-card decision-action-card--accept">
-        <h3 class="decision-action-card__title">Accept ownership</h3>
-        <p class="decision-action-card__hint">Take ownership of this ticket for your department.</p>
-        <form method="post" action="/dept/tickets/${escapeHtml(ref)}/accept" class="stack-form stack-form--console">
-          <div class="field field--console">
-            <label for="acceptNote">Note <span class="text-muted">(optional)</span></label>
-            <textarea id="acceptNote" name="comment" rows="2" placeholder="Optional note recorded on the timeline…"></textarea>
-          </div>
-          <button type="submit" class="btn-accept--outline">Accept ownership</button>
-        </form>
-      </section>
-      <section class="decision-action-card decision-action-card--return">
-        <h3 class="decision-action-card__title">Reject ownership</h3>
-        <p class="decision-action-card__hint">Decline ownership. The Risk Management Unit will re-route the ticket.</p>
-        <form method="post" action="/dept/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console">
-          <div class="field field--console">
-            <label for="rejectReason">Reason <span class="text-muted">(required)</span></label>
-            <textarea id="rejectReason" name="reason" rows="2" required placeholder="Explain why this ticket does not belong to your department…"></textarea>
-          </div>
-          <button type="submit" class="btn-danger--outline">Reject ownership</button>
-        </form>
-      </section>
-      <section class="decision-action-card decision-action-card--reassign">
-        <h3 class="decision-action-card__title">Request reassignment</h3>
-        <p class="decision-action-card__hint">If the AI assigned the wrong department, request a transfer with a reason and comment.</p>
-        <form method="post" action="/dept/tickets/${escapeHtml(ref)}/reassign" class="stack-form stack-form--console">
-          <div class="field field--console">
-            <label for="reassignReason">Reason <span class="text-muted">(required)</span></label>
-            <textarea id="reassignReason" name="reason" rows="2" required placeholder="e.g. Building maintenance issue."></textarea>
-          </div>
-          <div class="field field--console">
-            <label for="reassignComment">Comment <span class="text-muted">(required)</span></label>
-            <textarea id="reassignComment" name="comment" rows="2" required placeholder="Additional context for the receiving department…"></textarea>
-          </div>
-          <div class="field field--console">
-            <label for="reassignTarget">Target department <span class="text-muted">(required)</span></label>
-            <select id="reassignTarget" name="targetDepartment" required>
-              <option value="">Select department…</option>
-              ${deptOptions}
-            </select>
-          </div>
-          <button type="submit" class="btn-primary btn-primary--auto">Request reassignment</button>
-        </form>
-      </section>
-    </div>`,
-  });
 }
 
-function reassignOnlyPanel(ticket, ref) {
-  const deptOptions = DEPARTMENTS.filter((d) => d !== ticket.department)
-    .map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`)
-    .join('');
-  return `<section class="sup-card">
-    <div class="sup-card__head"><h2>Reassign ticket</h2></div>
-    <div class="sup-card__body">
-      <p class="sup-muted-block">Transfer this ticket to another department if it no longer belongs here. A reason is recorded on the activity timeline.</p>
-      <form method="post" action="/dept/tickets/${escapeHtml(ref)}/reassign" class="stack-form stack-form--console">
-        <div class="field field--console">
-          <label for="reassignReason2">Reason</label>
-          <textarea id="reassignReason2" name="reason" rows="2" required placeholder="Why should this ticket be reassigned?"></textarea>
-        </div>
-        <div class="field field--console">
-          <label for="reassignComment2">Comment</label>
-          <textarea id="reassignComment2" name="comment" rows="2" required placeholder="Additional details for the receiving department…"></textarea>
-        </div>
-        <div class="field field--console">
-          <label for="reassignTarget2">Target department</label>
-          <select id="reassignTarget2" name="targetDepartment" required>
-            <option value="">Select department…</option>
-            ${deptOptions}
-          </select>
-        </div>
-        <button type="submit" class="btn-outline btn-primary--auto">Transfer ticket</button>
-      </form>
+function deptModalShell(id, title, desc, formHtml) {
+  return `<div class="dept-modal" id="${escapeHtml(id)}" hidden aria-hidden="true">
+    <div class="dept-modal__backdrop" data-dept-modal-close tabindex="-1" aria-hidden="true"></div>
+    <div class="dept-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="${escapeHtml(id)}-title">
+      <div class="dept-modal__head">
+        <h3 class="dept-modal__title" id="${escapeHtml(id)}-title">${escapeHtml(title)}</h3>
+        <button type="button" class="dept-modal__close" aria-label="Close" data-dept-modal-close>&times;</button>
+      </div>
+      ${desc ? `<p class="dept-modal__desc">${escapeHtml(desc)}</p>` : ''}
+      ${formHtml}
     </div>
-  </section>`;
-}
-
-/* —— Jira-like activity (comments / history / timeline) —— */
-
-function threadCommentsBlock(ticket, ref) {
-  const comments = ticket.threadComments || [];
-  const tops = comments.filter((c) => !c.parentId);
-
-  const kindTag = (c) => {
-    if (c.kind === 'reassignment') return '<span class="comment-tag comment-tag--reassign">Reassignment</span>';
-    if (c.kind === 'system') return '<span class="comment-tag comment-tag--system">System</span>';
-    return '';
-  };
-
-  const renderComment = (c, { isReply } = {}) => {
-    const replies = comments
-      .filter((r) => r.parentId === c.id)
-      .map((r) => renderComment(r, { isReply: true }))
-      .join('');
-    const replyForm = !isReply
-      ? `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/comment" class="stack-form comment-form comment-form--reply">
-          <input type="hidden" name="parentId" value="${escapeHtml(c.id)}">
-          <div class="field">
-            <label class="visually-hidden" for="reply-${escapeHtml(c.id)}">Reply</label>
-            <textarea id="reply-${escapeHtml(c.id)}" name="comment" rows="2" required placeholder="Write a reply…"></textarea>
-          </div>
-          <button type="submit" class="btn-outline btn-primary--auto">Reply</button>
-        </form>`
-      : '';
-    return `<li class="comment${isReply ? ' comment--reply' : ''}${c.kind && c.kind !== 'comment' ? ' comment--event' : ''}">
-      <div class="comment-meta">
-        <span class="comment-author">${escapeHtml(c.authorName || c.authorUsername)}</span>
-        <span class="comment-role">${escapeHtml(c.roleLabel || c.authorRole)}</span>
-        ${kindTag(c)}
-        <span class="comment-time">${escapeHtml(formatDate(c.at))}</span>
-      </div>
-      <p class="comment-body">${escapeHtml(c.body)}</p>
-      ${replyForm}
-      ${replies ? `<ul class="comment-list comment-list--replies">${replies}</ul>` : ''}
-    </li>`;
-  };
-
-  const items = tops.length
-    ? tops.map((c) => renderComment(c)).join('')
-    : '<li class="comment comment--empty text-muted">No comments yet. Start the discussion below.</li>';
-
-  return `<div class="dept-activity__panel" data-activity-panel="comments">
-    <ul class="comment-list">${items}</ul>
-    <form method="post" action="/dept/tickets/${escapeHtml(ref)}/comment" class="stack-form comment-form">
-      <div class="field">
-        <label for="thread-comment">Add comment</label>
-        <textarea id="thread-comment" name="comment" rows="3" required placeholder="Discuss this ticket with the reporter and Risk Management Unit…"></textarea>
-      </div>
-      <button type="submit" class="btn-primary btn-primary--auto">Post comment</button>
-    </form>
   </div>`;
 }
+
+function ownershipActionBar(ref, { mode }) {
+  const sideClass = ' dept-action-bar--side';
+  if (mode === 'assigned') {
+    return `<section class="dept-action-bar${sideClass}" aria-label="Ownership actions">
+      <div class="dept-action-bar__copy">
+        <strong>Ownership decision</strong>
+        <p>Review the report, then choose an action.</p>
+      </div>
+      <div class="dept-action-bar__buttons">
+        <form method="post" action="/dept/tickets/${escapeHtml(ref)}/accept" class="dept-action-form">
+          <button type="submit" class="dept-action-btn dept-action-btn--accept">Accept ownership</button>
+        </form>
+        <button type="button" class="dept-action-btn dept-action-btn--reject" data-dept-modal-open="reject">Reject ownership</button>
+        <button type="button" class="dept-action-btn dept-action-btn--reassign" data-dept-modal-open="reassign">Request reassignment</button>
+      </div>
+    </section>`;
+  }
+  if (mode === 'reassign') {
+    return `<section class="dept-action-bar dept-action-bar--compact${sideClass}" aria-label="Transfer actions">
+      <div class="dept-action-bar__copy">
+        <strong>Transfer ticket</strong>
+        <p>Send to another department if this no longer belongs here.</p>
+      </div>
+      <div class="dept-action-bar__buttons">
+        <button type="button" class="dept-action-btn dept-action-btn--reassign" data-dept-modal-open="reassign">Transfer to another department</button>
+      </div>
+    </section>`;
+  }
+  return '';
+}
+
+function deptOwnershipModals(ref, ticket) {
+  const deptOptions = departmentSelectOptions(ticket.department);
+
+  const rejectForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/reject" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="rejectReason">Reason <span class="text-muted">(required)</span></label>
+      <textarea id="rejectReason" name="reason" rows="3" required placeholder="Explain why this ticket does not belong to your department…"></textarea>
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="btn-danger--outline">Reject ownership</button>
+    </div>
+  </form>`;
+
+  const reassignForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/reassign" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="reassignReason">Reason <span class="text-muted">(required)</span></label>
+      <textarea id="reassignReason" name="reason" rows="2" required placeholder="e.g. This incident is related to Facilities Management."></textarea>
+    </div>
+    <div class="field field--console">
+      <label for="reassignComment">Comment <span class="text-muted">(required)</span></label>
+      <textarea id="reassignComment" name="comment" rows="3" required placeholder="I recommend transferring the ticket to the Administration Department."></textarea>
+    </div>
+    <div class="field field--console">
+      <label for="reassignTarget">Transfer to <span class="text-muted">(required)</span></label>
+      <select id="reassignTarget" name="targetDepartment" required>
+        <option value="">Select department…</option>
+        ${deptOptions}
+      </select>
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="btn-primary btn-primary--auto">Transfer ticket</button>
+    </div>
+  </form>`;
+
+  return [
+    deptModalShell('dept-modal-reject', 'Reject ownership', 'Decline ownership. The Risk Management Unit will re-route the ticket.', rejectForm),
+    deptModalShell('dept-modal-reassign', 'Request reassignment', 'Transfer this ticket to the correct department. Your reason and comment are recorded on the activity timeline.', reassignForm),
+  ].join('');
+}
+
+const DEPT_MODALS_SCRIPT = `<script>
+(function () {
+  function closeAllDeptModals() {
+    document.querySelectorAll('.dept-modal:not([hidden])').forEach(function (modal) {
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+    });
+    document.body.classList.remove('dept-modal-open');
+  }
+
+  function openDeptModal(id) {
+    closeAllDeptModals();
+    var modal = document.getElementById(id);
+    if (!modal) return;
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('dept-modal-open');
+    var focusable = modal.querySelector('textarea, select, button:not(.dept-modal__close)');
+    if (focusable) focusable.focus();
+  }
+
+  document.querySelectorAll('[data-dept-modal-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      openDeptModal('dept-modal-' + btn.getAttribute('data-dept-modal-open'));
+    });
+  });
+
+  document.querySelectorAll('[data-dept-modal-close]').forEach(function (el) {
+    el.addEventListener('click', closeAllDeptModals);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') closeAllDeptModals();
+  });
+})();
+</script>`;
+
+/* —— Jira-like activity (comments / history / timeline) —— */
 
 function historyBlock(ticket) {
   const trail = ticket.auditTrail || [];
@@ -672,8 +674,9 @@ function activitySection(ticket, ref, user) {
     canReact: true,
     canEditOwn: true,
     currentUsername: user?.username,
+    composePlaceholder: 'Discuss this ticket with the reporter and Risk Management Unit…',
   }).replace('<section class="sup-card sup-card--thread">', '<div class="dept-activity__panel" data-activity-panel="comments">')
-    .replace(/<h2><\/h2>\s*/, '')
+    .replace(/<div class="sup-card__head"><h2><\/h2><\/div>\s*/, '')
     .replace(/<p class="section-hint"><\/p>\s*/, '')
     .replace('</section>', '</div>');
 
@@ -715,11 +718,9 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
   const isOwner = Boolean(t.ownership?.ownerUsername && t.ownership.ownerUsername === user.username);
   const canExecute = ['in_progress', 'reopened'].includes(t.status) && isOwner;
 
-  const banner = t.status === 'ownership_rejected'
-    ? `<div class="flash flash--error" role="status">Ownership was rejected${t.ownership?.rejectionReason ? `: ${escapeHtml(t.ownership.rejectionReason)}` : ''}. Pending re-routing by the Risk Management Unit.</div>`
-    : t.ownership?.reassignedFrom
-      ? `<div class="flash flash--success" role="status">Transferred to ${escapeHtml(t.department)} from ${escapeHtml(t.ownership.reassignedFrom)}.</div>`
-      : '';
+  const statusNotice = t.status === 'ownership_rejected'
+    ? `<div class="dept-status-notice dept-status-notice--error" role="note">This ticket was returned to the reporter${t.ownership?.rejectionReason ? `: ${escapeHtml(t.ownership.rejectionReason)}` : ''}. Awaiting reporter revision.</div>`
+    : '';
 
   const main = `
     ${supDetailCard(
@@ -741,15 +742,14 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ${presidentDecisionCard(t)}
     ${activitySection(t, ref, user)}`;
 
-  const side = `
-    ${detailsSidebar(t)}
-    ${isAssigned ? ownershipDecisionPanel(t, ref) : ''}
-    ${canExecute ? reassignOnlyPanel(t, ref) : ''}`;
+  const showOwnershipBar = isAssigned;
+  const showReassignBar = canExecute;
+  const showModals = showOwnershipBar || showReassignBar;
 
   const body = `
     ${flashMessage(opts.flash)}
     ${opts.error ? flashMessage(opts.error, 'error') : ''}
-    ${banner}
+    ${statusNotice}
     ${supTicketHead({
       title: t.title,
       ref,
@@ -759,9 +759,16 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     })}
     <div class="dept-detail">
       <div class="dept-detail__main">${main}</div>
-      <aside class="dept-detail__side">${side}</aside>
+      <aside class="dept-detail__side">
+        ${transferIndication(t)}
+        ${detailsSidebar(t)}
+        ${showOwnershipBar ? ownershipActionBar(ref, { mode: 'assigned' }) : ''}
+        ${showReassignBar ? ownershipActionBar(ref, { mode: 'reassign' }) : ''}
+      </aside>
     </div>
-    ${ACTIVITY_TABS_SCRIPT}`;
+    ${showModals ? deptOwnershipModals(ref, t) : ''}
+    ${ACTIVITY_TABS_SCRIPT}
+    ${showModals ? DEPT_MODALS_SCRIPT : ''}`;
 
   return pageLayout({
     title: ref,

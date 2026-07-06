@@ -26,7 +26,7 @@ const ROLES = {
     id: 'rm_officer',
     label: 'Risk Governance Office (RMU)',
     description:
-      'Governance oversight: monitor risks, SLA, and compliance; review AI analysis and department action plans; recommend, comment, and escalate — does not own or close tickets',
+      'Governance oversight: view organizational risks, monitor SLA and compliance, and participate in ticket discussion threads — does not own, edit, or close tickets',
     path: '/officer',
     assignable: true,
   },

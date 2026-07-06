@@ -5,6 +5,7 @@ const {
   DEPARTMENTS,
   TICKET_STATUSES,
   SUPERVISOR_ACTION_STATUSES,
+  REPORTER_REVISION_STATUSES,
   SUPERVISOR_ACCOMPLISHMENT_STATUSES,
   OFFICER_REVIEW_STATUSES,
   OFFICER_FINAL_VALIDATION_STATUSES,
@@ -196,36 +197,172 @@ function detectRiskCategory(text) {
 }
 
 const DEPARTMENT_KEYWORDS = {
-  IT: ['server', 'network', 'cyber', 'software', 'database', 'system', 'hack', 'malware', 'phishing', 'it ', 'data breach', 'outage'],
-  'Finance/Accounting': ['finance', 'financial', 'invoice', 'payment', 'budget', 'accounting', 'tax', 'revenue', 'fraud', 'ledger'],
-  HRMS: ['employee', 'hr ', 'hiring', 'payroll', 'workforce', 'staff', 'personnel', 'labor'],
-  'Internal Audit': ['audit finding', 'control deficiency', 'internal control'],
-  MMCD: ['maintenance', 'facility', 'building', 'equipment', 'machinery', 'infrastructure'],
-  Operations: ['operational', 'production', 'process', 'supply', 'logistics', 'manufacturing'],
-  Treasury: ['treasury', 'cash', 'liquidity', 'investment'],
-  Admin: ['administration', 'administrative', 'office management', 'records', 'general services'],
-  'Corp Plan': ['corporate planning', 'strategic plan', 'planning office'],
-  'Corp Sec': ['corporate secretary', 'governance', 'board'],
-  RMO: ['risk management', 'enterprise risk', 'risk register'],
+  IT: [
+    'server outage', 'server failure', 'network outage', 'network failure', 'cyber attack',
+    'cybersecurity', 'software bug', 'software failure', 'database corruption', 'database outage',
+    'hack', 'hacked', 'malware', 'phishing', 'ransomware', 'data breach', 'vpn down',
+    'firewall', 'email outage', 'email server', 'application crash', 'unauthorized access',
+    'password compromise', 'backup failure', 'it infrastructure', 'domain controller',
+  ],
+  'Finance/Accounting': [
+    'financial fraud', 'financial loss', 'finance', 'financial', 'invoice', 'payment error',
+    'budget overrun', 'accounting error', 'tax issue', 'revenue loss', 'fraud', 'ledger',
+    'accounts payable', 'accounts receivable', 'billing error', 'misappropriation',
+    'expense report', 'financial statement', 'unauthorized transaction', 'payroll error',
+  ],
+  HRMS: [
+    'hr policy', 'human resources', 'hiring process', 'payroll discrepancy', 'termination',
+    'disciplinary action', 'workplace harassment', 'labor dispute', 'employee benefits',
+    'onboarding issue', 'offboarding', 'performance review', 'collective bargaining',
+    'overtime policy', 'workplace violence',
+  ],
+  'Internal Audit': [
+    'audit finding', 'control deficiency', 'internal control', 'non-compliance',
+    'regulatory breach', 'policy violation', 'compliance gap', 'sox', 'governance failure',
+  ],
+  MMCD: [
+    'equipment failure', 'machinery breakdown', 'generator failure', 'elevator malfunction',
+    'structural damage', 'roof leak', 'power outage', 'electrical failure',
+  ],
+  Administration: [
+    'building maintenance', 'facility maintenance', 'facilities issue', 'office maintenance',
+    'housekeeping', 'janitorial', 'cleaning service', 'security guard', 'reception issue',
+    'pantry', 'office supplies', 'furniture damage', 'parking issue', 'hvac', 'plumbing',
+    'air conditioning', 'broken elevator', 'water leak', 'building repair',
+  ],
+  Operations: [
+    'operational failure', 'production line', 'manufacturing defect', 'process failure',
+    'supply chain', 'logistics delay', 'warehouse issue', 'delivery failure',
+    'inventory loss', 'plant shutdown', 'quality defect', 'production outage',
+  ],
+  Treasury: [
+    'treasury', 'cash management', 'liquidity risk', 'investment loss',
+    'fund transfer error', 'bank reconciliation',
+  ],
+  Admin: ['records management', 'general services', 'document management'],
+  'Corp Plan': ['corporate planning', 'strategic plan', 'planning office', 'business plan'],
+  'Corp Sec': ['corporate secretary', 'board meeting', 'by-laws', 'governance issue'],
+  RMO: ['risk management', 'enterprise risk', 'risk register', 'risk assessment'],
 };
 
-function detectResponsibleDepartment(text, riskCategory) {
+/** Strong title → department hints (evaluated before keyword scoring). */
+const TITLE_DEPARTMENT_HINTS = [
+  { pattern: /\b(financial|finance|accounting|invoice|budget|fraud|payment|revenue|tax)\b/i, dept: 'Finance/Accounting' },
+  { pattern: /\b(server|network|cyber|software|phishing|malware|hack|database|email\s+outage|it\s+outage)\b/i, dept: 'IT' },
+  { pattern: /\b(maintenance|building|facility|facilities|hvac|plumbing|janitorial|housekeeping)\b/i, dept: 'Administration' },
+  { pattern: /\b(payroll|harassment|hiring|termination|hr\s+policy|workplace)\b/i, dept: 'HRMS' },
+  { pattern: /\b(compliance|audit\s+finding|regulatory|policy\s+violation)\b/i, dept: 'Internal Audit' },
+  { pattern: /\b(operational|production|logistics|supply\s+chain|warehouse)\b/i, dept: 'Operations' },
+];
+
+/** Field weights — title + incident narratives only. Reporter profile/dept is never included. */
+const ROUTING_FIELD_WEIGHTS = {
+  title: 4,
+  what: 5,
+  why: 3,
+  how: 2,
+  where: 2,
+};
+
+/** Org-unit labels that must never influence routing scores (reporter metadata only). */
+const REPORTER_DEPT_BLOCKLIST = [
+  'information technology',
+  'it department',
+  'operations',
+  'finance',
+  'administration',
+  'human resources',
+  'hrms',
+  'internal audit',
+  'treasury',
+  'corp plan',
+  'corp sec',
+  'risk management office',
+  'rmo',
+  'pceo',
+];
+
+function stripReporterOrgLabels(text) {
+  let s = String(text || '');
+  for (const label of REPORTER_DEPT_BLOCKLIST) {
+    s = s.replace(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+  }
+  return s.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Corpus for AI routing: risk title + incident details (what/why/where/how).
+ * Never includes reporter department, who was involved, when, or incident location field.
+ */
+function buildRoutingCorpus({ title, fiveW1H }) {
+  return {
+    title: stripReporterOrgLabels(String(title || '').trim()),
+    what: stripReporterOrgLabels(String(fiveW1H?.what || '').trim()),
+    why: stripReporterOrgLabels(String(fiveW1H?.why || '').trim()),
+    how: stripReporterOrgLabels(String(fiveW1H?.how || '').trim()),
+    where: stripReporterOrgLabels(String(fiveW1H?.where || '').trim()),
+  };
+}
+
+function buildIncidentAnalysisText({ title, fiveW1H }) {
+  const corpus = buildRoutingCorpus({ title, fiveW1H });
+  return [corpus.title, corpus.what, corpus.why, corpus.where, corpus.how]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function scoreKeywordHits(text, keywords, weight = 1) {
   const s = String(text || '').toLowerCase();
+  if (!s) return 0;
+  return keywords.reduce((acc, k) => (s.includes(k) ? acc + weight : acc), 0);
+}
+
+function detectResponsibleDepartment({ title, fiveW1H }, riskCategory) {
+  const corpus = buildRoutingCorpus({ title, fiveW1H });
+
+  const fields = {
+    title: { text: corpus.title, weight: ROUTING_FIELD_WEIGHTS.title },
+    what: { text: corpus.what, weight: ROUTING_FIELD_WEIGHTS.what },
+    why: { text: corpus.why, weight: ROUTING_FIELD_WEIGHTS.why },
+    how: { text: corpus.how, weight: ROUTING_FIELD_WEIGHTS.how },
+    where: { text: corpus.where, weight: ROUTING_FIELD_WEIGHTS.where },
+  };
+
   let bestDept = null;
   let bestScore = 0;
 
   for (const [dept, keywords] of Object.entries(DEPARTMENT_KEYWORDS)) {
-    const score = keywords.reduce((acc, k) => (s.includes(k) ? acc + 1 : acc), 0);
+    let score = 0;
+    for (const { text, weight } of Object.values(fields)) {
+      score += scoreKeywordHits(text, keywords, weight);
+    }
     if (score > bestScore) {
       bestScore = score;
       bestDept = dept;
     }
   }
 
-  if (bestDept && DEPARTMENTS.includes(bestDept)) return bestDept;
+  const titleHint = TITLE_DEPARTMENT_HINTS.find((rule) => rule.pattern.test(corpus.title));
+  if (titleHint && DEPARTMENTS.includes(titleHint.dept) && bestScore < 4) {
+    bestDept = titleHint.dept;
+    bestScore = Math.max(bestScore, 4);
+  }
+
+  if (bestDept === 'Admin') {
+    const whatWhere = `${corpus.what} ${corpus.where}`.toLowerCase();
+    const facilitiesCue = ['maintenance', 'building', 'facility', 'facilities', 'housekeeping', 'janitorial', 'hvac', 'plumbing'];
+    if (facilitiesCue.some((k) => whatWhere.includes(k))) {
+      bestDept = DEPARTMENTS.includes('Administration') ? 'Administration' : bestDept;
+    }
+  }
+
+  if (bestDept && bestScore > 0 && DEPARTMENTS.includes(bestDept)) return bestDept;
+
+  if (titleHint && DEPARTMENTS.includes(titleHint.dept)) return titleHint.dept;
 
   const categoryDefaults = {
-    environmental: 'Admin',
+    environmental: 'Administration',
     financial: 'Finance/Accounting',
     compliance: 'Internal Audit',
     reputational: 'Corp Sec',
@@ -263,31 +400,26 @@ function suggestInitialMitigation(riskCategory, riskLevel, fiveW1H) {
   return `${base} Given the ${levelLabel} risk level, prioritize actions within 48–72 hours and report progress to the Risk Management Unit.`;
 }
 
-function generateAiAnalysisFromReport({ title, location, fiveW1H, evidenceFiles, reporterDepartment }) {
-  const joined = [
+function generateAiAnalysisFromReport({ title, location, fiveW1H, evidenceFiles }) {
+  const incidentText = buildIncidentAnalysisText({ title, fiveW1H });
+
+  const supplementalContext = [
     title,
     location,
-    fiveW1H?.what,
-    fiveW1H?.why,
-    fiveW1H?.where,
     fiveW1H?.when,
-    fiveW1H?.who,
-    fiveW1H?.how,
-    reporterDepartment,
   ]
     .filter(Boolean)
-    .join(' ');
-
-  const s = String(joined || '').toLowerCase();
+    .join(' ')
+    .toLowerCase();
 
   const impactKeywords = ['breach', 'fraud', 'shutdown', 'injury', 'penalt', 'sanction', 'lawsuit', 'leak', 'outage', 'major', 'spill', 'contamination'];
   const likelihoodKeywords = ['often', 'frequent', 'recurr', 'pattern', 'may', 'could', 'lack of', 'weak', 'previous', 'history'];
 
-  const countHits = (arr) => arr.reduce((acc, k) => (s.includes(k) ? acc + 1 : acc), 0);
-  const impactHits = countHits(impactKeywords);
-  const likelihoodHits = countHits(likelihoodKeywords);
+  const countHits = (arr, text) => arr.reduce((acc, k) => (text.includes(k) ? acc + 1 : acc), 0);
+  const impactHits = countHits(impactKeywords, incidentText);
+  const likelihoodHits = countHits(likelihoodKeywords, incidentText);
 
-  const lenBoost = Math.floor((s.length || 0) / 450);
+  const lenBoost = Math.floor((incidentText.length || 0) / 450);
   const base = 2;
 
   const likelihood = clampInt(base + lenBoost + likelihoodHits * 1.2, 1, 5);
@@ -296,23 +428,24 @@ function generateAiAnalysisFromReport({ title, location, fiveW1H, evidenceFiles,
   const severity = clampInt(Math.round((likelihood + impact) / 2), 1, 5);
   const riskLevel = riskLevelFromSeverity(severity);
 
-  const riskCategory = detectRiskCategory(s);
-  const responsibleDepartment = detectResponsibleDepartment(s, riskCategory);
+  const riskCategory = detectRiskCategory(incidentText);
+  const responsibleDepartment = detectResponsibleDepartment({ title, fiveW1H }, riskCategory);
   const priority = determinePriority(riskLevel, severity);
   const suggestedMitigation = suggestInitialMitigation(riskCategory, riskLevel, fiveW1H);
 
   const evidenceCount = Array.isArray(evidenceFiles) ? evidenceFiles.length : 0;
   const confidenceBase = 0.72;
   const evidenceBoost = evidenceCount >= 1 ? 0.1 : 0;
-  const richTextBoost = (s.length || 0) > 180 ? 0.08 : 0;
+  const richTextBoost = (incidentText.length + supplementalContext.length) > 180 ? 0.08 : 0;
+  const whatBoost = String(fiveW1H?.what || '').trim().length > 40 ? 0.06 : 0;
   const deptBoost = responsibleDepartment ? 0.04 : 0;
-  const confidence = Math.max(0.5, Math.min(0.98, confidenceBase + evidenceBoost + richTextBoost + deptBoost));
+  const confidence = Math.max(0.5, Math.min(0.98, confidenceBase + evidenceBoost + richTextBoost + whatBoost + deptBoost));
 
   const titleSafe = String(title || '').trim();
   const what = String(fiveW1H?.what || '').trim();
   const why = String(fiveW1H?.why || '').trim();
 
-  const summary = `AI analysis: "${titleSafe || 'Untitled'}" describes an incident where ${what || 'the event occurred'} due to ${why || 'factors described in the report'}. Classified as ${getCategoryLabel(riskCategory)} with ${riskLevel.label} severity (likelihood ${likelihood}/5, impact ${impact}/5). Recommended routing to ${responsibleDepartment} with ${getPriorityLabel(priority)} priority.`;
+  const summary = `AI analysis: "${titleSafe || 'Untitled'}" — ${what || 'the reported incident'} (${why ? `cause: ${why}` : 'see report for details'}). Classified as ${getCategoryLabel(riskCategory)} with ${riskLevel.label} severity (likelihood ${likelihood}/5, impact ${impact}/5). Responsible department assigned from risk title and incident details — not from your reporting unit: ${responsibleDepartment} with ${getPriorityLabel(priority)} priority.`;
 
   return {
     summary,
@@ -327,6 +460,8 @@ function generateAiAnalysisFromReport({ title, location, fiveW1H, evidenceFiles,
     suggestedMitigation,
     confidence: Math.round(confidence * 100) / 100,
     manualReviewRequired: confidence < 0.75,
+    routingBasis: 'title_and_incident_details',
+    routingFieldsUsed: ['title', 'what', 'why', 'where', 'how'],
     processedAt: new Date().toISOString(),
   };
 }
@@ -340,9 +475,9 @@ function canSupervisorDraftCrud(ticket) {
   return isDraftTicket(ticket);
 }
 
-/** Supervisor may revise a draft or a report returned by the RMO. */
+/** Supervisor may revise a draft or a report returned for revision. */
 function canSupervisorReviseReport(ticket) {
-  return ticket?.status === 'draft' || ticket?.status === 'returned';
+  return ticket?.status === 'draft' || REPORTER_REVISION_STATUSES.includes(ticket?.status);
 }
 
 function canSupervisorEdit(ticket) {
@@ -416,7 +551,7 @@ function getSupervisorStats(username) {
     submitted: tickets.filter((t) => t.status !== 'draft').length,
     active: tickets.filter((t) => !['draft', 'closed', 'resolved'].includes(t.status)).length,
     actionRequired: tickets.filter((t) => SUPERVISOR_ACTION_STATUSES.includes(t.status)).length,
-    returned: tickets.filter((t) => t.status === 'returned').length,
+    returned: tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status)).length,
     overdue: tickets.filter((t) => t.isOverdue).length,
     closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
     accomplishments: accomplishments.length,
@@ -493,19 +628,19 @@ function hashTicketRevision(ticket) {
   return crypto.createHash('sha256').update(JSON.stringify(buildTicketRevisionPayload(ticket))).digest('hex');
 }
 
-function hasRevisionSinceReturn(ticket) {
-  if (ticket?.status !== 'returned') return true;
-  if (!ticket.returnRevisionHash) return true;
-  return hashTicketRevision(ticket) !== ticket.returnRevisionHash;
-}
-
 function captureReturnRevisionSnapshot(ticket) {
   ticket.returnedAt = new Date().toISOString();
   ticket.returnRevisionHash = hashTicketRevision(ticket);
 }
 
+function hasRevisionSinceReturn(ticket) {
+  if (!REPORTER_REVISION_STATUSES.includes(ticket?.status)) return true;
+  if (!ticket.returnRevisionHash) return true;
+  return hashTicketRevision(ticket) !== ticket.returnRevisionHash;
+}
+
 function ensureReturnRevisionBaseline(ticket) {
-  if (ticket?.status === 'returned' && !ticket.returnRevisionHash) {
+  if (REPORTER_REVISION_STATUSES.includes(ticket?.status) && !ticket.returnRevisionHash) {
     captureReturnRevisionSnapshot(ticket);
     return true;
   }
@@ -518,8 +653,13 @@ function mockAiClassification(ticket) {
     location: ticket.location,
     fiveW1H: ticket.fiveW1H,
     evidenceFiles: ticket.evidence,
-    reporterDepartment: ticket.reporterDepartment,
   });
+}
+
+function reporterVisibleThreadComments(ticket) {
+  return (ticket.threadComments || []).filter(
+    (c) => !(c.kind === 'system' && /^ownership rejected:/i.test(String(c.body || ''))),
+  );
 }
 
 function parseMentions(text) {
@@ -534,7 +674,8 @@ function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment
     authorUsername: user.username,
     authorName: user.displayName || user.username,
     authorRole: user.role,
-    roleLabel: user.roleLabel || getRoleLabel(user.role),
+    roleLabel: user.position || user.roleLabel || getRoleLabel(user.role),
+    authorPosition: user.position || null,
     body: text,
     at: now,
     editedAt: null,
@@ -634,6 +775,14 @@ function getTicketTimelineForReporter(ticket) {
       actorName: 'Risk Management Unit',
     });
   }
+  if (ticket.ownership?.rejectedAt) {
+    events.push({
+      at: ticket.ownership.rejectedAt,
+      action: 'Returned by department',
+      detail: ticket.ownership.rejectionReason || 'The responsible department declined this ticket.',
+      actorName: ticket.ownership.rejectedByName || ticket.department || 'Responsible department',
+    });
+  }
   if (ticket.mitigationDueAt && ticket.officerNotes) {
     events.push({
       at: ticket.updatedAt,
@@ -710,7 +859,6 @@ async function createTicket(username, displayName, body, { referenceOverride, up
     location: String(body.location || '').trim(),
     fiveW1H,
     evidenceFiles,
-    reporterDepartment: String(reporterDepartment || body.reporterDepartment || '').trim() || null,
   });
 
   const description =
@@ -726,7 +874,7 @@ async function createTicket(username, displayName, body, { referenceOverride, up
     reference: ref,
     title,
     description,
-    reporterDepartment: String(reporterDepartment || body.reporterDepartment || '').trim() || null,
+    reporterDepartment: String(reporterDepartment || '').trim() || null,
     department: null,
     location: String(body.location || '').trim(),
     category: ai.riskCategory,
@@ -801,9 +949,6 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
       .join('\n');
   ticket.location = String(body.location || '').trim();
   ticket.mitigationApproach = String(body.mitigationApproach || '').trim();
-  if (body.reporterDepartment) {
-    ticket.reporterDepartment = String(body.reporterDepartment).trim();
-  }
   ticket.fiveW1H = fiveW1H;
 
   const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
@@ -827,7 +972,6 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
     location: ticket.location,
     fiveW1H: ticket.fiveW1H,
     evidenceFiles: ticket.evidence,
-    reporterDepartment: ticket.reporterDepartment,
   });
   ticket.category = ai.riskCategory;
   ticket.likelihood = ai.likelihood;
@@ -836,9 +980,9 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
   ticket.ai = ai;
   ticket.updatedAt = new Date().toISOString();
 
-  if (!draftOnly && ticket.status === 'returned' && !hasRevisionSinceReturn(ticket)) {
+  if (!draftOnly && REPORTER_REVISION_STATUSES.includes(ticket.status) && !hasRevisionSinceReturn(ticket)) {
     return {
-      error: 'You must update the report details or evidence before resubmitting to the RMO.',
+      error: 'You must update the report details or evidence before resubmitting.',
     };
   }
 
@@ -866,12 +1010,12 @@ function submitTicket(reference, username, displayName) {
   const { store, saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
-  if (!canSupervisorEdit(ticket) && ticket.status !== 'draft' && ticket.status !== 'returned') {
+  if (!canSupervisorEdit(ticket) && ticket.status !== 'draft' && !REPORTER_REVISION_STATUSES.includes(ticket.status)) {
     return { error: 'This ticket cannot be submitted.' };
   }
-  if (ticket.status === 'returned' && !hasRevisionSinceReturn(ticket)) {
+  if (REPORTER_REVISION_STATUSES.includes(ticket.status) && !hasRevisionSinceReturn(ticket)) {
     return {
-      error: 'You must update the report details or evidence before resubmitting to the RMO.',
+      error: 'You must update the report details or evidence before resubmitting.',
     };
   }
 
@@ -886,7 +1030,7 @@ function submitTicket(reference, username, displayName) {
   ticket.department = ai.responsibleDepartment;
   ticket.routedAt = now;
 
-  const wasReturned = ticket.status === 'returned';
+  const wasRevisionResubmit = REPORTER_REVISION_STATUSES.includes(ticket.status);
   // President's revised model: AI routes the ticket directly to the responsible
   // department, whose Department Head / Vice President becomes the ticket owner.
   ticket.status = 'assigned';
@@ -900,7 +1044,7 @@ function submitTicket(reference, username, displayName) {
     rejectedAt: null,
     rejectionReason: null,
   };
-  if (wasReturned) {
+  if (wasRevisionResubmit) {
     ticket.officerNotes = null;
     ticket.mitigationDueAt = null;
     ticket.returnRevisionHash = null;
@@ -911,8 +1055,8 @@ function submitTicket(reference, username, displayName) {
   ticket.updatedAt = now;
 
   appendTicketAuditEvent(ticket, {
-    action: wasReturned ? 'Report resubmitted' : 'Reporter created ticket',
-    detail: wasReturned
+    action: wasRevisionResubmit ? 'Report resubmitted' : 'Reporter created ticket',
+    detail: wasRevisionResubmit
       ? 'Reporter revised and resubmitted the risk report.'
       : 'Risk report submitted for AI analysis.',
     actorUsername: username,
@@ -943,7 +1087,7 @@ function submitTicket(reference, username, displayName) {
     submittedBy: username,
     submitterRole: 'supervisor',
     status: getStatusLabel(ticket.status),
-    action: wasReturned ? 'resubmitted' : 'submitted',
+    action: wasRevisionResubmit ? 'resubmitted' : 'submitted',
     detail: `Routed to ${ticket.department}`,
   });
 
@@ -1207,7 +1351,24 @@ async function ticketForRole(ticket, role) {
     merged.auditNotes = undefined;
     merged.evidence = ticket.evidence || [];
     ensureThreadComments(ticket);
-    merged.threadComments = ticket.threadComments || [];
+    const { findUserRecord } = require('./store');
+    merged.threadComments = reporterVisibleThreadComments(ticket).map((c) => {
+      if (c.authorPosition) return c;
+      const author = c.authorUsername ? findUserRecord(c.authorUsername) : null;
+      if (!author?.position) return c;
+      return {
+        ...c,
+        authorPosition: author.position,
+        roleLabel: author.position,
+      };
+    });
+    merged.ownership = ticket.ownership ? { ...ticket.ownership } : null;
+    if (merged.ownership?.rejectedByUsername && !merged.ownership.rejectedByPosition) {
+      const rejector = findUserRecord(merged.ownership.rejectedByUsername);
+      if (rejector?.position) {
+        merged.ownership.rejectedByPosition = rejector.position;
+      }
+    }
     merged.timeline = getTicketTimelineForReporter(ticket);
     if (ticket.status === 'returned' && ticket.officerNotes) {
       merged.officerNotes = ticket.officerNotes;
@@ -1357,181 +1518,15 @@ function returnAccomplishmentForRevision(reference, username, body) {
 }
 
 function addRmuRecommendation(reference, user, body = {}) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForOfficer(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-
-  const text = String(body.recommendation || body.body || '').trim();
-  if (!text) return { error: 'Recommendation cannot be empty.' };
-  if (text.length > 2000) return { error: 'Recommendation is too long (max 2000 characters).' };
-
-  ensureRmuFields(ticket);
-  const now = new Date().toISOString();
-  const record = {
-    id: `rmu-rec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    authorUsername: user.username,
-    authorName: user.displayName || user.username,
-    authorRole: user.role,
-    body: text,
-    at: now,
-  };
-  ticket.rmuRecommendations.push(record);
-  ticket.updatedAt = now;
-
-  appendTicketAuditEvent(ticket, {
-    action: 'RMU recommendation',
-    detail: text.length > 160 ? `${text.slice(0, 160)}…` : text,
-    actorUsername: user.username,
-    actorName: user.displayName || user.username,
-    actorRole: 'rm_officer',
-  });
-  saveStore();
-  logOfficerAction(ticket, user.username, 'rmu_recommendation', text);
-
-  notifyDeptHeadsForDepartment(ticket, {
-    type: 'rmu_recommendation',
-    title: 'RMU improvement recommendation',
-    message: `The Risk Governance Office recommended improvements on ${ticket.reference}.`,
-    ticketRef: ticket.reference,
-    fromUsername: user.username,
-    fromName: user.displayName || user.username,
-    fromRole: 'rm_officer',
-  });
-
-  return { ticket: publicTicket(ticket) };
+  return { error: 'The RMU cannot submit recommendations. Use the discussion thread to comment.' };
 }
 
 function escalateTicketForRmu(reference, user, body = {}) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForOfficer(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-
-  const escalateTo = String(body.escalateTo || 'executive').trim().toLowerCase();
-  const allowed = ['executive', 'audit_officer', 'dept_head'];
-  if (!allowed.includes(escalateTo)) {
-    return { error: 'Invalid escalation target.' };
-  }
-
-  const reason = String(body.reason || body.body || '').trim();
-  if (!reason) return { error: 'Escalation reason is required.' };
-  if (reason.length > 2000) return { error: 'Escalation reason is too long (max 2000 characters).' };
-
-  ensureRmuFields(ticket);
-  const now = new Date().toISOString();
-  const record = {
-    id: `esc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    at: now,
-    byUsername: user.username,
-    byName: user.displayName || user.username,
-    escalateTo,
-    reason,
-  };
-  ticket.escalations.push(record);
-  ticket.updatedAt = now;
-
-  appendTicketAuditEvent(ticket, {
-    action: 'RMU escalation',
-    detail: `Escalated to ${escalateTo}: ${reason.length > 120 ? `${reason.slice(0, 120)}…` : reason}`,
-    actorUsername: user.username,
-    actorName: user.displayName || user.username,
-    actorRole: 'rm_officer',
-  });
-  saveStore();
-  logOfficerAction(ticket, user.username, 'rmu_escalation', `Escalated to ${escalateTo}`);
-
-  if (escalateTo === 'dept_head') {
-    notifyDeptHeadsForDepartment(ticket, {
-      type: 'rmu_escalation',
-      title: 'RMU escalation',
-      message: `${ticket.reference} was escalated by the Risk Governance Office.`,
-      ticketRef: ticket.reference,
-      fromUsername: user.username,
-      fromName: user.displayName || user.username,
-      fromRole: 'rm_officer',
-    });
-  } else {
-    notifyRoles([escalateTo], {
-      type: 'rmu_escalation',
-      title: 'RMU escalation',
-      message: `${ticket.reference} was escalated by the Risk Governance Office: ${reason}`,
-      ticketRef: ticket.reference,
-      fromUsername: user.username,
-      fromName: user.displayName || user.username,
-      fromRole: 'rm_officer',
-    }, { excludeUsername: user.username });
-  }
-
-  return { ticket: publicTicket(ticket) };
+  return { error: 'The RMU cannot escalate tickets.' };
 }
 
 function overrideAiClassificationForRmu(reference, user, body = {}) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForOfficer(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-  if (!ticket.ai) return { error: 'No AI classification to override on this ticket.' };
-
-  const reason = String(body.reason || '').trim();
-  if (!reason) return { error: 'Override reason is required.' };
-
-  const category = String(body.category || ticket.category || '').trim();
-  if (!RISK_CATEGORIES.some((c) => c.id === category)) {
-    return { error: 'Invalid risk category.' };
-  }
-
-  const likelihood = clampInt(body.likelihood ?? ticket.likelihood, 1, 5);
-  const impact = clampInt(body.impact ?? ticket.impact, 1, 5);
-  const department = String(body.department || ticket.department || '').trim();
-  if (!department) return { error: 'Responsible department is required.' };
-
-  ensureRmuFields(ticket);
-  const previous = {
-    category: ticket.category,
-    likelihood: ticket.likelihood,
-    impact: ticket.impact,
-    department: ticket.department,
-    riskLevel: ticket.ai.riskLevel || null,
-  };
-
-  ticket.category = category;
-  ticket.likelihood = likelihood;
-  ticket.impact = impact;
-  ticket.riskScore = likelihood * impact;
-  ticket.department = department;
-  ticket.ai.riskCategory = category;
-  ticket.ai.likelihood = likelihood;
-  ticket.ai.impact = impact;
-  ticket.ai.riskLevel = riskLevelFromSeverity(Math.round((likelihood + impact) / 2));
-  ticket.ai.manualReviewRequired = false;
-
-  const now = new Date().toISOString();
-  ticket.ai.overrideHistory.push({
-    id: `aio-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    at: now,
-    byUsername: user.username,
-    byName: user.displayName || user.username,
-    reason,
-    previous,
-    updated: {
-      category,
-      likelihood,
-      impact,
-      department,
-      riskLevel: ticket.ai.riskLevel,
-    },
-  });
-  ticket.updatedAt = now;
-
-  appendTicketAuditEvent(ticket, {
-    action: 'AI classification overridden',
-    detail: reason,
-    actorUsername: user.username,
-    actorName: user.displayName || user.username,
-    actorRole: 'rm_officer',
-  });
-  saveStore();
-  logOfficerAction(ticket, user.username, 'ai_classification_overridden', reason);
-
-  return { ticket: publicTicket(ticket) };
+  return { error: 'The RMU cannot override AI classifications.' };
 }
 
 function addRmuThreadComment(reference, user, body = {}) {
@@ -2137,12 +2132,10 @@ function addExecutiveComment(reference, user, body) {
 
 function replyToExecutiveComment(reference, user, body) {
   const { saveStore } = getStore();
-  if (!['rm_officer', 'audit_officer'].includes(user.role)) {
-    return { error: 'Only the RMO or Compliance Officer may reply to executive comments.' };
+  if (user.role !== 'audit_officer') {
+    return { error: 'Only the Compliance Officer may reply to executive comments.' };
   }
-  const ticket = user.role === 'audit_officer'
-    ? getTicketByRefForAudit(reference)
-    : getTicketByRefForOfficer(reference);
+  const ticket = getTicketByRefForAudit(reference);
   if (!ticket) return { error: 'Ticket not found.' };
 
   const text = String(body.comment || body.body || '').trim();
@@ -2394,12 +2387,10 @@ function addReporterThreadComment(reference, user, body) {
 
 function addTicketComment(reference, user, body) {
   const { saveStore } = getStore();
-  if (!['rm_officer', 'audit_officer'].includes(user.role)) {
-    return { error: 'Only the RMU and Compliance Officer may post private oversight comments.' };
+  if (user.role !== 'audit_officer') {
+    return { error: 'Only the Compliance Officer may post private oversight comments.' };
   }
-  const ticket = user.role === 'audit_officer'
-    ? getTicketByRefForAudit(reference)
-    : getTicketByRefForOfficer(reference);
+  const ticket = getTicketByRefForAudit(reference);
   if (!ticket) return { error: 'Ticket not found.' };
 
   const text = String(body.comment || body.body || '').trim();
@@ -2593,14 +2584,18 @@ function rejectOwnership(reference, user, body = {}) {
   ticket.ownership.state = 'rejected';
   ticket.ownership.rejectedAt = now;
   ticket.ownership.rejectionReason = reason;
+  ticket.ownership.rejectedByUsername = user.username;
+  ticket.ownership.rejectedByName = user.displayName || user.username;
+  ticket.ownership.rejectedByPosition = user.position || null;
   ticket.ownership.ownerUsername = null;
   ticket.ownership.ownerName = null;
   ticket.status = 'ownership_rejected';
   ticket.updatedAt = now;
 
-  appendThreadEntry(ticket, user, `Ownership rejected: ${reason}`, { kind: 'system' });
+  captureReturnRevisionSnapshot(ticket);
+
   appendTicketAuditEvent(ticket, {
-    action: 'Ownership rejected',
+    action: 'Returned by department',
     detail: reason,
     actorUsername: user.username,
     actorName: user.displayName || user.username,
@@ -2611,8 +2606,8 @@ function rejectOwnership(reference, user, body = {}) {
 
   notifyRoles(['rm_officer'], {
     type: 'ownership_rejected',
-    title: 'Department rejected ownership',
-    message: `${ticket.department} rejected ownership of ${ticket.reference}. Re-routing required.`,
+    title: 'Department returned ticket',
+    message: `${ticket.department} returned ${ticket.reference} to the reporter for revision.`,
     ticketRef: ticket.reference,
     fromUsername: user.username,
     fromName: user.displayName || user.username,
@@ -2621,8 +2616,8 @@ function rejectOwnership(reference, user, body = {}) {
   notifyReporterTicketUpdate(ticket, {
     recipientUsername: ticket.submittedBy,
     type: 'ownership_rejected',
-    title: 'Ticket ownership rejected',
-    message: `${ticket.department} declined ownership of ${ticket.reference}. The Risk Management Unit will re-route it.`,
+    title: 'Ticket returned by department',
+    message: `${ticket.department} returned ${ticket.reference}. Please revise and resubmit your report.`,
   });
 
   return { ticket: publicTicket(ticket) };

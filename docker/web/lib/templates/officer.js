@@ -1,7 +1,8 @@
-const { getCategoryLabel, getStatusLabel, getStatusTone, RISK_CATEGORIES, DEPARTMENTS } = require('../../config/tickets');
+const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
-const { flashMessage, executiveCommentsSection, commentsSection } = require('./layout');
+const { flashMessage, executiveCommentsSection } = require('./layout');
+const { threadDiscussionSection } = require('./thread-discussion');
 const { officerAppLayout } = require('./officer-layout');
 const { layoutNotifications } = require('../notifications');
 const { matrixCellTier } = require('../tickets');
@@ -83,26 +84,27 @@ function ticketRiskLevel(ticket) {
   return riskLevelFromSeverityLocal(sev);
 }
 
-function executiveCommentsBlock(ticket, ref) {
-  return executiveCommentsSection(ticket.executiveComments || [], {
-    replyAction: `/officer/tickets/${escapeHtml(ref)}/executive-reply`,
-    canReply: true,
-  });
+function executiveCommentsReadonly(ticket) {
+  const comments = ticket.executiveComments || [];
+  if (!comments.length) return '';
+  return executiveCommentsSection(comments, { canReply: false });
 }
 
-function privateCommentsBlock(ticket, ref) {
-  return commentsSection(ticket.comments || ticket.privateComments || [], {
-    postAction: `/officer/tickets/${escapeHtml(ref)}/comment`,
-    placeholder: 'Private oversight note for the Compliance Officer (not visible to departments)…',
-    compact: true,
-  });
-}
-
-function commentSectionsBlock(ticket, ref) {
-  return `<div class="sup-detail-stack sup-detail-stack--comments">
-    ${privateCommentsBlock(ticket, ref)}
-    ${executiveCommentsBlock(ticket, ref)}
-  </div>`;
+function aiReadonlyCard(ticket) {
+  const t = ticket;
+  if (!t.ai) {
+    return supDetailCard('AI analysis', '<p class="sup-muted-block">No AI classification available.</p>', { compact: true });
+  }
+  const inner = `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
+    <dl class="detail-dl detail-dl--console">
+      <dt>Category</dt><dd>${escapeHtml(t.categoryLabel || getCategoryLabel(t.category))}</dd>
+      <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
+      <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
+      <dt>Confidence</dt><dd>${Math.round((t.ai.confidence || 0) * 100)}%</dd>
+      <dt>Manual review</dt><dd>${t.ai.manualReviewRequired ? 'Required' : 'No'}</dd>
+      <dt>Routed department</dt><dd>${escapeHtml(t.department || '—')}</dd>
+    </dl>`;
+  return supDetailCard('AI analysis (read-only)', inner, { compact: true });
 }
 
 function ticketTableRows(tickets, { linkPrefix = '/officer/tickets/' } = {}) {
@@ -167,7 +169,7 @@ function ownershipMonitorCard(ticket) {
   const map = {
     pending: { cls: 'info', label: 'Awaiting department acceptance' },
     accepted: { cls: 'rmo', label: 'Owned by department' },
-    rejected: { cls: 'warn', label: 'Ownership rejected' },
+    rejected: { cls: 'warn', label: 'Returned by department' },
     unassigned: { cls: 'muted', label: 'Unassigned' },
   };
   const m = map[state] || map.unassigned;
@@ -192,167 +194,18 @@ function actionPlanReadonlyCard(ticket) {
   return supDetailCard(`Department action plan <span class="text-muted">(v${plan.version})</span>`, inner, { accent: true });
 }
 
-function aiReviewCard(ticket, ref) {
-  const t = ticket;
-  const aiInner = t.ai
-    ? `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
-        <dl class="detail-dl detail-dl--console">
-          <dt>Category</dt><dd>${escapeHtml(t.categoryLabel || getCategoryLabel(t.category))}</dd>
-          <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
-          <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
-          <dt>Confidence</dt><dd>${Math.round((t.ai.confidence || 0) * 100)}%</dd>
-          <dt>Manual review</dt><dd>${t.ai.manualReviewRequired ? 'Required' : 'No'}</dd>
-          <dt>Routed department</dt><dd>${escapeHtml(t.department || '—')}</dd>
-        </dl>
-        ${(t.ai.overrideHistory || []).length ? `<p class="sup-muted-block">AI classification was overridden ${t.ai.overrideHistory.length} time(s).</p>` : ''}`
-    : '<p class="sup-muted-block">No AI classification available.</p>';
-
-  const categoryOptions = RISK_CATEGORIES.map(
-    (c) => `<option value="${escapeHtml(c.id)}"${c.id === t.category ? ' selected' : ''}>${escapeHtml(c.label)}</option>`,
-  ).join('');
-  const deptOptions = DEPARTMENTS.map(
-    (d) => `<option value="${escapeHtml(d)}"${d === t.department ? ' selected' : ''}>${escapeHtml(d)}</option>`,
-  ).join('');
-
-  const overrideForm = t.ai
-    ? `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/override-ai" class="stack-form stack-form--console">
-        <div class="field field--console">
-          <label for="overrideCategory">Category</label>
-          <select id="overrideCategory" name="category" required>${categoryOptions}</select>
-        </div>
-        <div class="field field--console">
-          <label for="overrideLikelihood">Likelihood (1–5)</label>
-          <input id="overrideLikelihood" name="likelihood" type="number" min="1" max="5" value="${t.likelihood || 3}" required>
-        </div>
-        <div class="field field--console">
-          <label for="overrideImpact">Impact (1–5)</label>
-          <input id="overrideImpact" name="impact" type="number" min="1" max="5" value="${t.impact || 3}" required>
-        </div>
-        <div class="field field--console">
-          <label for="overrideDepartment">Responsible department</label>
-          <select id="overrideDepartment" name="department" required>${deptOptions}</select>
-        </div>
-        <div class="field field--console">
-          <label for="overrideReason">Override reason</label>
-          <textarea id="overrideReason" name="reason" rows="3" required placeholder="Explain why the AI classification should be corrected…"></textarea>
-        </div>
-        <button type="submit" class="btn-outline">Override AI classification</button>
-      </form>`
-    : '';
-
-  return supDetailCard('AI analysis &amp; classification', `${aiInner}${overrideForm ? `<div class="rmu-governance-form">${overrideForm}</div>` : ''}`, { compact: true });
-}
-
-function rmuRecommendationsCard(ticket) {
-  const items = ticket.rmuRecommendations || [];
-  if (!items.length) return '';
-  const rows = [...items]
-    .reverse()
-    .map(
-      (r) => `<li class="audit-trail-item">
-        <div class="audit-trail-meta">
-          <span class="audit-trail-action">Recommendation</span>
-          <span class="audit-trail-user">${escapeHtml(r.authorName || r.authorUsername)}</span>
-          <span class="audit-trail-time">${escapeHtml(formatDate(r.at))}</span>
-        </div>
-        <p class="audit-trail-current__plan">${escapeHtml(r.body)}</p>
-      </li>`,
-    )
-    .join('');
-  return supDetailCard('RMU recommendations', `<ul class="audit-trail-list">${rows}</ul>`);
-}
-
-function escalationsCard(ticket) {
-  const items = ticket.escalations || [];
-  if (!items.length) return '';
-  const rows = [...items]
-    .reverse()
-    .map(
-      (e) => `<li class="audit-trail-item">
-        <div class="audit-trail-meta">
-          <span class="audit-trail-action">Escalated to ${escapeHtml(e.escalateTo)}</span>
-          <span class="audit-trail-user">${escapeHtml(e.byName || e.byUsername)}</span>
-          <span class="audit-trail-time">${escapeHtml(formatDate(e.at))}</span>
-        </div>
-        <p class="audit-trail-current__plan">${escapeHtml(e.reason)}</p>
-      </li>`,
-    )
-    .join('');
-  return supDetailCard('Escalations', `<ul class="audit-trail-list">${rows}</ul>`);
-}
-
 function threadCommentsBlock(ticket, ref) {
-  const comments = ticket.threadComments || [];
-  const list = comments.length
-    ? `<ul class="thread-list">${comments
-        .filter((c) => !c.parentId)
-        .map((c) => {
-          const replies = comments.filter((r) => r.parentId === c.id);
-          return `<li class="thread-item">
-            <div class="thread-item__meta">
-              <strong>${escapeHtml(c.authorName || c.authorUsername)}</strong>
-              <span class="text-muted">${escapeHtml(formatDate(c.at))}</span>
-            </div>
-            <p>${escapeHtml(c.body)}</p>
-            ${replies.map((r) => `<div class="thread-reply"><strong>${escapeHtml(r.authorName || r.authorUsername)}</strong>: ${escapeHtml(r.body)}</div>`).join('')}
-          </li>`;
-        })
-        .join('')}</ul>`
-    : '<p class="sup-muted-block">No governance comments yet.</p>';
-
-  return supDetailCard(
-    'Governance comments',
-    `${list}
-    <form method="post" action="/officer/tickets/${escapeHtml(ref)}/thread-comment" class="stack-form stack-form--console">
-      <div class="field field--console">
-        <label for="rmu-thread-comment">Comment</label>
-        <textarea id="rmu-thread-comment" name="comment" rows="3" required placeholder="Comment visible to the reporter and responsible department…"></textarea>
-      </div>
-      <button type="submit" class="btn-outline">Post comment</button>
-    </form>`,
-  );
-}
-
-function governanceActionsPanel(ticket, ref) {
-  const body = officerDecisionActions([
-    {
-      variant: 'accept',
-      title: 'Recommend improvement',
-      hint: 'Suggest process or control improvements without owning the ticket.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/recommend" class="stack-form stack-form--console">
-        <div class="field field--console">
-          <label for="rmuRecommendation">Recommendation</label>
-          <textarea id="rmuRecommendation" name="recommendation" rows="4" required placeholder="e.g. Recommend quarterly inspection of electrical panels in this building…"></textarea>
-        </div>
-        <button type="submit" class="btn-accept--outline">Submit recommendation</button>
-      </form>`,
-    },
-    {
-      variant: 'return',
-      title: 'Escalate',
-      hint: 'Escalate when SLA, compliance, or risk severity requires higher attention.',
-      formHtml: `<form method="post" action="/officer/tickets/${escapeHtml(ref)}/escalate" class="stack-form stack-form--console">
-        <div class="field field--console">
-          <label for="escalateTo">Escalate to</label>
-          <select id="escalateTo" name="escalateTo" required>
-            <option value="executive">Executive Committee</option>
-            <option value="audit_officer">Compliance Officer</option>
-            <option value="dept_head">Department Head (owner)</option>
-          </select>
-        </div>
-        <div class="field field--console">
-          <label for="escalationReason">Reason</label>
-          <textarea id="escalationReason" name="reason" rows="4" required placeholder="Describe why this ticket needs escalation…"></textarea>
-        </div>
-        <button type="submit" class="btn-danger--outline">Escalate ticket</button>
-      </form>`,
-    },
-  ]);
-
-  return supDecisionPanel({
-    title: 'Governance actions',
-    desc: 'The RMU may recommend, comment, escalate, and monitor — but cannot own, implement, or close tickets.',
-    bodyHtml: body,
+  return threadDiscussionSection(ticket, ref, {
+    title: 'Discussion thread',
+    hint: '',
+    postAction: `/officer/tickets/${ref}/thread-comment`,
+    canPost: true,
+    canReact: false,
+    canEditOwn: false,
+    showAttachments: false,
+    composeLabel: 'Add comment',
+    composePlaceholder: 'Comment visible to the reporter and responsible department…',
+    submitLabel: 'Post comment',
   });
 }
 
@@ -476,7 +329,6 @@ function quickActionsBar(stats) {
   const actions = [
     { href: '/officer/tickets', label: 'Risk register', count: stats.total },
     { href: '/officer/overdue', label: 'Overdue & SLA', count: stats.overdueMitigation },
-    { href: '/officer/ai-review', label: 'AI review', count: stats.awaitingReview },
     { href: '/officer/action-plans', label: 'Action plans', count: stats.awaitingFinalValidation },
     { href: '/officer/monitoring', label: 'Active monitoring', count: stats.inMitigation },
   ];
@@ -556,7 +408,7 @@ function officerOverviewPage(user, dashboard, flash) {
     <div class="sup-page-head">
       <div>
         <h1>Dashboard</h1>
-        <p class="sup-page-desc">Welcome, Risk Governance Office — monitor organizational risks, SLA compliance, AI classifications, and department action plans. The RMU does not own tickets.</p>
+        <p class="sup-page-desc">Welcome, Risk Governance Office — view organizational risks, monitor SLA compliance, and participate in ticket discussion threads. The RMU does not own or edit tickets.</p>
       </div>
       <a href="/officer/overdue" class="filter-pill filter-pill--head">Overdue <span class="filter-pill__count">${stats.overdueMitigation}</span></a>
     </div>
@@ -564,20 +416,12 @@ function officerOverviewPage(user, dashboard, flash) {
       ${kpiCard('/officer/tickets', KPI_ICONS.total, stats.total, 'Risk register', 'sup-kpi--accent')}
       ${kpiCard('/officer/monitoring', KPI_ICONS.mitigation, stats.open, 'Open risks')}
       ${kpiCard('/officer/overdue', KPI_ICONS.overdue, stats.overdueMitigation, 'Overdue / SLA', stats.overdueMitigation ? 'sup-kpi--warn' : '')}
-      ${kpiCard('/officer/ai-review', KPI_ICONS.review, stats.awaitingReview, 'AI review')}
       ${kpiCard('/officer/action-plans', KPI_ICONS.final, stats.awaitingFinalValidation, 'Action plans')}
       <div class="sup-kpi">
         <span class="sup-kpi__icon">${KPI_ICONS.closed}</span>
         <span class="sup-kpi__body">
           <span class="sup-kpi__value">${stats.complianceOpen || 0}</span>
           <span class="sup-kpi__label">Compliance risks</span>
-        </span>
-      </div>
-      <div class="sup-kpi">
-        <span class="sup-kpi__icon">${KPI_ICONS.returned}</span>
-        <span class="sup-kpi__body">
-          <span class="sup-kpi__value">${stats.escalated || 0}</span>
-          <span class="sup-kpi__label">Escalated</span>
         </span>
       </div>
     </div>
@@ -662,7 +506,7 @@ function reviewQueuePage(user, tickets, flash, opts = {}) {
 function finalValidationQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
     title: 'Department action plans',
-    desc: 'Review action plans submitted by owning departments. Recommend improvements or escalate — do not implement solutions.',
+    desc: 'Review action plans submitted by owning departments (read-only).',
     tickets,
     flash,
     error: opts.error,
@@ -675,7 +519,7 @@ function finalValidationQueuePage(user, tickets, flash, opts = {}) {
 function overdueQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
     title: 'Overdue & SLA',
-    desc: 'Tickets past their target date or SLA threshold. Monitor and escalate as needed.',
+    desc: 'Tickets past their target date or SLA threshold.',
     tickets,
     flash,
     error: opts.error,
@@ -730,14 +574,11 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
       backLabel: 'Back to risk register',
     })}
     ${ticketReadonlySections(t)}
-    ${aiReviewCard(t, ref)}
+    ${aiReadonlyCard(t)}
     ${actionPlanReadonlyCard(t)}
     ${accBlock}
-    ${rmuRecommendationsCard(t)}
-    ${escalationsCard(t)}
-    ${governanceActionsPanel(t, ref)}
     ${threadCommentsBlock(t, ref)}
-    ${commentSectionsBlock(t, ref)}`;
+    ${executiveCommentsReadonly(t)}`;
 
   return officerPageLayout({
     title: ref,
