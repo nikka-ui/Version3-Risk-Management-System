@@ -1,4 +1,4 @@
-const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../config/tickets');
+const { getCategoryLabel, getStatusLabel, getStatusTone, DEPARTMENTS } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
 const { flashMessage, executiveCommentsSection } = require('./layout');
@@ -556,11 +556,46 @@ function allTicketsPage(user, tickets, flash, opts = {}) {
 function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, activeNav } = {}) {
   const t = ticket;
   const ref = t.reference;
-  const accomplishment = getAccomplishmentForTicket(t);
+  const accomplishment = t.accomplishment || getAccomplishmentForTicket(t);
   const accBlock = accomplishment
     ? accomplishmentReportSection(accomplishment, {
-        notice: 'Accomplishment on record — RMU monitors only; cannot close or return for implementation.',
+        notice: t.status === 'closed'
+          ? 'Accomplishment on record. Only the Risk Governance Office can reopen this ticket and reassign it to a department.'
+          : 'Accomplishment on record — RMU monitors only; department head closes the ticket.',
       })
+    : '';
+
+  const deptOptions = DEPARTMENTS.map(
+    (d) => `<option value="${escapeHtml(d)}"${d === t.department ? ' selected' : ''}>${escapeHtml(d)}</option>`,
+  ).join('');
+
+  const reopenBlock = ['closed', 'resolved'].includes(t.status)
+    ? `<section class="sup-card sup-card--accent officer-reopen-card">
+        <div class="sup-card__head"><h2>Reopen ticket</h2></div>
+        <div class="sup-card__body">
+          <p class="sup-muted-block">Reopen this closed ticket and assign it back to a department for a new ownership cycle. Only Risk Governance Office users can perform this action.</p>
+          <form method="post" action="/officer/tickets/${escapeHtml(ref)}/reopen" class="stack-form stack-form--console">
+            <div class="field field--console">
+              <label for="reopenReason">Reason <span class="text-muted">(required)</span></label>
+              <textarea id="reopenReason" name="reason" rows="3" required placeholder="Explain why this ticket must be reopened…"></textarea>
+            </div>
+            <div class="field field--console">
+              <label for="reopenDepartment">Assign to department <span class="text-muted">(required)</span></label>
+              <select id="reopenDepartment" name="department" required>${deptOptions}</select>
+            </div>
+            <button type="submit" class="btn-primary btn-primary--auto">Reopen and assign</button>
+          </form>
+        </div>
+      </section>`
+    : '';
+
+  const closureBlock = t.closure
+    ? supDetailCard(
+        'Closure',
+        `<p>${escapeHtml(t.closure.notes || 'Ticket closed.')}</p>
+         <p class="sup-muted-block">${escapeHtml(t.closure.closedByName || t.closure.closedBy || 'Department')} · ${escapeHtml(formatDate(t.closure.closedAt))}</p>`,
+        { accent: true },
+      )
     : '';
 
   const body = `
@@ -577,6 +612,8 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
     ${aiReadonlyCard(t)}
     ${actionPlanReadonlyCard(t)}
     ${accBlock}
+    ${closureBlock}
+    ${reopenBlock}
     ${threadCommentsBlock(t, ref)}
     ${executiveCommentsReadonly(t)}`;
 

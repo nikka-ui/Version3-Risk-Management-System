@@ -1,6 +1,7 @@
 const { escapeHtml } = require('../html');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
+const { findUserRecord } = require('../store');
 
 const NAV_ITEMS = [
   { id: 'overview', href: '/supervisor', label: 'Dashboard', icon: 'overview' },
@@ -9,6 +10,7 @@ const NAV_ITEMS = [
   { id: 'drafts', href: '/supervisor/drafts', label: 'Draft reports', icon: 'drafts', statKey: 'drafts' },
   { id: 'submitted', href: '/supervisor/submitted', label: 'Submitted reports', icon: 'submitted', statKey: 'submitted' },
   { id: 'returned', href: '/supervisor/returned', label: 'Returned reports', icon: 'returned', statKey: 'returned' },
+  { id: 'overdue', href: '/supervisor/overdue', label: 'Overdue', icon: 'overdue', statKey: 'overdue' },
   { id: 'accomplishments', href: '/supervisor/accomplishments', label: 'Accomplishment reports', icon: 'accomplishments' },
   { id: 'notifications', href: '/supervisor/notifications', label: 'Notifications', icon: 'notifications', statKey: 'unreadNotifications' },
   { id: 'profile', href: '/supervisor/profile', label: 'Profile', icon: 'profile' },
@@ -22,6 +24,7 @@ function navIcon(name) {
     drafts: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
     submitted: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>`,
     returned: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+    overdue: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
     accomplishments: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l2 2 4-4"/></svg>`,
     notifications: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
     profile: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
@@ -46,8 +49,11 @@ function sidebarNav(activeNav, stats = {}) {
 }
 
 function supervisorAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
-  const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
   const roleLabel = user.roleLabel || 'Ticket Reporter';
+  const profile = findUserRecord(user.username) || user;
+  const displayName = profile.displayName || user.displayName || user.username;
+  const positionLine = profile.position || user.position || profile.department || user.department || roleLabel;
+  const initial = String(displayName || user.username || 'U').trim().charAt(0).toUpperCase();
   const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/supervisor/notifications/read-all' });
 
   return `<!DOCTYPE html>
@@ -81,8 +87,8 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {}, notific
     <div class="supervisor-sidebar__user">
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
-        <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.username)}</span>
+        <span class="supervisor-sidebar__user-name">${escapeHtml(displayName)}</span>
+        <span class="supervisor-sidebar__user-title">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

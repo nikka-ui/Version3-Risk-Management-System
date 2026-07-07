@@ -24,6 +24,8 @@ const {
   DEPT_HEAD_VISIBLE_STATUSES,
   DEPT_HEAD_OWNERSHIP_DECISION_STATUSES,
   DEPT_HEAD_EXECUTION_STATUSES,
+  DEPT_HEAD_CLOSURE_STATUSES,
+  REPORTER_OVERDUE_EXCLUDED_STATUSES,
   GRACE_PERIOD_MS,
   departmentsMatch,
   getStatusLabel,
@@ -79,11 +81,26 @@ function peekNextTicketRef() {
   return nextTicketRef(store);
 }
 
+function parseDueDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d, 23, 59, 59, 999);
+  }
+  const parsed = new Date(s);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function computeTicketOverdue(ticket) {
   if (['closed', 'resolved', 'draft'].includes(ticket.status)) return false;
+  if (REPORTER_REVISION_STATUSES.includes(ticket.status)) return false;
+  if (REPORTER_OVERDUE_EXCLUDED_STATUSES.includes(ticket.status)) return false;
+  if (ticket.accomplishmentId) return false;
   const dueRaw = ticket.actionPlan?.targetDate || ticket.mitigationDueAt;
-  if (!dueRaw) return false;
-  return new Date(dueRaw) < new Date();
+  const due = parseDueDate(dueRaw);
+  if (!due) return false;
+  return Date.now() > due.getTime();
 }
 
 function publicTicket(ticket) {
@@ -136,6 +153,8 @@ function publicTicket(ticket) {
     mitigationDueAt: ticket.mitigationDueAt || null,
     mitigationPlanVersion: ticket.mitigationPlanVersion || 0,
     hasMitigationPlan: Boolean(ticket.officerNotes && ticket.mitigationPlanVersion),
+    dueAt: ticket.actionPlan?.targetDate || ticket.mitigationDueAt || null,
+    isDeptAssigned: ticket.ownership?.state === 'accepted',
     isOverdue: computeTicketOverdue(ticket),
     hasRmuRecommendation: Boolean((ticket.rmuRecommendations || []).length),
     isEscalated: Boolean((ticket.escalations || []).length),
@@ -491,12 +510,50 @@ function canSupervisorEdit(ticket) {
   return false;
 }
 
-function canSupervisorSubmitAccomplishment(ticket) {
-  return Boolean(
-    ticket?.officerNotes?.trim()
-    && ticket?.mitigationDueAt
-    && SUPERVISOR_ACCOMPLISHMENT_STATUSES.includes(ticket.status),
+function reporterHasMitigationAssignment(ticket) {
+  ensureDeptHeadFields(ticket);
+  const hasRmoPlan = Boolean(ticket?.officerNotes?.trim() && ticket?.mitigationDueAt);
+  const hasDeptPlan = Boolean(
+    ticket?.ownership?.state === 'accepted'
+    && ticket?.actionPlan?.summary?.trim()
+    && (ticket?.actionPlan?.publishedToReporterAt || ticket?.actionPlan?.submittedForReviewAt)
+    && SUPERVISOR_ACCOMPLISHMENT_STATUSES.includes(ticket?.status),
   );
+  return hasRmoPlan || hasDeptPlan;
+}
+
+function getReporterAccomplishmentEligibility(ticket) {
+  if (ticket?.accomplishmentId) {
+    return { state: 'submitted', canSubmit: false };
+  }
+  if (!SUPERVISOR_ACCOMPLISHMENT_STATUSES.includes(ticket?.status)) {
+    return {
+      state: 'unavailable',
+      canSubmit: false,
+      reason: 'Accomplishment reports are not required at this stage of the ticket.',
+    };
+  }
+  if (!reporterHasMitigationAssignment(ticket)) {
+    return {
+      state: 'waiting_plan',
+      canSubmit: false,
+      reason: ticket?.status === 'in_progress'
+        ? 'Waiting for the department head to publish an action plan before you can submit your accomplishment report.'
+        : 'Waiting for a mitigation plan and target date before you can submit your accomplishment report.',
+    };
+  }
+  const hasDeptPlan = Boolean(
+    ticket?.ownership?.state === 'accepted' && ticket?.actionPlan?.summary?.trim(),
+  );
+  return {
+    state: 'ready',
+    canSubmit: true,
+    source: hasDeptPlan ? 'department' : 'rmo',
+  };
+}
+
+function canSupervisorSubmitAccomplishment(ticket) {
+  return getReporterAccomplishmentEligibility(ticket).canSubmit === true;
 }
 
 function findAttachmentOnTicket(ticket, attachmentId) {
@@ -526,17 +583,22 @@ function listTicketsForSupervisor(username) {
   const { store } = getStore();
   return (store.riskTickets || [])
     .filter((t) => isVisibleTicket(t) && t.submittedBy === username)
-    .map(publicTicket)
+    .map((t) => {
+      ensureDeptHeadFields(t);
+      return publicTicket(t);
+    })
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
 function getTicketByRef(reference, username) {
-  const { store } = getStore();
+  const { store, saveStore } = getStore();
   const ticket = (store.riskTickets || []).find(
     (t) => t.reference === reference && t.submittedBy === username,
   );
-  if (!ticket) return null;
-  return ticket;
+  if (ticket && repairDeptHeadLegacyAuditStatus(ticket)) {
+    saveStore();
+  }
+  return ticket || null;
 }
 
 function getSupervisorStats(username) {
@@ -1340,6 +1402,7 @@ function parseMitigationDueDate(raw) {
 
 async function ticketForRole(ticket, role) {
   if (!ticket) return null;
+  ensureDeptHeadFields(ticket);
   await hydrateTicketEvidence(ticket);
   const merged = { ...ticket, ...publicTicket(ticket) };
   ensurePrivateComments(ticket);
@@ -1382,6 +1445,34 @@ async function ticketForRole(ticket, role) {
       : null;
     merged.finalDecision = ticket.finalDecision || null;
     merged.suggestedMitigation = ticket.ai?.suggestedMitigation || null;
+    if (ticket.ownership?.state === 'accepted' || ['assigned', 'in_progress', 'in_mitigation', 'pending_audit', 'pending_president', 'reopened'].includes(ticket.status)) {
+      const ownerUser = ticket.ownership?.ownerUsername
+        ? findUserRecord(ticket.ownership.ownerUsername)
+        : null;
+      merged.departmentAssignment = {
+        ownerName: ticket.ownership?.ownerName || ownerUser?.displayName || null,
+        ownerPosition: ticket.ownership?.ownerPosition || ownerUser?.position || null,
+        acceptedAt: ticket.ownership?.acceptedAt || null,
+        department: ticket.department || null,
+        state: ticket.ownership?.state || (ticket.status === 'assigned' ? 'pending' : 'accepted'),
+      };
+    } else {
+      merged.departmentAssignment = null;
+    }
+    if (ticket.actionPlan?.summary || ticket.actionPlan?.targetDate) {
+      merged.deptActionPlan = {
+        summary: ticket.actionPlan.summary || null,
+        targetDate: ticket.actionPlan.targetDate || null,
+        steps: ticket.actionPlan.steps || [],
+        publishedAt: ticket.actionPlan.publishedToReporterAt || ticket.actionPlan.submittedForReviewAt || null,
+      };
+    } else {
+      merged.deptActionPlan = null;
+    }
+    merged.dueAt = ticket.actionPlan?.targetDate || ticket.mitigationDueAt || null;
+    merged.isOverdue = computeTicketOverdue(ticket);
+    merged.accomplishment = getAccomplishmentForTicket(ticket);
+    merged.accomplishmentEligibility = getReporterAccomplishmentEligibility(ticket);
     return merged;
   }
 
@@ -1405,6 +1496,8 @@ async function ticketForRole(ticket, role) {
     merged.auditTrail = ticket.auditTrail || [];
     merged.suggestedMitigation = ticket.ai?.suggestedMitigation || null;
     merged.evidence = ticket.evidence || [];
+    merged.accomplishment = getAccomplishmentForTicket(ticket);
+    merged.closure = ticket.closure || null;
     return merged;
   }
 
@@ -1424,6 +1517,8 @@ async function ticketForRole(ticket, role) {
     merged.finalResolution = ticket.finalResolution || null;
     merged.rmuRecommendations = ticket.rmuRecommendations || [];
     merged.escalations = ticket.escalations || [];
+    merged.accomplishment = getAccomplishmentForTicket(ticket);
+    merged.closure = ticket.closure || null;
     return merged;
   }
 
@@ -2459,6 +2554,22 @@ function ensureDeptHeadFields(ticket) {
   ensureAuditTrail(ticket);
 }
 
+/** Dept-head action plans should go to the reporter, not legacy audit review. */
+function repairDeptHeadLegacyAuditStatus(ticket) {
+  ensureDeptHeadFields(ticket);
+  if (ticket.status !== 'under_audit') return false;
+  if (ticket.ownership?.state !== 'accepted') return false;
+  if (!String(ticket.actionPlan?.summary || '').trim()) return false;
+
+  const now = new Date().toISOString();
+  const published = ticket.actionPlan.publishedToReporterAt || ticket.actionPlan.submittedForReviewAt || now;
+  ticket.status = 'in_mitigation';
+  ticket.presidentReviewPhase = null;
+  ticket.actionPlan.publishedToReporterAt = published;
+  ticket.updatedAt = now;
+  return true;
+}
+
 function isDeptHeadTicketForUser(ticket, user) {
   if (!ticket || ticket.status === 'draft') return false;
   if (!DEPT_HEAD_VISIBLE_STATUSES.includes(ticket.status)) return false;
@@ -2469,19 +2580,29 @@ function isDeptHeadTicketForUser(ticket, user) {
 }
 
 function getTicketByRefForDeptHead(reference, user) {
-  const { store } = getStore();
+  const { store, saveStore } = getStore();
   const ticket = (store.riskTickets || []).find(
     (t) => t.reference === reference && isVisibleTicket(t),
   );
   if (!ticket) return null;
   if (!isDeptHeadTicketForUser(ticket, user)) return null;
+  if (repairDeptHeadLegacyAuditStatus(ticket)) {
+    saveStore();
+  }
   return ticket;
 }
 
 function listTicketsForDeptHead(user) {
-  const { store } = getStore();
-  return (store.riskTickets || [])
-    .filter((t) => isVisibleTicket(t) && isDeptHeadTicketForUser(t, user))
+  const { store, saveStore } = getStore();
+  let changed = false;
+  const tickets = (store.riskTickets || []).filter(
+    (t) => isVisibleTicket(t) && isDeptHeadTicketForUser(t, user),
+  );
+  for (const t of tickets) {
+    if (repairDeptHeadLegacyAuditStatus(t)) changed = true;
+  }
+  if (changed) saveStore();
+  return tickets
     .map(publicTicket)
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
@@ -2494,6 +2615,10 @@ function listDeptHeadActive(user) {
   return listTicketsForDeptHead(user).filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status));
 }
 
+function listDeptHeadPendingClosure(user) {
+  return listTicketsForDeptHead(user).filter((t) => DEPT_HEAD_CLOSURE_STATUSES.includes(t.status));
+}
+
 function getDeptHeadStats(user) {
   const tickets = listTicketsForDeptHead(user);
   const { getUnreadNotificationCount } = require('./store');
@@ -2501,6 +2626,7 @@ function getDeptHeadStats(user) {
     total: tickets.length,
     inbox: tickets.filter((t) => DEPT_HEAD_INBOX_STATUSES.includes(t.status)).length,
     active: tickets.filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status)).length,
+    pendingClosure: tickets.filter((t) => DEPT_HEAD_CLOSURE_STATUSES.includes(t.status)).length,
     awaitingPresident: tickets.filter((t) => t.status === 'pending_president').length,
     rejected: tickets.filter((t) => t.status === 'ownership_rejected').length,
     overdue: tickets.filter((t) => t.isOverdue).length,
@@ -2542,6 +2668,7 @@ function acceptOwnership(reference, user, body = {}) {
   ticket.ownership.state = 'accepted';
   ticket.ownership.ownerUsername = user.username;
   ticket.ownership.ownerName = user.displayName || user.username;
+  ticket.ownership.ownerPosition = user.position || null;
   ticket.ownership.ownerDepartment = ticket.department;
   ticket.ownership.acceptedAt = now;
   ticket.status = 'in_progress';
@@ -2731,6 +2858,9 @@ function saveActionPlan(reference, user, body = {}) {
   const submitForReview = ['1', 'true', true].includes(body.submitForReview);
   const now = new Date().toISOString();
   const existed = Boolean(ticket.actionPlan);
+  if (submitForReview && !targetDate) {
+    return { error: 'A target completion date is required before sending the plan to the reporter.' };
+  }
   ticket.actionPlan = {
     summary,
     steps,
@@ -2739,6 +2869,7 @@ function saveActionPlan(reference, user, body = {}) {
     updatedAt: now,
     updatedByName: user.displayName || user.username,
     version: (ticket.actionPlan?.version || 0) + 1,
+    publishedToReporterAt: submitForReview ? now : ticket.actionPlan?.publishedToReporterAt || null,
     submittedForReviewAt: submitForReview ? now : ticket.actionPlan?.submittedForReviewAt || null,
   };
   if (ticket.actionPlan.targetDate) {
@@ -2747,21 +2878,30 @@ function saveActionPlan(reference, user, body = {}) {
   ticket.updatedAt = now;
 
   if (submitForReview) {
-    ticket.status = 'under_audit';
-    ticket.presidentReviewPhase = 'action_plan';
+    ticket.status = 'in_mitigation';
+    ticket.presidentReviewPhase = null;
     appendTicketAuditEvent(ticket, {
-      action: 'Action plan uploaded',
-      detail: 'Submitted to Compliance for validation before presidential approval and implementation.',
+      action: 'Action plan sent to reporter',
+      detail: `Mitigation plan published to ${ticket.submittedByName || ticket.submittedBy || 'the reporter'} for implementation.${targetDate ? ` Target date: ${targetDate}.` : ''}`,
       actorUsername: user.username,
       actorName: user.displayName || user.username,
       actorRole: 'dept_head',
     });
-    notifyWorkflowStakeholders(ticket, 'approval', {
-      actor: user,
-      type: 'action_plan_submitted',
-      title: 'Action plan awaiting compliance review',
-      message: `${formatDepartmentLabel(ticket.department)} submitted an action plan for ${ticket.reference}.`,
+    notifyReporterTicketUpdate(ticket, {
+      recipientUsername: ticket.submittedBy,
+      type: 'action_plan_published',
+      title: 'Department action plan ready',
+      message: `${formatDepartmentLabel(ticket.department)} published a mitigation plan for ${ticket.reference}. Review the plan, apply the solution, and submit your accomplishment report.`,
     });
+    notifyRoles(['rm_officer'], {
+      type: 'action_plan_published',
+      title: 'Action plan sent to reporter',
+      message: `${formatDepartmentLabel(ticket.department)} sent the mitigation plan for ${ticket.reference} to the reporter for implementation.`,
+      ticketRef: ticket.reference,
+      fromUsername: user.username,
+      fromName: user.displayName || user.username,
+      fromRole: 'dept_head',
+    }, { excludeUsername: user.username });
   } else {
     appendTicketAuditEvent(ticket, {
       action: existed ? 'Action plan updated' : 'Action plan created',
@@ -2779,9 +2919,9 @@ function saveActionPlan(reference, user, body = {}) {
   }
 
   saveStore();
-  logDeptHeadAction(ticket, user, submitForReview ? 'action_plan_submitted' : (existed ? 'action_plan_updated' : 'action_plan_created'));
+  logDeptHeadAction(ticket, user, submitForReview ? 'action_plan_published' : (existed ? 'action_plan_updated' : 'action_plan_created'));
 
-  return { ticket: publicTicket(ticket), flashKey: submitForReview ? 'action_plan_submitted' : undefined };
+  return { ticket: publicTicket(ticket), flashKey: submitForReview ? 'action_plan_published' : undefined };
 }
 
 function assignPersonnel(reference, user, body = {}) {
@@ -2904,11 +3044,144 @@ function addProgressUpdate(reference, user, body = {}) {
 }
 
 function submitFinalResolution(reference, user, body = {}) {
+  return closeTicketAsDeptHead(reference, user, body);
+}
+
+function closeTicketAsDeptHead(reference, user, body = {}) {
+  const { saveStore } = getStore();
   const ticket = getTicketByRefForDeptHead(reference, user);
   if (!ticket) return { error: 'Ticket not found.' };
-  return {
-    error: 'Use the revised workflow: submit the action plan for compliance review, complete implementation, then have the reporter submit an accomplishment report.',
+  if (!DEPT_HEAD_CLOSURE_STATUSES.includes(ticket.status) || !ticket.accomplishmentId) {
+    return { error: 'This ticket is not awaiting department closure after an accomplishment report.' };
+  }
+
+  const closingNotes = String(body.closingNotes || body.notes || body.summary || '').trim();
+  const now = new Date().toISOString();
+  ticket.status = 'closed';
+  ticket.closure = {
+    closedAt: now,
+    closedBy: user.username,
+    closedByName: user.displayName || user.username,
+    closedByRole: 'dept_head',
+    notes: closingNotes || 'Closed after reviewing the reporter accomplishment report.',
   };
+  ticket.updatedAt = now;
+
+  appendTicketAuditEvent(ticket, {
+    action: 'Ticket closed by department',
+    detail: `${user.displayName || user.username} closed ${ticket.reference} after reviewing the accomplishment report.`,
+    actorUsername: user.username,
+    actorName: user.displayName || user.username,
+    actorRole: 'dept_head',
+  });
+
+  saveStore();
+  logDeptHeadAction(ticket, user, 'ticket_closed', ticket.closure.notes);
+
+  notifyWorkflowStakeholders(ticket, 'closure', {
+    actor: user,
+    type: 'ticket_closed',
+    title: 'Ticket closed',
+    message: `${formatDepartmentLabel(ticket.department)} closed ${ticket.reference} after accomplishment review.`,
+  });
+
+  const { appendReportLog } = require('./store');
+  appendReportLog({
+    ticketRef: ticket.reference,
+    title: ticket.title,
+    submittedBy: user.username,
+    submitterRole: 'dept_head',
+    status: getStatusLabel(ticket.status),
+    action: 'ticket_closed',
+  });
+
+  return { ticket: publicTicket(ticket), flashKey: 'ticket_closed_dept' };
+}
+
+function reopenTicketAsOfficer(reference, user, body = {}) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForOfficer(reference);
+  if (!ticket) return { error: 'Ticket not found.' };
+  if (!['closed', 'resolved'].includes(ticket.status)) {
+    return { error: 'Only closed tickets can be reopened.' };
+  }
+
+  const reason = String(body.reason || '').trim();
+  const target = String(body.department || body.targetDepartment || ticket.department || '').trim();
+  if (!reason) return { error: 'A reason is required to reopen this ticket.' };
+  if (!target || !DEPARTMENTS.includes(target)) {
+    return { error: 'Select a valid department to assign this ticket.' };
+  }
+
+  const now = new Date().toISOString();
+  const previousStatus = ticket.status;
+  const fromDepartment = ticket.department;
+  if (!ticket.reopenHistory) ticket.reopenHistory = [];
+  ticket.reopenHistory.push({
+    at: now,
+    byUsername: user.username,
+    byName: user.displayName || user.username,
+    reason,
+    fromStatus: previousStatus,
+    targetDepartment: target,
+  });
+  ticket.reopenCount = (ticket.reopenCount || 0) + 1;
+  ticket.reopenedAt = now;
+  ticket.reopenedBy = user.username;
+  ticket.reopenedByName = user.displayName || user.username;
+  ticket.reopenReason = reason;
+
+  ticket.accomplishmentId = null;
+  ticket.department = target;
+  ticket.ownership = {
+    state: 'pending',
+    ownerUsername: null,
+    ownerName: null,
+    ownerDepartment: target,
+    assignedAt: now,
+    acceptedAt: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    reassignedFrom: fromDepartment,
+  };
+  ticket.status = 'assigned';
+  ticket.closure = null;
+  ticket.updatedAt = now;
+
+  appendTicketAuditEvent(ticket, {
+    action: 'Ticket reopened by RMO',
+    detail: `${user.displayName || user.username} reopened ${ticket.reference} and assigned it to ${formatDepartmentLabel(target)}. Reason: ${reason}`,
+    actorUsername: user.username,
+    actorName: user.displayName || user.username,
+    actorRole: 'rm_officer',
+  });
+
+  saveStore();
+  logOfficerAction(ticket, user.username, 'ticket_reopened', reason);
+
+  notifyWorkflowStakeholders(ticket, 'reassignment', {
+    actor: user,
+    type: 'ticket_reopened',
+    title: 'Ticket reopened',
+    message: `${ticket.reference} was reopened by the Risk Governance Office and assigned to ${formatDepartmentLabel(target)}.`,
+    reason,
+    targetDepartment: target,
+  });
+
+  if (ticket.submittedBy) {
+    const { notifyUser } = require('./notifications');
+    notifyUser(ticket.submittedBy, {
+      type: 'ticket_reopened',
+      title: 'Your ticket was reopened',
+      message: `${ticket.reference} was reopened and reassigned to ${formatDepartmentLabel(target)}.`,
+      ticketRef: ticket.reference,
+      fromUsername: user.username,
+      fromName: user.displayName || user.username,
+      fromRole: 'rm_officer',
+    });
+  }
+
+  return { ticket: publicTicket(ticket), flashKey: 'ticket_reopened' };
 }
 
 function addDeptHeadThreadComment(reference, user, body = {}) {
@@ -2982,7 +3255,7 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
 
     appendTicketAuditEvent(ticket, {
       action: 'Accomplishment report submitted',
-      detail: 'Reporter submitted the accomplishment report for compliance review.',
+      detail: 'Reporter submitted the accomplishment report. Awaiting department head review and closure.',
       actorUsername: username,
       actorName: displayName || username,
       actorRole: 'supervisor',
@@ -2994,7 +3267,7 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
       actor: { username, displayName: displayName || username, role: 'supervisor' },
       type: 'accomplishment_submitted',
       title: 'Accomplishment report submitted',
-      message: `${displayName || username} submitted an accomplishment report for ${ticket.reference}.`,
+      message: `${displayName || username} submitted an accomplishment report for ${ticket.reference}. Review and close the ticket when complete.`,
     });
 
     const { appendReportLog } = require('./store');
@@ -3160,6 +3433,7 @@ module.exports = {
   listTicketsForDeptHead,
   listDeptHeadInbox,
   listDeptHeadActive,
+  listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,
   rejectOwnership,
@@ -3169,6 +3443,8 @@ module.exports = {
   uploadDeptDocuments,
   addProgressUpdate,
   submitFinalResolution,
+  closeTicketAsDeptHead,
+  reopenTicketAsOfficer,
   addDeptHeadThreadComment,
   editThreadComment,
   toggleThreadReaction,

@@ -60,8 +60,8 @@ const SUPERVISOR_ACTION_STATUSES = ['in_mitigation', 'returned', 'reopened', 'ow
 /** Ticket statuses where the reporter must revise and resubmit. */
 const REPORTER_REVISION_STATUSES = ['returned', 'ownership_rejected'];
 
-/** Supervisor may submit an accomplishment only after RMO assigns a mitigation plan. */
-const SUPERVISOR_ACCOMPLISHMENT_STATUSES = ['in_mitigation', 'reopened'];
+/** Supervisor may submit an accomplishment after RMO or department mitigation assignment. */
+const SUPERVISOR_ACCOMPLISHMENT_STATUSES = ['in_mitigation', 'in_progress', 'reopened'];
 
 /**
  * Tickets awaiting RMU AI classification review (governance oversight — no ownership).
@@ -142,6 +142,17 @@ const DEPT_HEAD_OWNERSHIP_DECISION_STATUSES = ['assigned'];
 
 /** Department Head may build the action plan, assign personnel, and report progress. */
 const DEPT_HEAD_EXECUTION_STATUSES = ['in_progress', 'reopened'];
+
+/** Reporter accomplishment submitted — department head reviews and closes the ticket. */
+const DEPT_HEAD_CLOSURE_STATUSES = ['pending_audit'];
+
+/** Ticket statuses where reporter overdue SLA no longer applies. */
+const REPORTER_OVERDUE_EXCLUDED_STATUSES = [
+  'pending_audit',
+  'pending_president_final',
+  'resolved',
+  'closed',
+];
 
 /**
  * Canonical department aliases so a Department Head account (whose department is
@@ -247,6 +258,8 @@ module.exports = {
   DEPT_HEAD_VISIBLE_STATUSES,
   DEPT_HEAD_OWNERSHIP_DECISION_STATUSES,
   DEPT_HEAD_EXECUTION_STATUSES,
+  DEPT_HEAD_CLOSURE_STATUSES,
+  REPORTER_OVERDUE_EXCLUDED_STATUSES,
   GRACE_PERIOD_MS,
   canonicalDepartment,
   departmentsMatch,

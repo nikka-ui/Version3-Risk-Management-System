@@ -156,6 +156,7 @@ function deptHeadOverviewPage(user, stats, flash, tickets = []) {
       ${kpiCard('/dept/tickets', KPI_ICONS.total, stats.total, 'Department tickets', 'sup-kpi--accent')}
       ${kpiCard('/dept/inbox', KPI_ICONS.inbox, stats.inbox, 'Awaiting acceptance', stats.inbox ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/active', KPI_ICONS.active, stats.active, 'In progress')}
+      ${kpiCard('/dept/closure', KPI_ICONS.closed, stats.pendingClosure, 'Pending closure', stats.pendingClosure ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/tickets', KPI_ICONS.president, stats.awaitingPresident, 'Awaiting President')}
       ${kpiCard('/dept/active', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/tickets', KPI_ICONS.closed, stats.closed, 'Closed')}
@@ -196,12 +197,25 @@ function deptHeadInboxPage(user, tickets, flash, opts = {}) {
 function deptHeadActivePage(user, tickets, flash, opts = {}) {
   return queuePage(user, {
     title: 'In progress',
-    desc: 'Tickets you own and are actively working — build action plans, assign personnel, report progress, and submit resolutions.',
+    desc: 'Tickets you own and are actively working — build action plans, assign personnel, and report progress.',
     tickets,
     flash,
     error: opts.error,
     activeNav: 'active',
     emptyMessage: 'You have no tickets in progress.',
+    stats: opts.stats,
+  });
+}
+
+function deptHeadPendingClosurePage(user, tickets, flash, opts = {}) {
+  return queuePage(user, {
+    title: 'Pending closure',
+    desc: 'Reporter accomplishment reports awaiting your review and ticket closure.',
+    tickets,
+    flash,
+    error: opts.error,
+    activeNav: 'closure',
+    emptyMessage: 'No tickets are awaiting closure.',
     stats: opts.stats,
   });
 }
@@ -319,7 +333,7 @@ function actionPlanCard(ticket, ref, { editable }) {
     ? `<div class="sup-card__body">
         <p class="dept-plan__summary">${escapeHtml(plan.summary)}</p>
         ${(plan.steps || []).length ? `<ol class="dept-plan__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
-        <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))} by ${escapeHtml(plan.updatedByName || '—')}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}</p>
+        <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))} by ${escapeHtml(plan.updatedByName || '—')}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}${plan.publishedToReporterAt || plan.submittedForReviewAt ? ` · sent to reporter ${escapeHtml(formatDate(plan.publishedToReporterAt || plan.submittedForReviewAt))}` : ''}</p>
       </div>`
     : `<div class="sup-card__body"><p class="sup-muted-block">No action plan yet.</p></div>`;
 
@@ -334,11 +348,11 @@ function actionPlanCard(ticket, ref, { editable }) {
           <textarea id="planSteps" name="steps" rows="3" placeholder="Step 1&#10;Step 2&#10;Step 3">${escapeHtml((plan?.steps || []).join('\n'))}</textarea>
         </div>
         <div class="field field--console">
-          <label for="planTarget">Target completion date</label>
+          <label for="planTarget">Target completion date <span class="text-muted">(required to send to reporter)</span></label>
           <input id="planTarget" name="targetDate" type="date" value="${plan?.targetDate ? new Date(plan.targetDate).toISOString().slice(0, 10) : ''}">
         </div>
         <button type="submit" class="btn-accept--outline">${plan ? 'Save draft' : 'Save action plan draft'}</button>
-        <button type="submit" name="submitForReview" value="1" class="btn-primary btn-primary--auto">Submit for compliance review</button>
+        <button type="submit" name="submitForReview" value="1" class="btn-primary btn-primary--auto">Send to reporter for implementation</button>
       </form>`
     : '';
 
@@ -349,76 +363,93 @@ function actionPlanCard(ticket, ref, { editable }) {
   </section>`;
 }
 
+function deptExecutionToolbar(ref, { editable }) {
+  if (!editable) return '';
+  return `<div class="dept-compact-actions" aria-label="Ticket workbench actions">
+    <button type="button" class="dept-compact-btn" data-dept-modal-open="personnel">Assign personnel</button>
+    <button type="button" class="dept-compact-btn" data-dept-modal-open="progress">Post progress update</button>
+  </div>`;
+}
+
 function personnelCard(ticket, ref, { editable }) {
   const people = ticket.personnel || [];
-  const list = people.length
-    ? `<ul class="dept-people">${people
-        .map(
-          (p) => `<li class="dept-people__item">
-            <span class="dept-people__name">${escapeHtml(p.name)}</span>
-            ${p.role ? `<span class="dept-people__role">${escapeHtml(p.role)}</span>` : ''}
-            <span class="dept-people__time">${escapeHtml(formatDate(p.assignedAt))}</span>
-          </li>`,
-        )
-        .join('')}</ul>`
-    : '<p class="sup-muted-block">No personnel assigned yet.</p>';
+  if (!people.length) return '';
 
-  const form = editable
-    ? `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/personnel" class="stack-form stack-form--console dept-inline-form dept-inline-form--row">
-        <div class="field field--console">
-          <label for="personName">Name</label>
-          <input id="personName" name="personName" type="text" required placeholder="e.g. Juan Dela Cruz">
-        </div>
-        <div class="field field--console">
-          <label for="personRole">Role / responsibility</label>
-          <input id="personRole" name="personRole" type="text" placeholder="e.g. Incident Lead">
-        </div>
-        <button type="submit" class="btn-accept--outline">Assign personnel</button>
-      </form>`
-    : '';
+  const list = `<ul class="dept-people">${people
+    .map(
+      (p) => `<li class="dept-people__item">
+        <span class="dept-people__name">${escapeHtml(p.name)}</span>
+        ${p.role ? `<span class="dept-people__role">${escapeHtml(p.role)}</span>` : ''}
+        <span class="dept-people__time">${escapeHtml(formatDate(p.assignedAt))}</span>
+      </li>`,
+    )
+    .join('')}</ul>`;
 
-  return `<section class="sup-card">
+  return `<section class="sup-card sup-card--compact dept-panel--compact">
     <div class="sup-card__head"><h2>Assigned personnel <span class="text-muted">(${people.length})</span></h2></div>
-    <div class="sup-card__body">${list}${form}</div>
+    <div class="sup-card__body">${list}</div>
   </section>`;
 }
 
 function progressCard(ticket, ref, { editable }) {
   const updates = ticket.progressUpdates || [];
-  const list = updates.length
-    ? `<ul class="dept-progress">${[...updates]
-        .reverse()
-        .map(
-          (u) => `<li class="dept-progress__item">
-            <div class="dept-progress__meta">
-              ${u.percent != null ? `<span class="dept-progress__pct">${u.percent}%</span>` : ''}
-              <span class="dept-progress__author">${escapeHtml(u.authorName || u.authorUsername)}</span>
-              <span class="dept-progress__time">${escapeHtml(formatDate(u.at))}</span>
-            </div>
-            <p class="dept-progress__body">${escapeHtml(u.body)}</p>
-          </li>`,
-        )
-        .join('')}</ul>`
-    : '<p class="sup-muted-block">No progress updates submitted yet.</p>';
+  if (!updates.length) return '';
 
-  const form = editable
-    ? `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/progress" class="stack-form stack-form--console dept-inline-form">
-        <div class="field field--console">
-          <label for="progressBody">Progress update</label>
-          <textarea id="progressBody" name="update" rows="3" required placeholder="Describe what has been done since the last update…"></textarea>
+  const list = `<ul class="dept-progress">${[...updates]
+    .reverse()
+    .map(
+      (u) => `<li class="dept-progress__item">
+        <div class="dept-progress__meta">
+          ${u.percent != null ? `<span class="dept-progress__pct">${u.percent}%</span>` : ''}
+          <span class="dept-progress__author">${escapeHtml(u.authorName || u.authorUsername)}</span>
+          <span class="dept-progress__time">${escapeHtml(formatDate(u.at))}</span>
         </div>
-        <div class="field field--console dept-field--pct">
-          <label for="progressPct">Completion %</label>
-          <input id="progressPct" name="percent" type="number" min="0" max="100" placeholder="e.g. 60">
-        </div>
-        <button type="submit" class="btn-accept--outline">Submit progress update</button>
-      </form>`
-    : '';
+        <p class="dept-progress__body">${escapeHtml(u.body)}</p>
+      </li>`,
+    )
+    .join('')}</ul>`;
 
-  return `<section class="sup-card">
+  return `<section class="sup-card sup-card--compact dept-panel--compact">
     <div class="sup-card__head"><h2>Progress updates <span class="text-muted">(${updates.length})</span></h2></div>
-    <div class="sup-card__body">${list}${form}</div>
+    <div class="sup-card__body">${list}</div>
   </section>`;
+}
+
+function deptExecutionModals(ref) {
+  const personnelForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/personnel" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="personName">Name</label>
+      <input id="personName" name="personName" type="text" required placeholder="e.g. Juan Dela Cruz">
+    </div>
+    <div class="field field--console">
+      <label for="personRole">Role / responsibility</label>
+      <input id="personRole" name="personRole" type="text" placeholder="e.g. Incident Lead">
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="btn-primary btn-primary--auto">Assign personnel</button>
+    </div>
+  </form>`;
+
+  const progressForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/progress" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="progressBody">Progress update</label>
+      <textarea id="progressBody" name="update" rows="3" required placeholder="Describe what has been done since the last update…"></textarea>
+    </div>
+    <div class="field field--console">
+      <label for="progressPct">Completion %</label>
+      <input id="progressPct" name="percent" type="number" min="0" max="100" placeholder="e.g. 60">
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="btn-primary btn-primary--auto">Submit update</button>
+    </div>
+  </form>`;
+
+  return [
+    deptModalShell('dept-modal-personnel', 'Assign personnel', 'Add a team member responsible for implementing this ticket.', personnelForm),
+    deptModalShell('dept-modal-progress', 'Post progress update', 'Record implementation progress for the reporter and audit trail.', progressForm),
+  ].join('');
 }
 
 function documentsSection(ticket, ref, { editable }) {
@@ -459,6 +490,52 @@ function finalResolutionCard(ticket, ref, { editable }) {
       </div>`,
       { accent: true },
     );
+}
+
+function accomplishmentReviewCard(ticket) {
+  const acc = ticket.accomplishment;
+  if (!acc) return '';
+  return supDetailCard(
+    'Reporter accomplishment report',
+    `<p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
+     <div class="accomplishment-blocks">
+       <div class="accomplishment-block">
+         <h3 class="accomplishment-block__label">Implementation summary</h3>
+         <p class="accomplishment-block__content">${escapeHtml(acc.summary)}</p>
+       </div>
+       <div class="accomplishment-block">
+         <h3 class="accomplishment-block__label">Outcomes and results</h3>
+         <p class="accomplishment-block__content">${escapeHtml(acc.outcomes)}</p>
+       </div>
+     </div>`,
+    { accent: true },
+  );
+}
+
+function closureActionCard(ref, { canClose }) {
+  if (!canClose) return '';
+  return `<section class="dept-closure-card dept-closure-card--compact" aria-label="Close ticket">
+    <button type="button" class="dept-closure-card__btn" data-dept-modal-open="close">Close ticket</button>
+  </section>`;
+}
+
+function closureModal(ref) {
+  const closeForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/close" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="closingNotes">Closing notes <span class="text-muted">(optional)</span></label>
+      <textarea id="closingNotes" name="closingNotes" rows="3" placeholder="Summarize closure decision or follow-up items…"></textarea>
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="dept-closure-card__btn dept-closure-card__btn--inline">Close ticket</button>
+    </div>
+  </form>`;
+  return deptModalShell(
+    'dept-modal-close',
+    'Close ticket',
+    'The reporter submitted an accomplishment report. Add optional closing notes, then confirm closure.',
+    closeForm,
+  );
 }
 
 function presidentDecisionCard(ticket) {
@@ -717,10 +794,15 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
   const isAssigned = t.status === 'assigned';
   const isOwner = Boolean(t.ownership?.ownerUsername && t.ownership.ownerUsername === user.username);
   const canExecute = ['in_progress', 'reopened'].includes(t.status) && isOwner;
+  const canClose = t.status === 'pending_audit' && Boolean(t.accomplishment);
 
   const statusNotice = t.status === 'ownership_rejected'
     ? `<div class="dept-status-notice dept-status-notice--error" role="note">This ticket was returned to the reporter${t.ownership?.rejectionReason ? `: ${escapeHtml(t.ownership.rejectionReason)}` : ''}. Awaiting reporter revision.</div>`
-    : '';
+    : t.status === 'in_mitigation'
+      ? `<div class="dept-status-notice dept-status-notice--info" role="note">Mitigation plan sent to the reporter. Awaiting their implementation and accomplishment report.</div>`
+    : t.status === 'closed'
+      ? `<div class="dept-status-notice dept-status-notice--success" role="note">This ticket is closed${t.closure?.closedByName ? ` by ${escapeHtml(t.closure.closedByName)}` : ''}${t.closure?.closedAt ? ` on ${escapeHtml(formatDate(t.closure.closedAt))}` : ''}.</div>`
+      : '';
 
   const main = `
     ${supDetailCard(
@@ -735,16 +817,18 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ${aiCard(t)}
     ${reassignmentHistoryCard(t)}
     ${actionPlanCard(t, ref, { editable: canExecute })}
+    ${deptExecutionToolbar(ref, { editable: canExecute })}
     ${personnelCard(t, ref, { editable: canExecute })}
     ${progressCard(t, ref, { editable: canExecute })}
     ${documentsSection(t, ref, { editable: canExecute })}
+    ${accomplishmentReviewCard(t)}
     ${finalResolutionCard(t, ref, { editable: canExecute })}
     ${presidentDecisionCard(t)}
     ${activitySection(t, ref, user)}`;
 
   const showOwnershipBar = isAssigned;
   const showReassignBar = canExecute;
-  const showModals = showOwnershipBar || showReassignBar;
+  const showModals = showOwnershipBar || showReassignBar || canClose || canExecute;
 
   const body = `
     ${flashMessage(opts.flash)}
@@ -762,11 +846,14 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
       <aside class="dept-detail__side">
         ${transferIndication(t)}
         ${detailsSidebar(t)}
+        ${closureActionCard(ref, { canClose })}
         ${showOwnershipBar ? ownershipActionBar(ref, { mode: 'assigned' }) : ''}
         ${showReassignBar ? ownershipActionBar(ref, { mode: 'reassign' }) : ''}
       </aside>
     </div>
     ${showModals ? deptOwnershipModals(ref, t) : ''}
+    ${canExecute ? deptExecutionModals(ref) : ''}
+    ${canClose ? closureModal(ref) : ''}
     ${ACTIVITY_TABS_SCRIPT}
     ${showModals ? DEPT_MODALS_SCRIPT : ''}`;
 
@@ -783,6 +870,7 @@ module.exports = {
   deptHeadOverviewPage,
   deptHeadInboxPage,
   deptHeadActivePage,
+  deptHeadPendingClosurePage,
   deptHeadAllTicketsPage,
   renderDeptHeadTicketPage,
 };

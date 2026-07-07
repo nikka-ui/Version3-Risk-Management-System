@@ -22,7 +22,10 @@ function likelihoodOptions(selected) {
 
 function statusPill(status, overdue) {
   const tone = overdue ? 'bad' : getStatusTone(status);
-  return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>`;
+  const overdueBadge = overdue
+    ? ' <span class="pill pill--bad pill--overdue">Overdue</span>'
+    : '';
+  return `<span class="pill pill--${tone}">${escapeHtml(getStatusLabel(status))}</span>${overdueBadge}`;
 }
 
 function priorityPill(priority) {
@@ -89,6 +92,101 @@ function deptReturnFeedbackBlock(ticket) {
   });
 }
 
+function overdueAlertBlock(ticket) {
+  if (!ticket?.isOverdue) return '';
+  const dueRaw = ticket.dueAt || ticket.deptActionPlan?.targetDate || ticket.mitigationDueAt;
+  const dueLabel = dueRaw ? formatDate(dueRaw) : 'the target date';
+  return `<section class="reporter-overdue-alert" role="alert" aria-live="polite">
+    <div class="reporter-overdue-alert__icon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="reporter-overdue-alert__body">
+      <p class="reporter-overdue-alert__title">This ticket is overdue</p>
+      <p class="reporter-overdue-alert__message">The department target date was <strong>${escapeHtml(dueLabel)}</strong>. Mitigation is still in progress past the agreed deadline.</p>
+    </div>
+  </section>`;
+}
+
+function deptAssignmentBlock(ticket) {
+  const assignment = ticket?.departmentAssignment;
+  const isDeptHandling = assignment
+    || ticket?.isDeptAssigned
+    || ['assigned', 'in_progress', 'pending_president', 'reopened'].includes(ticket?.status);
+  if (!isDeptHandling) return '';
+
+  const awaitingAcceptance = ticket?.status === 'assigned'
+    || assignment?.state === 'pending'
+    || (!assignment?.acceptedAt && ticket?.status === 'assigned');
+
+  if (awaitingAcceptance) {
+    return `<section class="dept-assignment-banner" role="note">
+      <div class="dept-assignment-banner__head">
+        <span class="dept-assignment-banner__badge">Department routing</span>
+      </div>
+      <p class="dept-assignment-banner__plan">Routed to <strong>${escapeHtml(assignment?.department || ticket.department || '—')}</strong>. Awaiting department head acceptance.</p>
+    </section>`;
+  }
+
+  const owner = assignment?.ownerPosition
+    ? `${assignment.ownerName || 'Department head'} — ${assignment.ownerPosition}`
+    : assignment?.ownerName || 'Department head';
+  const plan = ticket.deptActionPlan;
+  const dueRaw = plan?.targetDate || ticket.dueAt;
+  const dueLine = dueRaw
+    ? `<dt>Target date</dt><dd class="${ticket.isOverdue ? 'cell--overdue' : ''}">${escapeHtml(formatDate(dueRaw))}${ticket.isOverdue ? ' <span class="pill pill--bad pill--overdue">Overdue</span>' : ''}</dd>`
+    : '';
+  return `<section class="dept-assignment-banner${ticket.isOverdue ? ' dept-assignment-banner--overdue' : ''}" role="note">
+    <div class="dept-assignment-banner__head">
+      <span class="dept-assignment-banner__badge">Department handling</span>
+      ${ticket.isOverdue ? '<span class="pill pill--bad pill--overdue">Overdue</span>' : ''}
+    </div>
+    <dl class="detail-dl detail-dl--inline">
+      <dt>Responsible department</dt><dd>${escapeHtml(assignment?.department || ticket.department || '—')}</dd>
+      <dt>Accepted by</dt><dd>${escapeHtml(owner)}${assignment?.acceptedAt ? ` · ${escapeHtml(formatDate(assignment.acceptedAt))}` : ''}</dd>
+      ${dueLine}
+    </dl>
+    ${plan?.summary ? `<p class="dept-assignment-banner__plan"><strong>Action plan:</strong> ${escapeHtml(plan.summary)}</p>` : ''}
+    ${(plan?.steps || []).length ? `<ol class="dept-assignment-banner__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
+  </section>`;
+}
+
+function dueDateCell(ticket) {
+  if (!ticket.dueAt) {
+    return '<td class="nowrap text-muted">—</td>';
+  }
+  return `<td class="nowrap${ticket.isOverdue ? ' cell--overdue' : ''}">${escapeHtml(formatDate(ticket.dueAt))}${ticket.isOverdue ? ' <span class="pill pill--bad pill--overdue">Overdue</span>' : ''}</td>`;
+}
+
+function accomplishmentSubmittedBlock(accomplishment) {
+  if (!accomplishment) return '';
+  return `<section class="card card--accent accomplishment-report-card">
+    <h2>Accomplishment report submitted</h2>
+    <p class="text-muted">Submitted ${escapeHtml(formatDate(accomplishment.submittedAt))} · sent to your department head for review and closure. The Risk Governance Office is notified.</p>
+    <div class="accomplishment-blocks">
+      <div class="accomplishment-block">
+        <h3 class="accomplishment-block__label">Implementation summary</h3>
+        <p class="accomplishment-block__content">${escapeHtml(accomplishment.summary)}</p>
+      </div>
+      <div class="accomplishment-block">
+        <h3 class="accomplishment-block__label">Outcomes and results</h3>
+        <p class="accomplishment-block__content">${escapeHtml(accomplishment.outcomes)}</p>
+      </div>
+    </div>
+  </section>`;
+}
+
+function accomplishmentPendingBlock(ticket) {
+  const eligibility = ticket?.accomplishmentEligibility;
+  if (!eligibility || eligibility.state === 'submitted' || eligibility.canSubmit) return '';
+  return `<section class="card accomplishment-report-card accomplishment-report-card--pending" role="note">
+    <h2>Accomplishment report</h2>
+    <p class="text-muted">${escapeHtml(eligibility.reason || 'Not available yet for this ticket.')}</p>
+  </section>`;
+}
+
 const KPI_ICONS = {
   tickets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
@@ -115,7 +213,7 @@ function reqLabel(text, { required = false } = {}) {
   return `${escapeHtml(text)}${star}`;
 }
 
-function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showActions = false, scoreColumn = false } = {}) {
+function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showActions = false, scoreColumn = false, showDueColumn = false } = {}) {
   return tickets
     .map((t) => {
       const isDraft = t.status === 'draft';
@@ -136,11 +234,12 @@ function ticketTableRows(tickets, { linkPrefix = '/supervisor/tickets/', showAct
       const metricCell = scoreColumn
         ? `<td class="nowrap mono">${t.riskScore || t.likelihood * t.impact}</td>`
         : `<td class="nowrap">${t.evidenceCount || 0}</td>`;
-      return `<tr>
+      return `<tr class="${t.isOverdue ? 'ticket-row--overdue' : ''}${t.isDeptAssigned ? ' ticket-row--dept-assigned' : ''}">
         <td class="mono nowrap"><a href="${linkPrefix}${escapeHtml(t.reference)}">${escapeHtml(t.reference)}</a></td>
         <td>${escapeHtml(t.title)}</td>
         <td class="nowrap">${escapeHtml(t.categoryLabel)}</td>
         <td>${statusPill(t.status, t.isOverdue)}</td>
+        ${showDueColumn ? dueDateCell(t) : ''}
         ${metricCell}
         <td class="nowrap">${escapeHtml(formatDate(t.updatedAt))}</td>
         ${showActions ? `<td class="col-actions">${actions}</td>` : ''}
@@ -183,7 +282,10 @@ function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
 }
 
 function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
-  const recentRows = ticketTableRows(recentTickets.slice(0, 5));
+  const showDueColumn = stats.overdue > 0 || recentTickets.some((t) => t.dueAt);
+  const recentRows = ticketTableRows(recentTickets.slice(0, 5), { showDueColumn });
+  const dueHeader = showDueColumn ? '<th>Due date</th>' : '';
+  const emptyColspan = showDueColumn ? 7 : 6;
   const body = `
     ${flashMessage(flash)}
     <div class="sup-page-head">
@@ -201,7 +303,7 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
       ${kpiCard('/supervisor/drafts', KPI_ICONS.drafts, stats.drafts, 'Draft reports')}
       ${kpiCard('/supervisor/submitted', KPI_ICONS.tickets, stats.submitted, 'Submitted reports')}
       ${kpiCard('/supervisor/returned', KPI_ICONS.returned, stats.returned, 'Returned reports', stats.returned > 0 ? 'sup-kpi--warn' : '')}
-      ${kpiCard('/supervisor/tickets', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue > 0 ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/supervisor/overdue', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue > 0 ? 'sup-kpi--warn' : '')}
       ${kpiCard('/supervisor/tickets?filter=closed', KPI_ICONS.closed, stats.closed, 'Closed')}
       ${kpiCard('/supervisor/accomplishments', KPI_ICONS.done, stats.accomplishments, 'Accomplishments')}
     </div>
@@ -218,11 +320,12 @@ function supervisorOverviewPage(user, stats, flash, recentTickets = []) {
               <th>Title</th>
               <th>Category</th>
               <th>Status</th>
+              ${dueHeader}
               <th>Files</th>
               <th>Updated</th>
             </tr>
           </thead>
-          <tbody>${recentRows || '<tr><td colspan="6" class="empty">No tickets yet. <a href="/supervisor/tickets/new">Create your first report</a>.</td></tr>'}</tbody>
+          <tbody>${recentRows || `<tr><td colspan="${emptyColspan}" class="empty">No tickets yet. <a href="/supervisor/tickets/new">Create your first report</a>.</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
@@ -237,22 +340,32 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
       ? tickets.filter((t) => t.status === 'draft')
       : filter === 'returned'
         ? tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status))
-        : filter === 'closed'
-          ? tickets.filter(isClosedStatus)
-          : filter === 'submitted'
-            ? tickets.filter((t) => t.status !== 'draft')
-            : tickets;
-  const rows = ticketTableRows(filtered, { showActions: true });
+        : filter === 'overdue'
+          ? tickets.filter((t) => t.isOverdue)
+          : filter === 'closed'
+            ? tickets.filter(isClosedStatus)
+            : filter === 'submitted'
+              ? tickets.filter((t) => t.status !== 'draft')
+              : tickets;
   const draftCount = tickets.filter((t) => t.status === 'draft').length;
   const returnedCount = tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status)).length;
   const closedCount = tickets.filter(isClosedStatus).length;
+  const overdueCount = tickets.filter((t) => t.isOverdue).length;
+  const pageTitle = filter === 'overdue' ? 'Overdue tickets' : 'My tickets';
+  const pageDesc = filter === 'overdue'
+    ? 'Tickets past the department or RMO target date. These need attention from the handling department.'
+    : 'All risk tickets you have reported — from drafts through closure. Responsible department is assigned by AI on submit.';
+  const showDueColumn = filter === 'overdue' || overdueCount > 0;
+  const dueHeader = showDueColumn ? '<th>Due date</th>' : '';
+  const tableColspan = 6 + (showDueColumn ? 1 : 0) + 1;
+  const rows = ticketTableRows(filtered, { showActions: true, showDueColumn });
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(decodeURIComponent(error), 'error') : ''}
     <div class="sup-page-head">
       <div>
-        <h1>My tickets</h1>
-        <p class="sup-page-desc">All risk tickets you have reported — from drafts through closure. Responsible department is assigned by AI on submit.</p>
+        <h1>${escapeHtml(pageTitle)}</h1>
+        <p class="sup-page-desc">${escapeHtml(pageDesc)}</p>
       </div>
       <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
     </div>
@@ -260,6 +373,7 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
       <a href="/supervisor/tickets" class="filter-pill ${!filter ? 'active' : ''}">All <span class="filter-pill__count">${tickets.length}</span></a>
       <a href="/supervisor/tickets?filter=draft" class="filter-pill ${filter === 'draft' ? 'active' : ''}">Drafts <span class="filter-pill__count">${draftCount}</span></a>
       <a href="/supervisor/tickets?filter=returned" class="filter-pill ${filter === 'returned' ? 'active' : ''}">Returned reports <span class="filter-pill__count">${returnedCount}</span></a>
+      <a href="/supervisor/overdue" class="filter-pill filter-pill--warn ${filter === 'overdue' ? 'active' : ''}">Overdue <span class="filter-pill__count">${overdueCount}</span></a>
       <a href="/supervisor/tickets?filter=submitted" class="filter-pill ${filter === 'submitted' ? 'active' : ''}">Submitted <span class="filter-pill__count">${tickets.length - draftCount}</span></a>
       <a href="/supervisor/tickets?filter=closed" class="filter-pill ${filter === 'closed' ? 'active' : ''}">Closed <span class="filter-pill__count">${closedCount}</span></a>
     </div>
@@ -272,17 +386,18 @@ function ticketsListPage(user, tickets, flash, { filter, error, stats = {} } = {
               <th>Title</th>
               <th>Category</th>
               <th>Status</th>
+              ${dueHeader}
               <th>Files</th>
               <th>Updated</th>
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="7" class="empty">No tickets yet. <a href="/supervisor/tickets/new">Create your first risk report</a>.</td></tr>'}</tbody>
+          <tbody>${rows || `<tr><td colspan="${tableColspan}" class="empty">${filter === 'overdue' ? 'No overdue tickets.' : 'No tickets yet. <a href="/supervisor/tickets/new">Create your first risk report</a>.'}</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
 
-  return supervisorPage('My tickets', user, 'tickets', body, stats);
+  return supervisorPage(pageTitle, user, 'tickets', body, stats);
 }
 
 function fiveW1HFields(ticket, editable) {
@@ -341,10 +456,40 @@ function timelineSection(timeline = []) {
       </li>`,
     )
     .join('');
-  return `<section class="sup-card sup-card--history">
-    <h2>Ticket timeline</h2>
-    <p class="section-hint">Complete lifecycle from submission through routing, review, and closure.</p>
-    <ol class="ticket-timeline">${items}</ol>
+  const latest = timeline[timeline.length - 1];
+  const countLabel = `${timeline.length} event${timeline.length === 1 ? '' : 's'}`;
+  const latestLabel = latest
+    ? `Latest: ${latest.action} · ${formatDate(latest.at)}`
+    : '';
+  return `<section class="sup-card sup-card--history ticket-timeline-panel" data-timeline-panel>
+    <button type="button" class="ticket-timeline-panel__toggle" aria-expanded="false" aria-controls="ticketTimelineBody">
+      <span class="ticket-timeline-panel__head">
+        <span class="ticket-timeline-panel__title">Ticket timeline</span>
+        <span class="ticket-timeline-panel__count">${escapeHtml(countLabel)}</span>
+      </span>
+      <span class="ticket-timeline-panel__preview">${escapeHtml(latestLabel)}</span>
+      <span class="ticket-timeline-panel__chevron" aria-hidden="true"></span>
+    </button>
+    <div class="ticket-timeline-panel__body" id="ticketTimelineBody" hidden>
+      <p class="section-hint">Complete lifecycle from submission through routing, review, and closure.</p>
+      <ol class="ticket-timeline">${items}</ol>
+    </div>
+    <script>
+      (function () {
+        var panel = document.querySelector('[data-timeline-panel]');
+        if (!panel) return;
+        var btn = panel.querySelector('.ticket-timeline-panel__toggle');
+        var body = panel.querySelector('.ticket-timeline-panel__body');
+        if (!btn || !body) return;
+        btn.addEventListener('click', function () {
+          var open = btn.getAttribute('aria-expanded') === 'true';
+          var nextOpen = !open;
+          btn.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+          body.hidden = !nextOpen;
+          panel.classList.toggle('is-open', nextOpen);
+        });
+      })();
+    </script>
   </section>`;
 }
 
@@ -409,6 +554,8 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const aiBlock = t.ai || t.department ? aiAnalysisPanel(t) : '';
 
   const deptRejectionBlock = deptReturnFeedbackBlock(t);
+  const overdueBlock = overdueAlertBlock(t);
+  const deptHandlingBlock = deptAssignmentBlock(t);
 
   const officerBlock =
     t.status === 'returned' && t.officerNotes
@@ -431,6 +578,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
       </section>`
     : '';
 
+  const dueDetailRow = t.dueAt
+    ? `<dt>Target date</dt><dd class="${t.isOverdue ? 'cell--overdue' : ''}">${escapeHtml(formatDate(t.dueAt))}${t.isOverdue ? ' <span class="pill pill--bad pill--overdue">Overdue</span>' : ''}</dd>`
+    : '';
+
   const formSection = `<section class="card">
         <h2>Risk details</h2>
         <dl class="detail-dl">
@@ -441,6 +592,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
           <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
           <dt>Priority</dt><dd>${priorityPill(t.priority || t.ai?.priority)}</dd>
           <dt>Likelihood × Impact</dt><dd>${t.likelihood} × ${t.impact} (${t.riskScore || t.likelihood * t.impact})</dd>
+          ${dueDetailRow}
         </dl>
         <p style="margin-top:1rem">${escapeHtml(t.description || '—')}</p>
       </section>
@@ -456,10 +608,12 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   });
 
   const showAccomplishment = canSupervisorSubmitAccomplishment(t);
+  const accomplishmentSubmitted = accomplishmentSubmittedBlock(t.accomplishment);
+  const accomplishmentPending = accomplishmentPendingBlock(t);
   const existingEvidenceCount = (t.evidence || []).filter((e) => e.storageKey || !e.legacy).length;
 
   const addEvidenceForm =
-    ['under_review', 'in_mitigation', 'returned', 'pending_audit', 'reopened'].includes(t.status)
+    ['under_review', 'in_mitigation', 'in_progress', 'returned', 'pending_audit', 'reopened'].includes(t.status)
       ? `<section class="card${showAccomplishment ? ' card--required-evidence' : ''}">
           <h2>Add evidence${showAccomplishment ? ' <span class="req" aria-hidden="true">*</span>' : ''}</h2>
           <p class="text-muted">${
@@ -610,9 +764,10 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
       : '';
 
   const accomplishmentForm = showAccomplishment
-      ? `<section class="card card--accent">
+      ? `<section class="card card--accent accomplishment-report-card">
           <h2>Submit accomplishment report</h2>
-          <p class="text-muted">Document mitigation implementation and outcomes. Evidence attachment is required.</p>
+          <p class="text-muted">Document mitigation implementation and outcomes after completing the department action plan. Upload supporting evidence, then submit for department head review and closure.</p>
+          ${t.deptActionPlan?.summary ? `<p class="accomplishment-plan-ref"><strong>Department action plan:</strong> ${escapeHtml(t.deptActionPlan.summary)}</p>` : ''}
           <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="stack-form" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
             <div class="field field--required">
               <label for="summary">Implementation summary *</label>
@@ -692,21 +847,25 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
-    <div class="page-head page-head--row">
+    <div class="page-head page-head--row${t.isOverdue ? ' page-head--overdue' : ''}${t.isDeptAssigned ? ' page-head--dept-assigned' : ''}">
       <div>
         <h1>${escapeHtml(t.title || 'Ticket')}</h1>
-        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)} ${t.priority || t.ai?.priority ? `· ${priorityPill(t.priority || t.ai?.priority)}` : ''}</p>
+        <p class="page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusPill(t.status, t.isOverdue)} ${t.priority || t.ai?.priority ? `· ${priorityPill(t.priority || t.ai?.priority)}` : ''}${t.dueAt ? ` · <span class="ticket-due-label${t.isOverdue ? ' ticket-due-label--overdue' : ''}">Due ${escapeHtml(formatDate(t.dueAt))}</span>` : ''}</p>
       </div>
       <a href="/supervisor/tickets" class="btn-outline">Back to tickets</a>
       ${REPORTER_REVISION_STATUSES.includes(t.status) ? `<a href="/supervisor/tickets/${escapeHtml(ref)}/edit" class="sup-btn-primary">Revise and resubmit</a>` : ''}
     </div>
+    ${overdueBlock}
     ${deptRejectionBlock}
+    ${deptHandlingBlock}
     ${officerBlock}
     ${formSection}
     ${aiBlock}
     ${supervisorFeedbackBlock}
     ${evidenceSectionHtml}
     ${addEvidenceForm}
+    ${accomplishmentSubmitted}
+    ${accomplishmentPending}
     ${accomplishmentForm}
     ${timelineSection(t.timeline || [])}
     ${threadCommentsSection(t, ref, user)}
@@ -1388,6 +1547,47 @@ function accomplishmentsPage(user, accomplishments, flash, stats = {}) {
   return supervisorPage('Accomplishment reports', user, 'accomplishments', body, stats);
 }
 
+function overdueTicketsPage(user, tickets, flash, stats = {}) {
+  const overdueTickets = tickets.filter((t) => t.isOverdue);
+  const rows = ticketTableRows(overdueTickets, { showDueColumn: true });
+  const body = `
+    ${flashMessage(flash)}
+    <div class="sup-page-head">
+      <div>
+        <h1>Overdue tickets</h1>
+        <p class="sup-page-desc">Tickets past the department target date. Each row shows the due date and an Overdue label — only overdue items appear here.</p>
+      </div>
+      <a href="/supervisor/tickets/new" class="sup-btn-primary">+ Create new ticket</a>
+    </div>
+    ${overdueTickets.length ? `<div class="overdue-page-banner" role="note">
+      <strong>${overdueTickets.length}</strong> ticket${overdueTickets.length === 1 ? '' : 's'} past the department target date.
+      Open a ticket to review due date, department handling, and the action plan.
+    </div>` : ''}
+    <div class="ticket-filters console-quick-actions">
+      <a href="/supervisor/tickets" class="filter-pill">All tickets <span class="filter-pill__count">${tickets.length}</span></a>
+      <a href="/supervisor/overdue" class="filter-pill filter-pill--warn active">Overdue <span class="filter-pill__count">${overdueTickets.length}</span></a>
+    </div>
+    <section class="sup-card sup-card--table">
+      <div class="table-wrap">
+        <table class="data-table data-table--compact sup-table tickets-table tickets-table--crud">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Status</th>
+              <th>Due date</th>
+              <th>Files</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="7" class="empty">No overdue tickets. All active tickets are within their target dates.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>`;
+  return supervisorPage('Overdue tickets', user, 'overdue', body, stats);
+}
+
 function filteredTicketsPage(user, tickets, flash, { filter, title, desc, activeNav, stats = {} } = {}) {
   const isClosedStatus = (t) => ['closed', 'resolved'].includes(t.status);
   const filtered =
@@ -1395,12 +1595,21 @@ function filteredTicketsPage(user, tickets, flash, { filter, title, desc, active
       ? tickets.filter((t) => t.status === 'draft')
       : filter === 'returned'
         ? tickets.filter((t) => REPORTER_REVISION_STATUSES.includes(t.status))
-        : filter === 'submitted'
-          ? tickets.filter((t) => t.status !== 'draft')
-          : filter === 'closed'
-            ? tickets.filter(isClosedStatus)
-            : tickets;
-  const rows = ticketTableRows(filtered, { showActions: filter === 'draft' || filter === 'returned' });
+        : filter === 'overdue'
+          ? tickets.filter((t) => t.isOverdue)
+          : filter === 'submitted'
+            ? tickets.filter((t) => t.status !== 'draft')
+            : filter === 'closed'
+              ? tickets.filter(isClosedStatus)
+              : tickets;
+  const showDueColumn = filter === 'overdue';
+  const dueHeader = showDueColumn ? '<th>Due date</th>' : '';
+  const actionColspan = filter === 'draft' || filter === 'returned' ? 1 : 0;
+  const tableColspan = 5 + (showDueColumn ? 1 : 0) + 1 + actionColspan;
+  const rows = ticketTableRows(filtered, {
+    showActions: filter === 'draft' || filter === 'returned',
+    showDueColumn,
+  });
   const body = `
     ${flashMessage(flash)}
     <div class="sup-page-head">
@@ -1419,12 +1628,13 @@ function filteredTicketsPage(user, tickets, flash, { filter, title, desc, active
               <th>Title</th>
               <th>Category</th>
               <th>Status</th>
+              ${dueHeader}
               <th>Files</th>
               <th>Updated</th>
               ${filter === 'draft' || filter === 'returned' ? '<th>Actions</th>' : ''}
             </tr>
           </thead>
-          <tbody>${rows || `<tr><td colspan="${filter === 'draft' || filter === 'returned' ? 7 : 6}" class="empty">No tickets in this view.</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${tableColspan}" class="empty">${filter === 'overdue' ? 'No overdue tickets.' : 'No tickets in this view.'}</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
@@ -1499,6 +1709,7 @@ module.exports = {
   actionsPage,
   accomplishmentsPage,
   filteredTicketsPage,
+  overdueTicketsPage,
   reporterProfilePage,
   reporterNotificationsPage,
 };

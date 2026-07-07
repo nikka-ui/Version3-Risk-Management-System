@@ -36,6 +36,7 @@ const {
   actionsPage,
   accomplishmentsPage,
   filteredTicketsPage,
+  overdueTicketsPage,
   reporterProfilePage,
   reporterNotificationsPage,
 } = require('./lib/templates/supervisor');
@@ -52,6 +53,7 @@ const {
   deptHeadOverviewPage,
   deptHeadInboxPage,
   deptHeadActivePage,
+  deptHeadPendingClosurePage,
   deptHeadAllTicketsPage,
   renderDeptHeadTicketPage,
 } = require('./lib/templates/dept-head');
@@ -126,6 +128,7 @@ const {
   listTicketsForDeptHead,
   listDeptHeadInbox,
   listDeptHeadActive,
+  listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,
   rejectOwnership,
@@ -135,6 +138,8 @@ const {
   uploadDeptDocuments,
   addProgressUpdate,
   submitFinalResolution,
+  closeTicketAsDeptHead,
+  reopenTicketAsOfficer,
   addDeptHeadThreadComment,
   editThreadComment,
   toggleThreadReaction,
@@ -244,7 +249,7 @@ function flashFromQuery(query) {
     draft_deleted: 'Draft deleted successfully.',
     submitted: 'Risk ticket submitted. AI analysis complete — ticket routed to the responsible department.',
     evidence_added: 'Evidence reference added.',
-    accomplishment_submitted: 'Accomplishment report submitted for audit review.',
+    accomplishment_submitted: 'Accomplishment report submitted. Your department head will review and close the ticket.',
     comment_posted: 'Comment posted to the ticket thread.',
     notifications_read: 'All notifications marked as read.',
     mitigation_assigned: 'Mitigation assignment simulated (development).',
@@ -261,10 +266,13 @@ function flashFromQuery(query) {
     ownership_rejected: 'Ticket returned by the department. Revise your report and resubmit.',
     ticket_reassigned: 'Reassignment requested. The reporter and new department have been notified.',
     action_plan_saved: 'Action plan saved.',
-    action_plan_submitted: 'Action plan submitted to Compliance for validation.',
+    action_plan_published: 'Action plan sent to the ticket reporter for implementation.',
+    action_plan_submitted: 'Action plan sent to the ticket reporter for implementation.',
     personnel_assigned: 'Personnel assigned to the ticket.',
     documents_uploaded_dept: 'Documents uploaded successfully.',
     progress_submitted: 'Progress update submitted.',
+    ticket_closed_dept: 'Ticket closed after accomplishment review.',
+    ticket_reopened: 'Ticket reopened and assigned to the selected department.',
     resolution_submitted: 'Final resolution submitted. Awaiting the President\u2019s decision.',
     resolution_submitted_president: 'Final resolution submitted. Awaiting the President\u2019s decision (High/Critical risk).',
     resolution_submitted_auto: 'Final resolution auto-approved per department policy (Low/Moderate risk).',
@@ -436,6 +444,14 @@ app.get('/dashboard', requireAuth, (req, res) => {
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+function supervisorNoCache(req, res, next) {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  return next();
+}
+
+app.use('/supervisor', supervisorNoCache);
+
 function supervisorStats(username) {
   return getSupervisorStats(username);
 }
@@ -454,6 +470,9 @@ app.get('/supervisor', requireSupervisor, (req, res) => {
 });
 
 app.get('/supervisor/tickets', requireSupervisor, (req, res) => {
+  if (req.query.filter === 'overdue') {
+    return res.redirect(302, '/supervisor/overdue');
+  }
   const user = req.session.user;
   res.type('html').send(
     ticketsListPage(user, listTicketsForSupervisor(user.username), flashFromQuery(req.query), {
@@ -737,6 +756,14 @@ app.get('/supervisor/returned', requireSupervisor, (req, res) => {
   );
 });
 
+app.get('/supervisor/overdue', requireSupervisor, (req, res) => {
+  const user = req.session.user;
+  const tickets = listTicketsForSupervisor(user.username);
+  res.type('html').send(
+    overdueTicketsPage(user, tickets, flashFromQuery(req.query), supervisorStats(user.username)),
+  );
+});
+
 app.get('/supervisor/profile', requireSupervisor, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
@@ -856,6 +883,16 @@ app.get('/dept/active', requireDeptHead, (req, res) => {
   );
 });
 
+app.get('/dept/closure', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadPendingClosurePage(user, listDeptHeadPendingClosure(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
 app.get('/dept/tickets', requireDeptHead, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
@@ -961,6 +998,15 @@ app.post('/dept/tickets/:ref/resolution', requireDeptHead, (req, res) => {
     return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/dept/tickets/${ref}?flash=${result.flashKey || 'resolution_submitted'}`);
+});
+
+app.post('/dept/tickets/:ref/close', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = closeTicketAsDeptHead(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets/${ref}?flash=${result.flashKey || 'ticket_closed_dept'}`);
 });
 
 app.post('/dept/tickets/:ref/comment', requireDeptHead, (req, res) => {
@@ -1107,6 +1153,15 @@ app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, (req, res) =>
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/officer/tickets/${ref}?flash=rmu_thread_comment`);
+});
+
+app.post('/officer/tickets/:ref/reopen', requireRmOfficer, (req, res) => {
+  const ref = req.params.ref;
+  const result = reopenTicketAsOfficer(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/officer/tickets/${ref}?flash=${result.flashKey || 'ticket_reopened'}`);
 });
 
 app.post('/officer/notifications/read-all', requireRmOfficer, (req, res) => {

@@ -2251,6 +2251,21 @@ body.attachment-drawer-open {
   margin-bottom: 0;
 }
 
+.accomplishment-report-card--pending {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+.accomplishment-plan-ref {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--sup-radius-sm);
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .accomplishment-notice {
   margin: 0.75rem 0 0;
   padding: 0.65rem 0.875rem;
@@ -4362,6 +4377,16 @@ a.officer-kpi:hover {
   text-overflow: ellipsis;
 }
 
+.supervisor-sidebar__user-title {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--sup-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.35;
+}
+
 .supervisor-sidebar__user-email {
   display: block;
   font-size: 0.6875rem;
@@ -6088,11 +6113,163 @@ a.officer-kpi:hover {
   margin: 0 0 1.25rem;
   padding: 0.85rem 1rem;
   border-radius: var(--sup-radius-sm);
-  background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
-  border: 1px solid #bfdbfe;
+  background: #eef4fc;
+  border: 1px solid #c7daf0;
   color: #1e3a5f;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.pill--overdue {
+  margin-left: 0.35rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.ticket-row--overdue {
+  background: #fff5f5;
+}
+
+.ticket-row--overdue:hover {
+  background: #feecec;
+}
+
+.ticket-row--dept-assigned:not(.ticket-row--overdue) {
+  background: #f8fbff;
+}
+
+.filter-pill--warn .filter-pill__count {
+  background: #fecaca;
+  color: #991b1b;
+}
+
+.reporter-overdue-alert {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  margin: 0 0 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--sup-radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
+}
+
+.reporter-overdue-alert__icon {
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+.reporter-overdue-alert__title {
+  margin: 0 0 0.25rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.reporter-overdue-alert__message {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.dept-assignment-banner {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--sup-radius-sm);
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #3b82f6;
+}
+
+.dept-assignment-banner--overdue {
+  background: #fff8f8;
+  border-color: #fecaca;
+  border-left-color: #dc2626;
+}
+
+.dept-assignment-banner__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.dept-assignment-banner__badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dept-assignment-banner__plan {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.dept-assignment-banner__steps {
+  margin: 0.5rem 0 0 1.1rem;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.detail-dl--inline {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.detail-dl--inline dt {
+  font-weight: 600;
+  color: #475569;
+}
+
+.detail-dl--inline dd {
+  margin: 0;
+}
+
+.page-head--overdue {
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #fecaca;
+}
+
+.ticket-due-label {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.ticket-due-label--overdue {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.overdue-page-banner {
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--sup-radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #7f1d1d;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.cell--overdue {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.data-table .cell--overdue .pill--overdue {
+  margin-left: 0.35rem;
 }
 
 .routing-note,
@@ -6178,6 +6355,121 @@ a.officer-kpi:hover {
   margin-top: 0.25rem;
   font-size: 0.78rem;
   color: var(--sup-muted);
+}
+
+.ticket-timeline-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ticket-timeline-panel__toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  width: 100%;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.ticket-timeline-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.ticket-timeline-panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.ticket-timeline-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ticket-timeline-panel__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ticket-timeline-panel__count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ticket-timeline-panel__preview {
+  flex: 1 1 100%;
+  font-size: 0.82rem;
+  color: var(--sup-muted);
+  padding-left: 0.1rem;
+}
+
+.ticket-timeline-panel.is-open .ticket-timeline-panel__preview {
+  display: none;
+}
+
+.ticket-timeline-panel__body[hidden] {
+  display: none !important;
+}
+
+.ticket-timeline-panel__chevron {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ticket-timeline-panel.is-open .ticket-timeline-panel__chevron,
+.ticket-timeline-panel__toggle[aria-expanded="true"] .ticket-timeline-panel__chevron {
+  transform: rotate(-135deg);
+  margin-top: 0.2rem;
+}
+
+.ticket-timeline-panel__body {
+  padding: 0 1.1rem 1rem;
+  border-top: 1px solid var(--sup-border);
+}
+
+.ticket-timeline-panel__body .section-hint {
+  margin: 0.85rem 0 0.5rem;
+}
+
+.ticket-timeline-panel__toggle:hover,
+.ticket-timeline-panel__summary:hover {
+  background: #f8fafc;
+}
+
+.ticket-timeline-panel__toggle:focus-visible,
+.ticket-timeline-panel__summary:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+  border-radius: var(--sup-radius-sm);
 }
 
 .notif-page-list {
@@ -6603,6 +6895,130 @@ body.dept-modal-open {
   background: #fef2f2;
   color: #991b1b;
   border: 1px solid #fecaca;
+}
+
+.dept-status-notice--info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+.dept-status-notice--success {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.dept-closure-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem 1.15rem 1.15rem;
+  border: 2px solid rgba(37, 99, 235, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #dbeafe 0%, var(--sup-accent-soft) 45%, #fff 100%);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.14);
+}
+
+.dept-closure-card--compact {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  gap: 0;
+}
+
+.dept-closure-card__copy strong {
+  display: block;
+  font-size: 1rem;
+  color: #1e40af;
+  margin-bottom: 0.25rem;
+}
+
+.dept-closure-card__copy p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.dept-closure-card__form {
+  margin: 0;
+}
+
+.dept-closure-card__form .field {
+  margin-bottom: 0.75rem;
+}
+
+.dept-closure-card__btn {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--sup-accent-strong);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #3b82f6 0%, var(--sup-accent) 100%);
+  color: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.4);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.dept-closure-card__btn:hover {
+  background: linear-gradient(180deg, var(--sup-accent) 0%, var(--sup-accent-strong) 100%);
+  border-color: #1e40af;
+}
+
+.dept-closure-card__btn--inline {
+  width: auto;
+  display: inline-block;
+}
+
+.dept-compact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.dept-compact-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--sup-accent-strong);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.dept-compact-btn:hover {
+  background: var(--sup-accent-soft);
+  border-color: var(--sup-accent);
+}
+
+.sup-card--compact.dept-panel--compact {
+  margin-bottom: 0.75rem;
+}
+
+.sup-card--compact.dept-panel--compact .sup-card__head {
+  padding: 0.65rem 0.9rem;
+}
+
+.sup-card--compact.dept-panel--compact .sup-card__head h2 {
+  font-size: 0.9rem;
+}
+
+.sup-card--compact.dept-panel--compact .sup-card__body {
+  padding: 0.65rem 0.9rem 0.85rem;
 }
 
 @media (max-width: 1080px) {
