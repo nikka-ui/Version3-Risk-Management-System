@@ -6,7 +6,7 @@ const {
   getPriorityTone,
   DEPARTMENTS,
 } = require('../../config/tickets');
-const { escapeHtml, formatDate } = require('../html');
+const { escapeHtml, formatDate, formatIncidentDate } = require('../html');
 const { flashMessage } = require('./layout');
 const { deptHeadAppLayout } = require('./dept-head-layout');
 const { layoutNotifications } = require('../notifications');
@@ -197,7 +197,7 @@ function deptHeadInboxPage(user, tickets, flash, opts = {}) {
 function deptHeadActivePage(user, tickets, flash, opts = {}) {
   return queuePage(user, {
     title: 'In progress',
-    desc: 'Tickets you own and are actively working — build action plans, assign personnel, and report progress.',
+    desc: 'Tickets you own and are actively working — build action plans and report progress.',
     tickets,
     flash,
     error: opts.error,
@@ -276,6 +276,8 @@ function detailsSidebar(ticket) {
     ? `${escapeHtml(ticket.ownership.ownerName)}`
     : '<span class="text-muted">Unassigned</span>';
   const due = ticket.mitigationDueAt || ticket.actionPlan?.targetDate;
+  const submittedAt = ticket.submittedAt || ticket.routedAt || ticket.createdAt;
+  const incidentDate = formatIncidentDate(ticket.fiveW1H?.when);
 
   return `<div class="dept-side-card">
     <h3 class="dept-side-card__title">Details</h3>
@@ -289,9 +291,9 @@ function detailsSidebar(ticket) {
       <dt>Risk level</dt><dd>${riskLevelBadge(riskLevel)}</dd>
       <dt>Priority</dt><dd>${priorityPill(ticket.priority)}</dd>
       <dt>Likelihood × Impact</dt><dd>${ticket.likelihood} × ${ticket.impact} (${ticket.riskScore || ticket.likelihood * ticket.impact})</dd>
-      <dt>Reported</dt><dd>${escapeHtml(formatDate(ticket.submittedAt || ticket.createdAt))}</dd>
+      <dt>Submitted</dt><dd>${escapeHtml(formatDate(submittedAt))}</dd>
+      ${incidentDate ? `<dt>Incident occurred</dt><dd>${escapeHtml(incidentDate)}</dd>` : ''}
       ${due ? `<dt>Target date</dt><dd>${escapeHtml(formatDate(due))}</dd>` : ''}
-      <dt>Personnel</dt><dd>${(ticket.personnel || []).length}</dd>
     </dl>
   </div>`;
 }
@@ -366,29 +368,8 @@ function actionPlanCard(ticket, ref, { editable }) {
 function deptExecutionToolbar(ref, { editable }) {
   if (!editable) return '';
   return `<div class="dept-compact-actions" aria-label="Ticket workbench actions">
-    <button type="button" class="dept-compact-btn" data-dept-modal-open="personnel">Assign personnel</button>
     <button type="button" class="dept-compact-btn" data-dept-modal-open="progress">Post progress update</button>
   </div>`;
-}
-
-function personnelCard(ticket, ref, { editable }) {
-  const people = ticket.personnel || [];
-  if (!people.length) return '';
-
-  const list = `<ul class="dept-people">${people
-    .map(
-      (p) => `<li class="dept-people__item">
-        <span class="dept-people__name">${escapeHtml(p.name)}</span>
-        ${p.role ? `<span class="dept-people__role">${escapeHtml(p.role)}</span>` : ''}
-        <span class="dept-people__time">${escapeHtml(formatDate(p.assignedAt))}</span>
-      </li>`,
-    )
-    .join('')}</ul>`;
-
-  return `<section class="sup-card sup-card--compact dept-panel--compact">
-    <div class="sup-card__head"><h2>Assigned personnel <span class="text-muted">(${people.length})</span></h2></div>
-    <div class="sup-card__body">${list}</div>
-  </section>`;
 }
 
 function progressCard(ticket, ref, { editable }) {
@@ -416,21 +397,6 @@ function progressCard(ticket, ref, { editable }) {
 }
 
 function deptExecutionModals(ref) {
-  const personnelForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/personnel" class="stack-form stack-form--console dept-modal__form">
-    <div class="field field--console">
-      <label for="personName">Name</label>
-      <input id="personName" name="personName" type="text" required placeholder="e.g. Juan Dela Cruz">
-    </div>
-    <div class="field field--console">
-      <label for="personRole">Role / responsibility</label>
-      <input id="personRole" name="personRole" type="text" placeholder="e.g. Incident Lead">
-    </div>
-    <div class="dept-modal__actions">
-      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
-      <button type="submit" class="btn-primary btn-primary--auto">Assign personnel</button>
-    </div>
-  </form>`;
-
   const progressForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/progress" class="stack-form stack-form--console dept-modal__form">
     <div class="field field--console">
       <label for="progressBody">Progress update</label>
@@ -446,10 +412,7 @@ function deptExecutionModals(ref) {
     </div>
   </form>`;
 
-  return [
-    deptModalShell('dept-modal-personnel', 'Assign personnel', 'Add a team member responsible for implementing this ticket.', personnelForm),
-    deptModalShell('dept-modal-progress', 'Post progress update', 'Record implementation progress for the reporter and audit trail.', progressForm),
-  ].join('');
+  return deptModalShell('dept-modal-progress', 'Post progress update', 'Record implementation progress for the reporter and audit trail.', progressForm);
 }
 
 function documentsSection(ticket, ref, { editable }) {
@@ -818,7 +781,6 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ${reassignmentHistoryCard(t)}
     ${actionPlanCard(t, ref, { editable: canExecute })}
     ${deptExecutionToolbar(ref, { editable: canExecute })}
-    ${personnelCard(t, ref, { editable: canExecute })}
     ${progressCard(t, ref, { editable: canExecute })}
     ${documentsSection(t, ref, { editable: canExecute })}
     ${accomplishmentReviewCard(t)}

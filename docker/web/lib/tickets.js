@@ -1112,7 +1112,7 @@ function submitTicket(reference, username, displayName) {
     ticket.returnRevisionHash = null;
     ticket.returnedAt = null;
   }
-  ticket.submittedAt = ticket.submittedAt || now;
+  ticket.submittedAt = now;
   ticket.routedAt = now;
   ticket.updatedAt = now;
 
@@ -1498,6 +1498,7 @@ async function ticketForRole(ticket, role) {
     merged.evidence = ticket.evidence || [];
     merged.accomplishment = getAccomplishmentForTicket(ticket);
     merged.closure = ticket.closure || null;
+    merged.fiveW1H = ticket.fiveW1H || null;
     return merged;
   }
 
