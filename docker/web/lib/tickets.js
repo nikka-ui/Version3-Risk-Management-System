@@ -49,6 +49,7 @@ const {
   notifyRoles,
   notifyUser,
   notifyDeptHeadsForDepartment,
+  notifyOverdueStakeholders,
   notifyWorkflowStakeholders,
   formatDepartmentLabel,
 } = require('./notifications');
@@ -103,6 +104,71 @@ function computeTicketOverdue(ticket) {
   return Date.now() > due.getTime();
 }
 
+function isUnpublishedActionPlan(ticket) {
+  const plan = ticket.actionPlan;
+  if (!String(plan?.summary || '').trim()) return false;
+  if (plan.publishedToReporterAt || plan.submittedForReviewAt) return false;
+  if (ticket.ownership?.state !== 'accepted') return false;
+  return DEPT_HEAD_EXECUTION_STATUSES.includes(ticket.status);
+}
+
+const OVERDUE_NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function ticketDueKey(ticket) {
+  const raw = ticket.actionPlan?.targetDate || ticket.mitigationDueAt;
+  if (!raw) return null;
+  return String(raw).trim().slice(0, 19);
+}
+
+function clearOverdueNotificationTracking(ticket) {
+  if (!ticket.overdueNotifiedAt && !ticket.overdueNotifiedForDue) return false;
+  ticket.overdueNotifiedAt = null;
+  ticket.overdueNotifiedForDue = null;
+  return true;
+}
+
+function shouldSendOverdueNotification(ticket) {
+  if (!computeTicketOverdue(ticket)) {
+    return { send: false, cleared: clearOverdueNotificationTracking(ticket) };
+  }
+  const dueKey = ticketDueKey(ticket);
+  const lastAt = ticket.overdueNotifiedAt ? new Date(ticket.overdueNotifiedAt).getTime() : 0;
+  const dueChanged = ticket.overdueNotifiedForDue && ticket.overdueNotifiedForDue !== dueKey;
+  if (!ticket.overdueNotifiedAt || dueChanged) {
+    return { send: true, cleared: false };
+  }
+  if (Date.now() - lastAt >= OVERDUE_NOTIFY_INTERVAL_MS) {
+    return { send: true, cleared: false };
+  }
+  return { send: false, cleared: false };
+}
+
+function checkAndNotifyOverdueTickets() {
+  const { formatDateOnly } = require('./html');
+  const { store, saveStore } = getStore();
+  let dirty = false;
+  let notified = 0;
+
+  for (const ticket of store.riskTickets || []) {
+    if (!isVisibleTicket(ticket) || !ticket.reference) continue;
+    ensureDeptHeadFields(ticket);
+    const decision = shouldSendOverdueNotification(ticket);
+    if (decision.cleared) dirty = true;
+    if (!decision.send) continue;
+
+    const dueRaw = ticket.actionPlan?.targetDate || ticket.mitigationDueAt;
+    const dueLabel = formatDateOnly(dueRaw) || 'the target date';
+    notifyOverdueStakeholders(ticket, { dueLabel });
+    ticket.overdueNotifiedAt = new Date().toISOString();
+    ticket.overdueNotifiedForDue = ticketDueKey(ticket);
+    dirty = true;
+    notified += 1;
+  }
+
+  if (dirty) saveStore();
+  return notified;
+}
+
 function publicTicket(ticket) {
   return {
     id: ticket.id,
@@ -135,6 +201,10 @@ function publicTicket(ticket) {
     ownershipState: ticket.ownership?.state || (ticket.department ? 'pending' : 'unassigned'),
     hasActionPlan: Boolean(ticket.actionPlan && ticket.actionPlan.summary),
     actionPlanVersion: ticket.actionPlan?.version || 0,
+    hasDraftActionPlan: isUnpublishedActionPlan(ticket),
+    actionPlanDraftUpdatedAt: isUnpublishedActionPlan(ticket)
+      ? (ticket.actionPlan?.updatedAt || null)
+      : null,
     personnelCount: (ticket.personnel || []).length,
     progressUpdateCount: (ticket.progressUpdates || []).length,
     latestProgressPercent: (ticket.progressUpdates || []).length
@@ -178,6 +248,8 @@ function riskLevelFromSeverity(severity1to5) {
 
 function detectRiskCategory(text) {
   const s = String(text || '').toLowerCase();
+  if (hasItInfrastructureSignals(s)) return 'operational';
+
   const environmental = [
     'environment',
     'environmental',
@@ -191,20 +263,35 @@ function detectRiskCategory(text) {
     'climate',
   ];
   const compliance = [
-    'audit',
-    'compliance',
-    'regulation',
-    'policy',
+    'audit finding',
+    'compliance breach',
+    'compliance violation',
     'noncompliance',
+    'non-compliance',
+    'regulatory breach',
+    'regulatory violation',
     'penalt',
     'sanction',
-    'regulatory',
-    'iso',
     'iso 31000',
+    'policy violation',
   ];
-  const financial = ['finance', 'financial', 'account', 'invoice', 'payment', 'budget', 'tax', 'revenue', 'cost', 'fraud'];
-  const reputational = ['reputation', 'brand', 'public', 'media', 'customer', 'customer trust', 'lawsuit', 'scandal'];
-  const strategic = ['strategy', 'strategic', 'market', 'competitor', 'competitors', 'growth', 'roadmap'];
+  const financial = [
+    'finance', 'financial', 'invoice', 'payment', 'budget', 'tax', 'revenue', 'fraud',
+    'accounting error', 'ledger', 'accounts payable',
+  ];
+  const reputational = [
+    'reputation',
+    'reputational',
+    'brand damage',
+    'public relations',
+    'media coverage',
+    'negative publicity',
+    'customer trust',
+    'lawsuit',
+    'scandal',
+    'social media backlash',
+  ];
+  const strategic = ['strategy', 'strategic', 'market share', 'competitor', 'competitors', 'growth', 'roadmap'];
 
   const any = (arr) => arr.some((k) => s.includes(k));
   if (any(environmental)) return 'environmental';
@@ -215,13 +302,48 @@ function detectRiskCategory(text) {
   return 'operational';
 }
 
+/** Technical / infrastructure incident cues — route to IT, not Corp Sec or generic ops. */
+const IT_INFRASTRUCTURE_SIGNALS = [
+  'server room', 'server rack', 'data center', 'datacenter', 'network room', 'idc',
+  'snmp', 'syslog', 'nagios', 'zabbix', 'prtg', 'solarwinds', 'monitoring alert',
+  'sensor alert', 'temperature alert', 'thermal alert', 'overheat', 'overheating',
+  'hardware enclosure', 'hardware failure', 'cooling unit', 'cooling failure', 'crac',
+  'ups failure', 'pdu', 'power supply', 'server outage', 'server failure', 'server down',
+  'network outage', 'network failure', 'switch failure', 'router failure', 'firewall',
+  'cyber attack', 'cybersecurity', 'ransomware', 'malware', 'phishing', 'data breach',
+  'database', 'backup failure', 'restore failure', 'vpn', 'domain controller',
+  'active directory', 'ldap', 'email server', 'mail server', 'application crash',
+  'software bug', 'firmware', 'patch failure', 'endpoint', 'workstation', 'laptop',
+  'storage array', 'raid', 'disk failure', 'san', 'nas', 'hypervisor', 'vm host',
+  'virtual machine', 'kubernetes', 'docker', 'cloud outage', 'api failure',
+  'unauthorized access', 'password compromise', 'it infrastructure', 'it equipment',
+  'information technology', 'helpdesk', 'service desk', 'cpu', 'memory leak',
+  'rack mount', 'blade server', 'fiber link', 'lan', 'wan', 'wifi', 'wireless',
+];
+
+function hasItInfrastructureSignals(text) {
+  const s = String(text || '').toLowerCase();
+  return IT_INFRASTRUCTURE_SIGNALS.some((k) => s.includes(k));
+}
+
 const DEPARTMENT_KEYWORDS = {
   IT: [
-    'server outage', 'server failure', 'network outage', 'network failure', 'cyber attack',
-    'cybersecurity', 'software bug', 'software failure', 'database corruption', 'database outage',
-    'hack', 'hacked', 'malware', 'phishing', 'ransomware', 'data breach', 'vpn down',
-    'firewall', 'email outage', 'email server', 'application crash', 'unauthorized access',
+    'server room', 'server rack', 'data center', 'datacenter', 'network room',
+    'snmp', 'snmp alert', 'syslog', 'nagios', 'zabbix', 'prtg', 'solarwinds',
+    'monitoring alert', 'sensor alert', 'automated sensor', 'temperature alert',
+    'thermal alert', 'overheat', 'overheating', 'dangerously hot',
+    'hardware enclosure', 'hardware failure', 'cooling unit', 'cooling failure',
+    'crac', 'precision cooling', 'ups failure', 'pdu', 'power supply',
+    'server outage', 'server failure', 'server down', 'network outage',
+    'network failure', 'switch failure', 'router failure', 'firewall',
+    'cyber attack', 'cybersecurity', 'software bug', 'software failure',
+    'database corruption', 'database outage', 'hack', 'hacked', 'malware',
+    'phishing', 'ransomware', 'data breach', 'vpn down', 'email outage',
+    'email server', 'mail server', 'application crash', 'unauthorized access',
     'password compromise', 'backup failure', 'it infrastructure', 'domain controller',
+    'active directory', 'storage array', 'raid', 'disk failure', 'hypervisor',
+    'virtual machine', 'kubernetes', 'firmware', 'patch failure', 'endpoint',
+    'fiber link', 'lan outage', 'wan outage', 'wifi outage',
   ],
   'Finance/Accounting': [
     'financial fraud', 'financial loss', 'finance', 'financial', 'invoice', 'payment error',
@@ -267,7 +389,10 @@ const DEPARTMENT_KEYWORDS = {
 /** Strong title → department hints (evaluated before keyword scoring). */
 const TITLE_DEPARTMENT_HINTS = [
   { pattern: /\b(financial|finance|accounting|invoice|budget|fraud|payment|revenue|tax)\b/i, dept: 'Finance/Accounting' },
-  { pattern: /\b(server|network|cyber|software|phishing|malware|hack|database|email\s+outage|it\s+outage)\b/i, dept: 'IT' },
+  {
+    pattern: /\b(server\s*room|snmp|sensor|hardware|data\s*center|datacenter|cooling\s*unit|overheat|network|cyber|software|database|email\s+outage|it\s+outage|server\s+rack|ups|firewall|malware|ransomware)\b/i,
+    dept: 'IT',
+  },
   { pattern: /\b(maintenance|building|facility|facilities|hvac|plumbing|janitorial|housekeeping)\b/i, dept: 'Administration' },
   { pattern: /\b(payroll|harassment|hiring|termination|hr\s+policy|workplace)\b/i, dept: 'HRMS' },
   { pattern: /\b(compliance|audit\s+finding|regulatory|policy\s+violation)\b/i, dept: 'Internal Audit' },
@@ -379,6 +504,10 @@ function detectResponsibleDepartment({ title, fiveW1H }, riskCategory) {
   if (bestDept && bestScore > 0 && DEPARTMENTS.includes(bestDept)) return bestDept;
 
   if (titleHint && DEPARTMENTS.includes(titleHint.dept)) return titleHint.dept;
+
+  // Technical infrastructure incidents always route to IT (avoids Corp Sec fallback on SNMP "public", etc.).
+  const incidentBlob = [corpus.title, corpus.what, corpus.why, corpus.how, corpus.where].join(' ');
+  if (hasItInfrastructureSignals(incidentBlob)) return 'IT';
 
   const categoryDefaults = {
     environmental: 'Administration',
@@ -2616,6 +2745,19 @@ function listDeptHeadActive(user) {
   return listTicketsForDeptHead(user).filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status));
 }
 
+function listDeptHeadOverdue(user) {
+  return listTicketsForDeptHead(user).filter((t) => t.isOverdue);
+}
+
+function listDeptHeadActionPlanDrafts(user) {
+  return listTicketsForDeptHead(user)
+    .filter((t) => t.hasDraftActionPlan && t.ownerUsername === user.username)
+    .sort(
+      (a, b) => new Date(b.actionPlanDraftUpdatedAt || b.updatedAt)
+        - new Date(a.actionPlanDraftUpdatedAt || a.updatedAt),
+    );
+}
+
 function listDeptHeadPendingClosure(user) {
   return listTicketsForDeptHead(user).filter((t) => DEPT_HEAD_CLOSURE_STATUSES.includes(t.status));
 }
@@ -2627,6 +2769,7 @@ function getDeptHeadStats(user) {
     total: tickets.length,
     inbox: tickets.filter((t) => DEPT_HEAD_INBOX_STATUSES.includes(t.status)).length,
     active: tickets.filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status)).length,
+    drafts: tickets.filter((t) => t.hasDraftActionPlan && t.ownerUsername === user.username).length,
     pendingClosure: tickets.filter((t) => DEPT_HEAD_CLOSURE_STATUSES.includes(t.status)).length,
     awaitingPresident: tickets.filter((t) => t.status === 'pending_president').length,
     rejected: tickets.filter((t) => t.status === 'ownership_rejected').length,
@@ -2859,6 +3002,7 @@ function saveActionPlan(reference, user, body = {}) {
   const submitForReview = ['1', 'true', true].includes(body.submitForReview);
   const now = new Date().toISOString();
   const existed = Boolean(ticket.actionPlan);
+  const previousTargetDate = ticket.actionPlan?.targetDate || null;
   if (submitForReview && !targetDate) {
     return { error: 'A target completion date is required before sending the plan to the reporter.' };
   }
@@ -2875,6 +3019,9 @@ function saveActionPlan(reference, user, body = {}) {
   };
   if (ticket.actionPlan.targetDate) {
     ticket.mitigationDueAt = new Date(ticket.actionPlan.targetDate).toISOString();
+  }
+  if (targetDate && targetDate !== previousTargetDate) {
+    clearOverdueNotificationTracking(ticket);
   }
   ticket.updatedAt = now;
 
@@ -3434,6 +3581,8 @@ module.exports = {
   listTicketsForDeptHead,
   listDeptHeadInbox,
   listDeptHeadActive,
+  listDeptHeadOverdue,
+  listDeptHeadActionPlanDrafts,
   listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,
@@ -3473,4 +3622,5 @@ module.exports = {
   getAdminTicketStats,
   getTicketByRefForAdmin,
   softDeleteTicketForAdmin,
+  checkAndNotifyOverdueTickets,
 };

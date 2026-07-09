@@ -162,6 +162,30 @@ function notifyReporterTicketUpdate(ticket, { recipientUsername, type, title, me
   });
 }
 
+/** Notify the ticket reporter and matching department head(s) that a ticket is past due. */
+function notifyOverdueStakeholders(ticket, { dueLabel } = {}) {
+  const due = dueLabel || 'the target date';
+  const titleText = ticket.title || 'Risk ticket';
+  const reporterName = ticket.submittedByName || ticket.submittedBy || 'the reporter';
+
+  notifyDeptHeadsForDepartment(ticket, {
+    type: 'ticket_overdue',
+    title: 'Ticket past due',
+    message: `${ticket.reference} — ${titleText} is past due (target: ${due}). Reporter: ${reporterName}.`,
+    fromRole: 'system',
+    fromName: 'System',
+  });
+
+  if (ticket.submittedBy) {
+    notifyReporterTicketUpdate(ticket, {
+      recipientUsername: ticket.submittedBy,
+      type: 'ticket_overdue',
+      title: 'Your ticket is past due',
+      message: `${ticket.reference} — ${titleText} is past the mitigation target date (${due}). Please complete your action items or contact your department head.`,
+    });
+  }
+}
+
 /**
  * Notify workflow stakeholders for assignment, reassignment, comments, approvals,
  * returns, escalations, overdue, and closure events.
@@ -306,6 +330,7 @@ module.exports = {
   notifyPrivateComment,
   notifyRmoTicketSubmitted,
   notifyReporterTicketUpdate,
+  notifyOverdueStakeholders,
   notifyDeptHeadsForDepartment,
   notifyWorkflowStakeholders,
   notifyRoles,

@@ -53,6 +53,8 @@ const {
   deptHeadOverviewPage,
   deptHeadInboxPage,
   deptHeadActivePage,
+  deptHeadDraftsPage,
+  deptHeadOverduePage,
   deptHeadPendingClosurePage,
   deptHeadAllTicketsPage,
   renderDeptHeadTicketPage,
@@ -128,6 +130,8 @@ const {
   listTicketsForDeptHead,
   listDeptHeadInbox,
   listDeptHeadActive,
+  listDeptHeadOverdue,
+  listDeptHeadActionPlanDrafts,
   listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,
@@ -163,6 +167,7 @@ const {
   getTicketByRefForAdmin,
   softDeleteTicketForAdmin,
   ticketRiskLevelId,
+  checkAndNotifyOverdueTickets,
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { logAdminAction, notifyAdmin, getAdminDashboardData } = require('./lib/admin');
@@ -877,6 +882,26 @@ app.get('/dept/active', requireDeptHead, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
     deptHeadActivePage(user, listDeptHeadActive(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/drafts', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadDraftsPage(user, listDeptHeadActionPlanDrafts(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/overdue', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadOverduePage(user, listDeptHeadOverdue(user), flashFromQuery(req.query), {
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       stats: deptStats(user),
     }),
@@ -1953,6 +1978,19 @@ async function startServer() {
     saveStore();
     console.log(`Migrated ${migrated} legacy evidence record(s) to PostgreSQL.`);
   }
+
+  const overdueNotified = checkAndNotifyOverdueTickets();
+  if (overdueNotified > 0) {
+    console.log(`Sent overdue notifications for ${overdueNotified} ticket(s).`);
+  }
+  const OVERDUE_CHECK_MS = 15 * 60 * 1000;
+  setInterval(() => {
+    try {
+      checkAndNotifyOverdueTickets();
+    } catch (err) {
+      console.error('Overdue notification check failed:', err);
+    }
+  }, OVERDUE_CHECK_MS);
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`rms-web listening on ${port} (files: MinIO, metadata: PostgreSQL)`);

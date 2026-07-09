@@ -6,7 +6,7 @@ const {
   getPriorityTone,
   DEPARTMENTS,
 } = require('../../config/tickets');
-const { escapeHtml, formatDate, formatIncidentDate } = require('../html');
+const { escapeHtml, formatDate, formatIncidentDate, formatDateOnly } = require('../html');
 const { flashMessage } = require('./layout');
 const { deptHeadAppLayout } = require('./dept-head-layout');
 const { layoutNotifications } = require('../notifications');
@@ -64,6 +64,7 @@ const KPI_ICONS = {
   total: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   inbox: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
   active: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
   president: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v6c0 5 3.8 8.5 9 9 5.2-.5 9-4 9-9V7z"/></svg>`,
   overdue: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
   closed: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`,
@@ -87,24 +88,41 @@ function pageLayout(opts) {
 
 /* —— list / table rendering —— */
 
-function ticketRows(tickets) {
+function ticketRows(tickets, { showDueColumn = false } = {}) {
   return tickets
     .map(
-      (t) => `<tr>
+      (t) => `<tr class="${t.isOverdue ? 'ticket-row--overdue' : ''}">
         <td class="mono nowrap"><a href="/dept/tickets/${escapeHtml(t.reference)}">${escapeHtml(t.reference)}</a></td>
         <td>${escapeHtml(t.title)}</td>
         <td class="nowrap">${escapeHtml(t.submittedByName || t.submittedBy)}</td>
         <td class="nowrap">${escapeHtml(t.categoryLabel || getCategoryLabel(t.category))}</td>
         <td>${ownershipBadge(t)}</td>
         <td>${statusPill(t.status, t.isOverdue)}</td>
+        ${showDueColumn ? `<td class="nowrap cell--overdue">${t.dueAt ? `${escapeHtml(formatDateOnly(t.dueAt))} <span class="pill pill--bad pill--overdue">Overdue</span>` : '—'}</td>` : ''}
         <td class="nowrap">${escapeHtml(formatDate(t.updatedAt))}</td>
       </tr>`,
     )
     .join('');
 }
 
-function queuePage(user, { title, desc, tickets, flash, error, activeNav, emptyMessage, stats }) {
-  const rows = ticketRows(tickets);
+function draftPlanRows(tickets) {
+  return tickets
+    .map(
+      (t) => `<tr>
+        <td class="mono nowrap"><a href="/dept/tickets/${escapeHtml(t.reference)}">${escapeHtml(t.reference)}</a></td>
+        <td>${escapeHtml(t.title)}</td>
+        <td class="nowrap">${escapeHtml(t.submittedByName || t.submittedBy)}</td>
+        <td><span class="pill pill--warn">Draft</span></td>
+        <td class="nowrap">${escapeHtml(formatDate(t.actionPlanDraftUpdatedAt || t.updatedAt))}</td>
+        <td class="nowrap">${t.dueAt ? escapeHtml(formatDateOnly(t.dueAt)) : '—'}</td>
+      </tr>`,
+    )
+    .join('');
+}
+
+function queuePage(user, { title, desc, tickets, flash, error, activeNav, emptyMessage, stats, showDueColumn = false }) {
+  const rows = ticketRows(tickets, { showDueColumn });
+  const colSpan = showDueColumn ? 8 : 7;
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
@@ -125,10 +143,11 @@ function queuePage(user, { title, desc, tickets, flash, error, activeNav, emptyM
               <th>Category</th>
               <th>Ownership</th>
               <th>Status</th>
+              ${showDueColumn ? '<th>Target date</th>' : ''}
               <th>Updated</th>
             </tr>
           </thead>
-          <tbody>${rows || `<tr><td colspan="7" class="empty">${escapeHtml(emptyMessage)}</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${colSpan}" class="empty">${escapeHtml(emptyMessage)}</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
@@ -156,9 +175,10 @@ function deptHeadOverviewPage(user, stats, flash, tickets = []) {
       ${kpiCard('/dept/tickets', KPI_ICONS.total, stats.total, 'Department tickets', 'sup-kpi--accent')}
       ${kpiCard('/dept/inbox', KPI_ICONS.inbox, stats.inbox, 'Awaiting acceptance', stats.inbox ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/active', KPI_ICONS.active, stats.active, 'In progress')}
+      ${kpiCard('/dept/drafts', KPI_ICONS.drafts, stats.drafts, 'Action plan drafts', stats.drafts ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/closure', KPI_ICONS.closed, stats.pendingClosure, 'Pending closure', stats.pendingClosure ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/tickets', KPI_ICONS.president, stats.awaitingPresident, 'Awaiting President')}
-      ${kpiCard('/dept/active', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue ? 'sup-kpi--warn' : '')}
+      ${kpiCard('/dept/overdue', KPI_ICONS.overdue, stats.overdue, 'Overdue', stats.overdue ? 'sup-kpi--warn' : '')}
       ${kpiCard('/dept/tickets', KPI_ICONS.closed, stats.closed, 'Closed')}
     </div>
     <section class="sup-card sup-card--table">
@@ -197,13 +217,59 @@ function deptHeadInboxPage(user, tickets, flash, opts = {}) {
 function deptHeadActivePage(user, tickets, flash, opts = {}) {
   return queuePage(user, {
     title: 'In progress',
-    desc: 'Tickets you own and are actively working — build action plans and report progress.',
+    desc: 'Tickets you own before the action plan is sent — accept ownership, build the mitigation plan, and publish it to the reporter.',
     tickets,
     flash,
     error: opts.error,
     activeNav: 'active',
     emptyMessage: 'You have no tickets in progress.',
     stats: opts.stats,
+  });
+}
+
+function deptHeadDraftsPage(user, tickets, flash, opts = {}) {
+  const rows = draftPlanRows(tickets);
+  const body = `
+    ${flashMessage(flash)}
+    ${opts.error ? flashMessage(opts.error, 'error') : ''}
+    <div class="sup-page-head">
+      <div>
+        <h1>Action plan drafts</h1>
+        <p class="sup-page-desc">Saved action plans you have not sent to the reporter yet. Open a ticket to continue editing, then publish when ready.</p>
+      </div>
+    </div>
+    <section class="sup-card sup-card--table">
+      <div class="table-wrap">
+        <table class="data-table data-table--compact tickets-table sup-table">
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Title</th>
+              <th>Reporter</th>
+              <th>Plan</th>
+              <th>Draft saved</th>
+              <th>Target date</th>
+            </tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="6" class="empty">No action plan drafts. Save a draft from a ticket you own in progress.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </section>`;
+
+  return pageLayout({ title: 'Action plan drafts', user, activeNav: 'drafts', body, stats: opts.stats });
+}
+
+function deptHeadOverduePage(user, tickets, flash, opts = {}) {
+  return queuePage(user, {
+    title: 'Overdue tickets',
+    desc: 'Department tickets past the mitigation target date. These may be waiting on reporter implementation or still need your follow-up.',
+    tickets,
+    flash,
+    error: opts.error,
+    activeNav: 'overdue',
+    emptyMessage: 'No overdue tickets. All active department tickets are within their target dates.',
+    stats: opts.stats,
+    showDueColumn: true,
   });
 }
 
@@ -331,6 +397,7 @@ function reassignmentHistoryCard(ticket) {
 
 function actionPlanCard(ticket, ref, { editable }) {
   const plan = ticket.actionPlan;
+  const isDraft = plan && !plan.publishedToReporterAt && !plan.submittedForReviewAt;
   const view = plan
     ? `<div class="sup-card__body">
         <p class="dept-plan__summary">${escapeHtml(plan.summary)}</p>
@@ -359,7 +426,8 @@ function actionPlanCard(ticket, ref, { editable }) {
     : '';
 
   return `<section class="sup-card sup-card--accent">
-    <div class="sup-card__head"><h2>Action plan${ticket.actionPlan ? ` <span class="text-muted">(v${ticket.actionPlan.version})</span>` : ''}</h2></div>
+    <div class="sup-card__head"><h2>Action plan${ticket.actionPlan ? ` <span class="text-muted">(v${ticket.actionPlan.version})</span>` : ''}${isDraft ? ' <span class="pill pill--warn">Draft</span>' : ''}</h2></div>
+    ${isDraft ? '<div class="dept-plan-draft-banner" role="status">Draft saved — not sent to the reporter yet. Set a target date and use “Send to reporter for implementation” when ready.</div>' : ''}
     ${view}
     ${form ? `<div class="sup-card__body">${form}</div>` : ''}
   </section>`;
@@ -832,6 +900,8 @@ module.exports = {
   deptHeadOverviewPage,
   deptHeadInboxPage,
   deptHeadActivePage,
+  deptHeadDraftsPage,
+  deptHeadOverduePage,
   deptHeadPendingClosurePage,
   deptHeadAllTicketsPage,
   renderDeptHeadTicketPage,
