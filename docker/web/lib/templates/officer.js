@@ -85,9 +85,12 @@ function ticketRiskLevel(ticket) {
 }
 
 function executiveCommentsReadonly(ticket) {
-  const comments = ticket.executiveComments || [];
+  const comments = ticket.oversightComments || ticket.executiveComments || [];
   if (!comments.length) return '';
-  return executiveCommentsSection(comments, { canReply: false });
+  return executiveCommentsSection(comments, {
+    canReply: false,
+    hint: '<p class="text-muted section-hint">Oversight comments from the Executive Committee and President. Visible to the RMU and Department Head.</p>',
+  });
 }
 
 function aiReadonlyCard(ticket) {
@@ -614,8 +617,8 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
     ${accBlock}
     ${closureBlock}
     ${reopenBlock}
-    ${threadCommentsBlock(t, ref)}
-    ${executiveCommentsReadonly(t)}`;
+    ${executiveCommentsReadonly(t)}
+    ${threadCommentsBlock(t, ref)}`;
 
   return officerPageLayout({
     title: ref,

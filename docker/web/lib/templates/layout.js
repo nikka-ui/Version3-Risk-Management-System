@@ -5,7 +5,6 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isAdmin = user.role === 'admin' || navVariant === 'admin';
   const isSupervisor = user.role === 'supervisor' || navVariant === 'supervisor';
   const isOfficer = user.role === 'rm_officer' || navVariant === 'officer';
-  const isAudit = user.role === 'audit_officer' || navVariant === 'audit';
   const isExecutive = user.role === 'executive' || navVariant === 'executive';
   let nav;
   if (isAdmin) {
@@ -14,14 +13,12 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
     nav = supervisorNav(activeNav);
   } else if (isOfficer) {
     nav = officerNav(activeNav);
-  } else if (isAudit) {
-    nav = auditNav(activeNav);
   } else if (isExecutive) {
     nav = executiveNav(activeNav);
   } else {
     nav = `<nav class="app-nav"><a href="/dashboard" class="${activeNav === 'home' ? 'active' : ''}">Overview</a></nav>`;
   }
-  const hasSidebar = isAdmin || isSupervisor || isOfficer || isAudit || isExecutive;
+  const hasSidebar = isAdmin || isSupervisor || isOfficer || isExecutive;
   const shellClass = hasSidebar ? 'app-shell app-shell--admin' : 'app-shell';
   const bodyClass = hasSidebar ? 'app-body app-body--admin' : 'app-body';
   const homeHref = isAdmin
@@ -30,11 +27,9 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
       ? '/supervisor'
       : isOfficer
         ? '/officer'
-        : isAudit
-          ? '/audit'
-          : isExecutive
-            ? '/executive'
-            : '/dashboard';
+        : isExecutive
+          ? '/executive'
+          : '/dashboard';
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
 
   return `<!DOCTYPE html>
@@ -98,22 +93,6 @@ function officerNav(active) {
     { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA' },
     { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans' },
     { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
-  ];
-  const links = items
-    .map(
-      (i) =>
-        `<a href="${i.href}" class="${active === i.id ? 'active' : ''}">${escapeHtml(i.label)}</a>`,
-    )
-    .join('');
-  return `<nav class="app-nav app-nav--admin">${links}</nav>`;
-}
-
-function auditNav(active) {
-  const items = [
-    { id: 'overview', href: '/audit', label: 'Overview' },
-    { id: 'review', href: '/audit/review', label: 'Compliance review' },
-    { id: 'final', href: '/audit/final-validation', label: 'Accomplishment review' },
-    { id: 'tickets', href: '/audit/tickets', label: 'All tickets' },
   ];
   const links = items
     .map(
@@ -227,7 +206,7 @@ function commentsSection(comments, { postAction, placeholder, compact, wrapClass
 /**
  * Executive oversight thread — top-level executive comments with officer replies.
  */
-function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact, enabled = true } = {}) {
+function executiveCommentsSection(comments, { postAction, replyAction, canPost, canReply, compact, enabled = true, hint } = {}) {
   if (!enabled) return '';
 
   const thread = renderRedditThread(comments, {
@@ -238,7 +217,7 @@ function executiveCommentsSection(comments, { postAction, replyAction, canPost, 
     executive: true,
     replyLabel: 'Reply to executive',
     replyPlaceholder: 'Write your reply to the executive comment…',
-    emptyMessage: 'No executive comments yet.',
+    emptyMessage: 'No executive or presidential comments yet.',
   });
 
   const postForm = canPost && postAction
@@ -254,10 +233,13 @@ function executiveCommentsSection(comments, { postAction, replyAction, canPost, 
     : '';
 
   const cardClass = ['card', 'card--executive-comments', compact ? 'card--compact' : ''].filter(Boolean).join(' ');
+  const hintHtml = hint !== undefined
+    ? hint
+    : '<p class="text-muted section-hint">Visible to the Risk Governance Office (RMU) and Department Head. Not visible to the ticket reporter.</p>';
 
   return `<section class="${cardClass}">
-    <h2>Executive Committee comments</h2>
-    <p class="text-muted section-hint">Visible to the RMO and Compliance Officer, who may reply. Comments are limited to High and Critical risk reports. Not visible to the Department Supervisor.</p>
+    <h2>Executive &amp; President comments</h2>
+    ${hintHtml}
     <div class="${compact ? 'reddit-thread--scroll' : ''}">${thread}</div>
     ${postForm}
     ${REDDIT_THREAD_SCRIPT}

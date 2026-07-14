@@ -30,19 +30,11 @@ const ROLES = {
     path: '/officer',
     assignable: true,
   },
-  audit_officer: {
-    id: 'audit_officer',
-    label: 'Compliance Officer',
-    description:
-      'Validate compliance of department action plans and accomplishments: review supporting documents, approve compliance or request revisions, comment, and generate compliance notes — does not own the ticket',
-    path: '/audit',
-    assignable: true,
-  },
   executive: {
     id: 'executive',
     label: 'Executive Committee',
     description:
-      'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. May comment on High and Critical risks only.',
+      'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. May comment on any submitted ticket.',
     path: '/executive',
     assignable: true,
   },
@@ -50,7 +42,7 @@ const ROLES = {
     id: 'president',
     label: 'President',
     description:
-      'Final approving authority for High and Critical risks: review department resolutions, RMU recommendations, and compliance findings; approve, reject, return, or close tickets',
+      'Final approving authority for High and Critical risks: review department resolutions and RMU recommendations; approve, reject, return, or close tickets',
     path: '/president',
     assignable: true,
   },
@@ -74,7 +66,7 @@ const ROLES = {
  * Canonical display/assignment order. Only roles listed here (and marked
  * `assignable`) appear in the User Management role dropdown.
  */
-const ROLE_ORDER = ['supervisor', 'dept_head', 'rm_officer', 'audit_officer', 'executive', 'president', 'admin'];
+const ROLE_ORDER = ['supervisor', 'dept_head', 'rm_officer', 'executive', 'president', 'admin'];
 
 const ASSIGNABLE_ROLES = ROLE_ORDER.filter((id) => ROLES[id]?.assignable);
 

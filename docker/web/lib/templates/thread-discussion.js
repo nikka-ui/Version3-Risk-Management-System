@@ -199,7 +199,7 @@ function redditPostForm(ref, opts = {}) {
     canPost = true,
     label = 'Add comment',
     placeholder = 'Write a comment… Use @username to mention someone.',
-    showAttachments = true,
+    showAttachments = false,
     submitLabel = 'Post comment',
     formClass = 'reddit-compose',
   } = opts;
@@ -213,7 +213,8 @@ function redditPostForm(ref, opts = {}) {
       </div>`
     : '';
 
-  return `<form method="post" action="${escapeHtml(postAction)}" class="stack-form ${formClass}" enctype="multipart/form-data">
+  const enctype = showAttachments ? ' enctype="multipart/form-data"' : '';
+  return `<form method="post" action="${escapeHtml(postAction)}" class="stack-form ${formClass}"${enctype}>
     <div class="field">
       <label for="thread-comment-${escapeHtml(ref)}">${escapeHtml(label)}</label>
       <textarea id="thread-comment-${escapeHtml(ref)}" name="comment" rows="3" required placeholder="${escapeHtml(placeholder)}"></textarea>
@@ -239,7 +240,7 @@ function threadDiscussionSection(ticket, ref, opts = {}) {
     currentUsername,
     showWhenDraft = false,
     emptyMessage,
-    showAttachments = true,
+    showAttachments = false,
     composeLabel,
     composePlaceholder,
     submitLabel,

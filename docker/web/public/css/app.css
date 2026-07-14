@@ -4444,6 +4444,13 @@ a.officer-kpi:hover {
   margin-bottom: 1.5rem;
 }
 
+.supervisor-main .sup-page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .supervisor-main .page-head h1,
 .supervisor-main .sup-page-head h1 {
   font-size: 1.5rem;
@@ -5439,7 +5446,7 @@ a.officer-kpi:hover {
   margin-bottom: 1rem;
 }
 
-/* —— Compliance Officer console —— */
+/* —— Legacy console styles (Compliance Officer removed) —— */
 .audit-console.supervisor-shell {
   --audit-accent-soft: #eef4ff;
 }

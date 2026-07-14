@@ -25,7 +25,6 @@ const ROLE_TICKET_PATH = {
   supervisor: '/supervisor/tickets',
   dept_head: '/dept/tickets',
   rm_officer: '/officer/tickets',
-  audit_officer: '/audit/tickets',
   executive: '/executive/tickets',
   president: '/president/tickets',
 };
@@ -88,7 +87,7 @@ function authorLabel(user) {
 
 function notifyExecutiveComment(ticket, user) {
   const from = authorLabel(user);
-  notifyRoles(['rm_officer', 'audit_officer'], {
+  notifyRoles(['rm_officer'], {
     type: 'executive_comment',
     title: 'Executive Committee comment',
     message: `${from} commented on ticket ${ticket.reference}`,
@@ -112,23 +111,23 @@ function notifyExecutiveReply(ticket, user) {
     fromRole: user.role,
   }, { excludeUsername: user.username });
 
-  const otherRole = user.role === 'rm_officer' ? 'audit_officer' : 'rm_officer';
-  notifyRoles([otherRole], {
-    type: 'executive_reply',
-    title: 'New reply on executive thread',
-    message: `${from} (${fromRoleLabel}) replied to an executive comment on ${ticket.reference}`,
-    ticketRef: ticket.reference,
-    fromUsername: user.username,
-    fromName: from,
-    fromRole: user.role,
-  }, { excludeUsername: user.username });
+  if (user.role !== 'rm_officer') {
+    notifyRoles(['rm_officer'], {
+      type: 'executive_reply',
+      title: 'New reply on executive thread',
+      message: `${from} (${fromRoleLabel}) replied to an executive comment on ${ticket.reference}`,
+      ticketRef: ticket.reference,
+      fromUsername: user.username,
+      fromName: from,
+      fromRole: user.role,
+    }, { excludeUsername: user.username });
+  }
 }
 
 function notifyPrivateComment(ticket, user) {
   const from = authorLabel(user);
   const fromRoleLabel = getRoleLabel(user.role);
-  const recipientRole = user.role === 'audit_officer' ? 'rm_officer' : 'audit_officer';
-  notifyRoles([recipientRole], {
+  notifyRoles(['rm_officer'], {
     type: 'private_comment',
     title: 'New private comment',
     message: `${from} (${fromRoleLabel}) left a private comment on ${ticket.reference}`,
@@ -211,9 +210,6 @@ function notifyWorkflowStakeholders(ticket, event, {
   };
   const exclude = excludeUsername || actor?.username;
 
-  const notifyCompliance = () => {
-    notifyRoles(['audit_officer'], payload, { excludeUsername: exclude });
-  };
   const notifyRmu = () => {
     notifyRoles(['rm_officer'], payload, { excludeUsername: exclude });
   };
@@ -240,7 +236,6 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'assignment':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyExecutiveIfCritical();
       notifyReporter();
       break;
@@ -259,7 +254,6 @@ function notifyWorkflowStakeholders(ticket, event, {
         message: message || `${ticket.reference} was reassigned to ${deptLabel}.`,
       });
       notifyRmu();
-      notifyCompliance();
       notifyExecutiveIfCritical();
       notifyReporter(reporterMsg);
       break;
@@ -267,13 +261,11 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'comment':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyReporter();
       break;
     case 'approval':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyPresident();
       notifyExecutiveIfCritical();
       notifyReporter();
@@ -281,13 +273,11 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'return':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyReporter();
       break;
     case 'escalation':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyPresident();
       notifyExecutiveIfCritical();
       notifyReporter();
@@ -295,14 +285,12 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'overdue':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyExecutiveIfCritical();
       notifyReporter();
       break;
     case 'closure':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyCompliance();
       notifyPresident();
       notifyExecutiveIfCritical();
       notifyReporter();
@@ -330,12 +318,13 @@ module.exports = {
   notifyPrivateComment,
   notifyRmoTicketSubmitted,
   notifyReporterTicketUpdate,
-  notifyOverdueStakeholders,
   notifyDeptHeadsForDepartment,
+  notifyOverdueStakeholders,
   notifyWorkflowStakeholders,
   notifyRoles,
   notifyUser,
   ticketHref,
   formatDepartmentLabel,
   isCriticalTicket,
+  ticketRiskLevelId,
 };

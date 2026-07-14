@@ -17,7 +17,6 @@ const SEED_DEPARTMENTS = [
 const SEED_POSITIONS = [
   'Department Supervisor',
   'Risk Governance Officer',
-  'Compliance Officer',
   'Executive Director',
   'Executive Committee Member',
   'Finance Supervisor',

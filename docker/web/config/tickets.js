@@ -43,11 +43,11 @@ const TICKET_STATUSES = {
   in_progress: { label: 'In Progress (Department)', supervisorCanEdit: false },
   pending_president: { label: 'Awaiting President Approval', supervisorCanEdit: false },
   pending_president_final: { label: 'Awaiting President Final Decision', supervisorCanEdit: false },
-  // —— Legacy Risk Management Unit / Audit workflow ——
+  // —— Legacy statuses retained for historical tickets (no active Compliance role) ——
   under_review: { label: 'Under RMO Review', supervisorCanEdit: false },
   returned: { label: 'Returned for Revision', supervisorCanEdit: true },
-  under_audit: { label: 'Under Audit Review', supervisorCanEdit: false },
-  audit_returned: { label: 'Returned by Audit', supervisorCanEdit: false },
+  under_audit: { label: 'Legacy — Under Review', supervisorCanEdit: false },
+  audit_returned: { label: 'Legacy — Returned for Revision', supervisorCanEdit: false },
   in_mitigation: { label: 'Implementation Required', supervisorCanEdit: false },
   pending_audit: { label: 'Accomplishment Submitted', supervisorCanEdit: false },
   resolved: { label: 'Resolved', supervisorCanEdit: false },
@@ -96,11 +96,9 @@ const OFFICER_FINAL_VALIDATION_STATUSES = [];
 const OFFICER_MITIGATION_EDIT_STATUSES = [];
 const OFFICER_MONITORING_STATUSES = RMU_MONITORING_STATUSES;
 
-/** Tickets awaiting Compliance Officer review of mitigation solutions. */
-const AUDIT_REVIEW_STATUSES = ['under_audit'];
-
-/** Accomplishment reports awaiting Compliance Officer final review (supervisor submitted). */
-const AUDIT_FINAL_VALIDATION_STATUSES = ['pending_audit'];
+/** Legacy queue constants — Compliance Officer role removed; Dept Head closes accomplishments. */
+const AUDIT_REVIEW_STATUSES = [];
+const AUDIT_FINAL_VALIDATION_STATUSES = [];
 
 /** Supervisor may view the approved mitigation plan (not draft / audit-in-progress versions). */
 const SUPERVISOR_MITIGATION_VISIBLE_STATUSES = [
@@ -140,7 +138,7 @@ const DEPT_HEAD_VISIBLE_STATUSES = [
 /** Department Head may accept / reject / reassign ownership only before accepting. */
 const DEPT_HEAD_OWNERSHIP_DECISION_STATUSES = ['assigned'];
 
-/** Department Head may build the action plan, assign personnel, and report progress. */
+/** Department Head may build the action plan and upload supporting documents. */
 const DEPT_HEAD_EXECUTION_STATUSES = ['in_progress', 'reopened'];
 
 /** Reporter accomplishment submitted — department head reviews and closes the ticket. */

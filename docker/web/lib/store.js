@@ -231,7 +231,25 @@ function loadStore() {
         migrated = true;
       }
     }
-    // Migrate legacy shared comments to private RMO/Audit thread
+    // Compliance Officer role removed — deactivate leftover accounts and strip the role.
+    for (const u of cache.users || []) {
+      if (u.role === 'audit_officer') {
+        u.role = 'employee';
+        u.active = false;
+        u.status = 'inactive';
+        u.updatedAt = now;
+        migrated = true;
+      }
+    }
+    // Drop obsolete Compliance Officer position if present.
+    for (const p of cache.positions || []) {
+      if (p.name === 'Compliance Officer' && p.active !== false) {
+        p.active = false;
+        p.updatedAt = now;
+        migrated = true;
+      }
+    }
+    // Migrate legacy shared comments to private RMO thread
     for (const t of cache.riskTickets || []) {
       if (t.comments?.length && !t.privateComments?.length) {
         t.privateComments = t.comments.map((c) => ({ ...c, private: true }));

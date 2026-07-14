@@ -504,6 +504,7 @@ function threadCommentsSection(ticket, ref, user) {
     canReact: ticket.status !== 'draft',
     canEditOwn: true,
     currentUsername: user?.username,
+    showAttachments: false,
   });
 }
 
@@ -780,9 +781,6 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
             <div class="field field--required" id="accEvidenceField" data-required="evidence">
               <label for="acc_attachments">Resolution evidence *</label>
               <p class="field-hint">Upload at least one supporting file (PDF, PNG, or JPG, max 20MB each). You may also use files already attached above.</p>
-              <div class="upload-evidence-status ${existingEvidenceCount > 0 ? 'upload-evidence-status--ok' : 'upload-evidence-status--missing'}" id="accEvidenceStatus" role="status">
-                ${existingEvidenceCount > 0 ? `${existingEvidenceCount} file(s) already attached to this ticket.` : 'No evidence attached yet. Upload at least one file to continue.'}
-              </div>
               <input id="acc_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg"${existingEvidenceCount === 0 ? ' required' : ''}>
             </div>
             <button type="submit" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${existingEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
@@ -793,23 +791,12 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
               if (!form) return;
               const savedCount = ${existingEvidenceCount};
               const fileInput = document.getElementById('acc_attachments');
-              const statusEl = document.getElementById('accEvidenceStatus');
               const evidenceField = document.getElementById('accEvidenceField');
               const submitBtn = document.getElementById('accomplishmentSubmitBtn');
 
               function updateState() {
                 const newCount = fileInput && fileInput.files ? fileInput.files.length : 0;
                 const hasEvidence = savedCount > 0 || newCount > 0;
-                if (statusEl) {
-                  statusEl.className = 'upload-evidence-status ' + (hasEvidence ? 'upload-evidence-status--ok' : 'upload-evidence-status--missing');
-                  if (newCount > 0) {
-                    statusEl.textContent = newCount + ' new file(s) selected' + (savedCount > 0 ? ' (' + savedCount + ' already on ticket).' : ' — ready to submit.');
-                  } else if (savedCount > 0) {
-                    statusEl.textContent = savedCount + ' file(s) already attached to this ticket.';
-                  } else {
-                    statusEl.textContent = 'No evidence attached yet. Upload at least one file to continue.';
-                  }
-                }
                 if (evidenceField) evidenceField.classList.toggle('field--invalid', !hasEvidence);
                 if (submitBtn) submitBtn.disabled = !hasEvidence;
               }

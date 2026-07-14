@@ -97,9 +97,8 @@ function dashboardPage(user) {
   const roleHints = {
     supervisor: 'Submit and track risk reports, upload evidence, and record accomplishments.',
     rm_officer: 'View organizational risks, monitor SLA and compliance, and participate in ticket discussion threads — without owning or editing tickets.',
-    audit_officer: 'Review solutions and action plans before implementation proceeds.',
-    executive: 'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. Comment on High and Critical risks only.',
-    president: 'Final approving authority for High and Critical risks. Review resolutions, RMU recommendations, and compliance findings.',
+    executive: 'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. Comment on any submitted ticket.',
+    president: 'Final approving authority for High and Critical risks. Review resolutions and RMU recommendations.',
     admin: 'Manage accounts, roles, and system logs.',
     employee: 'Access assigned risk workflows and departmental tasks.',
   };
@@ -112,16 +111,16 @@ function dashboardPage(user) {
         ? `<p style="margin-top:1rem"><a href="/officer" class="btn-enterprise-primary btn-primary--auto">Open RMU dashboard</a></p>`
         : user.role === 'supervisor'
           ? `<p style="margin-top:1rem"><a href="/supervisor" class="btn-enterprise-primary btn-primary--auto">Open supervisor dashboard</a></p>`
-          : user.role === 'audit_officer'
-            ? `<p style="margin-top:1rem"><a href="/audit" class="btn-enterprise-primary btn-primary--auto">Open audit dashboard</a></p>`
-            : user.role === 'executive'
-              ? `<p style="margin-top:1rem"><a href="/executive" class="btn-enterprise-primary btn-primary--auto">Open Executive Committee dashboard</a></p>`
-              : user.role === 'president'
-                ? `<p style="margin-top:1rem"><a href="/president" class="btn-enterprise-primary btn-primary--auto">Open president dashboard</a></p>`
+          : user.role === 'executive'
+            ? `<p style="margin-top:1rem"><a href="/executive" class="btn-enterprise-primary btn-primary--auto">Open Executive Committee dashboard</a></p>`
+            : user.role === 'president'
+              ? `<p style="margin-top:1rem"><a href="/president" class="btn-enterprise-primary btn-primary--auto">Open president dashboard</a></p>`
+              : user.role === 'dept_head'
+                ? `<p style="margin-top:1rem"><a href="/dept" class="btn-enterprise-primary btn-primary--auto">Open department dashboard</a></p>`
                 : '';
 
   const placeholder =
-    user.role === 'rm_officer' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'audit_officer' || user.role === 'executive' || user.role === 'president'
+    user.role === 'rm_officer' || user.role === 'supervisor' || user.role === 'admin' || user.role === 'executive' || user.role === 'president' || user.role === 'dept_head'
       ? ''
       : `<p class="text-muted" style="margin-top:1.5rem;font-size:0.8125rem">
         Risk ticket modules will appear here for your role in upcoming releases.
@@ -134,13 +133,11 @@ function dashboardPage(user) {
         ? 'supervisor'
         : user.role === 'rm_officer'
           ? 'officer'
-          : user.role === 'audit_officer'
-            ? 'audit'
-            : user.role === 'executive'
+          : user.role === 'executive'
+            ? 'executive'
+            : user.role === 'president'
               ? 'executive'
-              : user.role === 'president'
-                ? 'executive'
-                : undefined;
+              : undefined;
 
   const body = `
     <div class="page-head">

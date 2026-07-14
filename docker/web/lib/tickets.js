@@ -15,8 +15,6 @@ const {
   RMU_ACTION_PLAN_STATUSES,
   RMU_COMPLIANCE_CATEGORY,
   RISK_CATEGORIES,
-  AUDIT_REVIEW_STATUSES,
-  AUDIT_FINAL_VALIDATION_STATUSES,
   OFFICER_MITIGATION_EDIT_STATUSES,
   SUPERVISOR_MITIGATION_VISIBLE_STATUSES,
   DEPT_HEAD_INBOX_STATUSES,
@@ -43,7 +41,6 @@ const attachmentRepo = require('./attachmentRepository');
 const {
   notifyExecutiveComment,
   notifyExecutiveReply,
-  notifyPrivateComment,
   notifyReporterTicketUpdate,
   notifyRmoTicketSubmitted,
   notifyRoles,
@@ -853,6 +850,68 @@ function reporterVisibleThreadComments(ticket) {
   );
 }
 
+/** Executive Committee and President oversight comments — visible to RMU and Department Head. */
+function oversightCommentsForTicket(ticket) {
+  ensureThreadComments(ticket);
+  ensurePrivateComments(ticket);
+  const fromThread = (ticket.threadComments || []).filter(
+    (c) => c && ['executive', 'president'].includes(c.authorRole),
+  );
+  const seen = new Set(fromThread.map((c) => c.id));
+  const legacy = (ticket.executiveComments || [])
+    .filter((c) => c && c.id && !seen.has(c.id))
+    .map((c) => ({
+      ...c,
+      kind: c.kind || 'comment',
+      authorRole: c.authorRole || 'executive',
+      roleLabel: c.roleLabel || c.authorPosition || getRoleLabel(c.authorRole || 'executive'),
+      reactions: c.reactions || {},
+      mentions: c.mentions || parseMentions(c.body),
+      attachments: c.attachments || [],
+    }));
+  return [...fromThread, ...legacy].sort(
+    (a, b) => new Date(a.at || 0) - new Date(b.at || 0),
+  );
+}
+
+function syncOversightCommentToExecutiveFeed(ticket, record) {
+  if (!record || !['executive', 'president'].includes(record.authorRole)) return;
+  ensurePrivateComments(ticket);
+  if ((ticket.executiveComments || []).some((c) => c.id === record.id)) return;
+  ticket.executiveComments.push({
+    ...record,
+    kind: record.kind || 'comment',
+    roleLabel: record.roleLabel || getRoleLabel(record.authorRole),
+  });
+}
+
+/** Shared discussion visible to reporter, department, RMO, executive, and others. */
+function sharedDiscussionComments(ticket, { excludeOversight = false } = {}) {
+  ensureThreadComments(ticket);
+  ensurePrivateComments(ticket);
+  let thread = reporterVisibleThreadComments(ticket);
+  if (excludeOversight) {
+    thread = thread.filter((c) => !['executive', 'president'].includes(c.authorRole));
+  }
+  const seen = new Set(thread.map((c) => c.id));
+  const legacyExecutive = excludeOversight
+    ? []
+    : (ticket.executiveComments || [])
+        .filter((c) => c && c.id && !seen.has(c.id))
+        .map((c) => ({
+          ...c,
+          kind: c.kind || 'comment',
+          authorRole: c.authorRole || 'executive',
+          roleLabel: c.roleLabel || c.authorPosition || 'Executive Committee',
+          reactions: c.reactions || {},
+          mentions: c.mentions || parseMentions(c.body),
+          attachments: c.attachments || [],
+        }));
+  return [...thread, ...legacyExecutive].sort(
+    (a, b) => new Date(a.at || 0) - new Date(b.at || 0),
+  );
+}
+
 function parseMentions(text) {
   const matches = String(text || '').match(/@([a-zA-Z0-9._-]+)/g) || [];
   return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
@@ -1544,14 +1603,14 @@ async function ticketForRole(ticket, role) {
     merged.evidence = ticket.evidence || [];
     ensureThreadComments(ticket);
     const { findUserRecord } = require('./store');
-    merged.threadComments = reporterVisibleThreadComments(ticket).map((c) => {
+    merged.threadComments = sharedDiscussionComments(ticket, { excludeOversight: true }).map((c) => {
       if (c.authorPosition) return c;
       const author = c.authorUsername ? findUserRecord(c.authorUsername) : null;
       if (!author?.position) return c;
       return {
         ...c,
         authorPosition: author.position,
-        roleLabel: author.position,
+        roleLabel: author.position || c.roleLabel,
       };
     });
     merged.ownership = ticket.ownership ? { ...ticket.ownership } : null;
@@ -1610,7 +1669,7 @@ async function ticketForRole(ticket, role) {
     merged.privateComments = undefined;
     merged.executiveComments = undefined;
     merged.mitigationPlanHistory = undefined;
-    merged.threadComments = ticket.threadComments || [];
+    merged.threadComments = sharedDiscussionComments(ticket, { excludeOversight: true });
     merged.timeline = getTicketTimelineForReporter(ticket);
     merged.ownership = ticket.ownership || null;
     merged.reassignments = ticket.reassignments || [];
@@ -1628,6 +1687,12 @@ async function ticketForRole(ticket, role) {
     merged.accomplishment = getAccomplishmentForTicket(ticket);
     merged.closure = ticket.closure || null;
     merged.fiveW1H = ticket.fiveW1H || null;
+    merged.riskLevel = ticketRiskLevelId(ticket);
+    merged.riskLevelLabel = riskLevelFromSeverity(
+      ticket.ai?.severity
+        || (ticket.likelihood && ticket.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2),
+    ).label;
+    merged.oversightComments = oversightCommentsForTicket(ticket);
     return merged;
   }
 
@@ -1639,7 +1704,7 @@ async function ticketForRole(ticket, role) {
     merged.comments = merged.privateComments;
     merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
     merged.evidence = ticket.evidence || [];
-    merged.threadComments = ticket.threadComments || [];
+    merged.threadComments = sharedDiscussionComments(ticket);
     merged.ownership = ticket.ownership || null;
     merged.actionPlan = ticket.actionPlan || null;
     merged.personnel = ticket.personnel || [];
@@ -1649,33 +1714,21 @@ async function ticketForRole(ticket, role) {
     merged.escalations = ticket.escalations || [];
     merged.accomplishment = getAccomplishmentForTicket(ticket);
     merged.closure = ticket.closure || null;
-    return merged;
-  }
-
-  if (role === 'audit_officer') {
-    ensureDeptHeadFields(ticket);
-    merged.privateComments = ticket.privateComments || [];
-    merged.executiveComments = ticket.executiveComments || [];
-    merged.mitigationPlanHistory = ticket.mitigationPlanHistory || [];
-    merged.evidence = ticket.evidence || [];
-    merged.comments = merged.privateComments;
-    // Compliance validates the department's action plan and accomplishment.
-    merged.actionPlan = ticket.actionPlan || null;
-    merged.personnel = ticket.personnel || [];
-    merged.progressUpdates = ticket.progressUpdates || [];
-    merged.finalResolution = ticket.finalResolution || null;
+    merged.oversightComments = oversightCommentsForTicket(ticket);
     return merged;
   }
 
   if (role === 'executive') {
     merged.privateComments = undefined;
     merged.executiveComments = ticket.executiveComments || [];
+    merged.oversightComments = oversightCommentsForTicket(ticket);
     merged.mitigationPlanHistory = undefined;
     merged.auditNotes = undefined;
     merged.officerNotes = ticket.officerNotes || null;
     merged.mitigationDueAt = ticket.mitigationDueAt || null;
     merged.description = ticket.description;
     merged.evidence = ticket.evidence || [];
+    merged.threadComments = sharedDiscussionComments(ticket);
     return merged;
   }
 
@@ -1698,6 +1751,13 @@ async function ticketForRole(ticket, role) {
     merged.auditNotes = ticket.auditNotes || null;
     merged.auditTrail = ticket.auditTrail || [];
     merged.officerNotes = ticket.officerNotes || null;
+    merged.threadComments = sharedDiscussionComments(ticket);
+    merged.riskLevel = ticketRiskLevelId(ticket);
+    merged.riskLevelLabel = riskLevelFromSeverity(
+      ticket.ai?.severity
+        || (ticket.likelihood && ticket.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2),
+    ).label;
+    merged.oversightComments = oversightCommentsForTicket(ticket);
     return merged;
   }
 
@@ -1797,149 +1857,6 @@ function addRmuThreadComment(reference, user, body = {}) {
   return { ticket: publicTicket(ticket) };
 }
 
-function closeTicketAsAudit(reference, username, body) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-  if (!AUDIT_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
-    return { error: 'This ticket is not awaiting accomplishment review.' };
-  }
-
-  const notes = String(body.closingNotes || body.auditNotes || '').trim();
-  const now = new Date().toISOString();
-  ticket.complianceAccomplishmentReview = {
-    approvedAt: now,
-    approvedBy: username,
-    notes: notes || 'Compliance review completed.',
-  };
-  if (notes) ticket.auditNotes = notes;
-  ticket.updatedAt = now;
-
-  appendTicketAuditEvent(ticket, {
-    action: 'Compliance review completed',
-    detail: 'Accomplishment report validated. Forwarded for presidential final decision or closure.',
-    actorUsername: username,
-    actorName: username,
-    actorRole: 'audit_officer',
-  });
-
-  if (requiresPresidentApproval(ticket)) {
-    ticket.status = 'pending_president_final';
-    ticket.presidentReviewPhase = 'final';
-  } else {
-    ticket.status = 'closed';
-    appendTicketAuditEvent(ticket, {
-      action: 'Ticket closed',
-      detail: 'Accomplishment approved and ticket closed after compliance review.',
-      actorUsername: username,
-      actorName: username,
-      actorRole: 'audit_officer',
-    });
-  }
-
-  saveStore();
-  logAuditAction(ticket, username, requiresPresidentApproval(ticket) ? 'accomplishment_forwarded_president' : 'accomplishment_approved_closed');
-
-  notifyWorkflowStakeholders(ticket, requiresPresidentApproval(ticket) ? 'approval' : 'closure', {
-    actor: { username, role: 'audit_officer', displayName: username },
-    type: requiresPresidentApproval(ticket) ? 'compliance_accomplishment_approved' : 'ticket_closed',
-    title: requiresPresidentApproval(ticket) ? 'Awaiting President final decision' : 'Ticket closed',
-    message: requiresPresidentApproval(ticket)
-      ? `Compliance approved the accomplishment for ${ticket.reference}. Awaiting President final decision.`
-      : `Compliance approved and closed ${ticket.reference}.`,
-  });
-
-  return { ticket: publicTicket(ticket) };
-}
-
-function returnAccomplishmentAsAudit(reference, username, body) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-  if (!AUDIT_FINAL_VALIDATION_STATUSES.includes(ticket.status)) {
-    return { error: 'This ticket is not awaiting accomplishment review.' };
-  }
-
-  const notes = String(body.returnNotes || body.auditNotes || '').trim();
-  if (!notes) return { error: 'Return notes are required when sending back for revision.' };
-
-  const now = new Date().toISOString();
-  ticket.status = 'in_mitigation';
-  ticket.supervisorFeedback = notes;
-  ticket.auditNotes = notes;
-  ticket.updatedAt = now;
-  saveStore();
-  logAuditAction(ticket, username, 'accomplishment_returned');
-  return { ticket: publicTicket(ticket) };
-}
-
-/* —— Compliance Officer (internally 'audit_officer') ——
- * The Compliance Officer validates the department action plan and mitigation
- * solution for compliance before implementation. They either approve compliance
- * (department may begin implementation) or request revisions (return to the RMO).
- * Compliance does not own the ticket — it validates.
- */
-
-function getTicketByRefForAudit(reference) {
-  const { store } = getStore();
-  const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
-  if (!ticket || ticket.status === 'draft') return null;
-  return ticket;
-}
-
-function listTicketsForAudit() {
-  const { store } = getStore();
-  return (store.riskTickets || [])
-    .filter((t) => isVisibleTicket(t) && t.status !== 'draft')
-    .map(publicTicket)
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-}
-
-function listAuditReviewQueue() {
-  return listTicketsForAudit().filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status));
-}
-
-function listAuditFinalValidationQueue() {
-  return listTicketsForAudit().filter((t) => AUDIT_FINAL_VALIDATION_STATUSES.includes(t.status));
-}
-
-function getAuditStats() {
-  const tickets = listTicketsForAudit();
-  const recentTickets = [...tickets]
-    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
-    .slice(0, 6);
-  return {
-    awaitingReview: tickets.filter((t) => AUDIT_REVIEW_STATUSES.includes(t.status)).length,
-    awaitingFinalValidation: tickets.filter((t) => AUDIT_FINAL_VALIDATION_STATUSES.includes(t.status))
-      .length,
-    inImplementation: tickets.filter((t) => t.status === 'in_mitigation').length,
-    returnedToRmo: tickets.filter((t) => t.status === 'audit_returned').length,
-    closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
-    open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
-    recentTickets,
-  };
-}
-
-async function findAttachmentForAudit(attachmentId) {
-  const attachment = await attachmentRepo.findById(attachmentId);
-  if (!attachment) return null;
-  const ticket = getTicketByRefForAudit(attachment.ticketRef);
-  if (!ticket) return null;
-  return { ticket, attachment };
-}
-
-function logAuditAction(ticket, username, action) {
-  const { appendReportLog } = require('./store');
-  appendReportLog({
-    ticketRef: ticket.reference,
-    title: ticket.title,
-    submittedBy: username,
-    submitterRole: 'audit_officer',
-    status: getStatusLabel(ticket.status),
-    action,
-  });
-}
-
 function getTicketByRefForExecutive(reference) {
   const { store } = getStore();
   const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
@@ -2001,10 +1918,8 @@ function getExecutiveStats() {
   };
 }
 
-const EXEC_COMMENT_RISK_LEVELS = new Set(['high', 'critical']);
-
 function canExecutiveCommentOnTicket(ticket) {
-  return EXEC_COMMENT_RISK_LEVELS.has(ticketRiskLevelId(ticket));
+  return Boolean(ticket && ticket.status !== 'draft');
 }
 
 function buildExecutiveTrends(tickets) {
@@ -2098,6 +2013,16 @@ function requiresPresidentApproval(ticket) {
   return PRESIDENT_RISK_LEVELS.has(ticketRiskLevelId(ticket));
 }
 
+/** True when a High/Critical action plan still needs President approve/decline. */
+function needsPresidentActionPlanDecision(ticket) {
+  if (!requiresPresidentApproval(ticket)) return false;
+  if (!String(ticket.actionPlan?.summary || '').trim()) return false;
+  if (ticket.presidentPlanDecision?.decisionId === 'approve') return false;
+  if (ticket.status === 'pending_president_final') return false;
+  if (['closed', 'resolved', 'draft'].includes(ticket.status)) return false;
+  return true;
+}
+
 function enrichTicketRiskMeta(ticket) {
   const pub = publicTicket(ticket);
   pub.riskLevel = ticketRiskLevelId(ticket);
@@ -2136,9 +2061,15 @@ function listTicketsForPresident({ level, status } = {}) {
 }
 
 function listPresidentPendingQueue() {
-  return listTicketsForPresident().filter((t) =>
-    ['pending_president', 'pending_president_final'].includes(t.status),
-  );
+  const { store } = getStore();
+  return (store.riskTickets || [])
+    .filter((t) => isVisibleTicket(t) && t.status !== 'draft' && isPresidentVisibleTicket(t))
+    .filter((t) =>
+      ['pending_president', 'pending_president_final'].includes(t.status)
+      || needsPresidentActionPlanDecision(t),
+    )
+    .map(enrichTicketRiskMeta)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
 function getPresidentStats() {
@@ -2186,38 +2117,44 @@ function recordPresidentDecision(reference, user, body = {}) {
   const { saveStore } = getStore();
   const ticket = getTicketByRefForPresident(reference);
   if (!ticket) return { error: 'Ticket not found or outside presidential review scope (High/Critical only).' };
-  if (!['pending_president', 'pending_president_final'].includes(ticket.status)) {
+
+  const isFinalPhase = ticket.status === 'pending_president_final' || ticket.presidentReviewPhase === 'final';
+  const isActionPlanPhase = isFinalPhase
+    ? false
+    : (ticket.status === 'pending_president' || needsPresidentActionPlanDecision(ticket));
+
+  if (!isFinalPhase && !isActionPlanPhase) {
     return { error: 'This ticket is not awaiting a presidential decision.' };
   }
 
-  const isFinalPhase = ticket.status === 'pending_president_final' || ticket.presidentReviewPhase === 'final';
   const existingDecision = isFinalPhase ? ticket.presidentFinalDecision : ticket.presidentPlanDecision;
-  if (existingDecision) {
+  if (existingDecision?.decisionId === 'approve' || (isFinalPhase && existingDecision)) {
     return { error: 'A presidential decision has already been recorded for this review stage.' };
   }
 
   const decision = String(body.decision || '').trim().toLowerCase();
-  const allowed = isFinalPhase ? ['close', 'return', 'approve'] : ['approve', 'reject', 'return'];
+  const allowed = isFinalPhase ? ['close', 'return', 'approve'] : ['approve', 'reject', 'return', 'decline'];
   if (!allowed.includes(decision)) {
-    return { error: `Invalid decision. Choose ${allowed.join(', ')}.` };
+    return { error: `Invalid decision. Choose ${allowed.filter((d) => d !== 'decline').join(', ')}.` };
   }
 
+  const normalizedDecision = decision === 'decline' ? 'reject' : decision;
   const note = String(body.note || body.comment || '').trim();
-  if ((decision === 'reject' || decision === 'return') && !note) {
+  if ((normalizedDecision === 'reject' || normalizedDecision === 'return') && !note) {
     return { error: 'A reason is required when rejecting or returning a ticket.' };
   }
 
   const now = new Date().toISOString();
   const decisionLabels = {
     approve: 'Approved',
-    reject: 'Rejected',
+    reject: 'Declined',
     return: 'Returned',
     close: 'Closed',
   };
 
   const decisionRecord = {
-    decision: decisionLabels[decision] || decision,
-    decisionId: decision,
+    decision: decisionLabels[normalizedDecision] || normalizedDecision,
+    decisionId: normalizedDecision,
     note: note || null,
     authorUsername: user.username,
     authorName: user.displayName || user.username,
@@ -2227,7 +2164,7 @@ function recordPresidentDecision(reference, user, body = {}) {
 
   if (isFinalPhase) {
     ticket.presidentFinalDecision = decisionRecord;
-    if (decision === 'close' || decision === 'approve') {
+    if (normalizedDecision === 'close' || normalizedDecision === 'approve') {
       ticket.status = 'closed';
       appendTicketAuditEvent(ticket, {
         action: 'President approved',
@@ -2243,7 +2180,7 @@ function recordPresidentDecision(reference, user, body = {}) {
         actorName: user.displayName || user.username,
         actorRole: 'president',
       });
-    } else if (decision === 'return') {
+    } else if (normalizedDecision === 'return') {
       ticket.status = 'in_mitigation';
       appendTicketAuditEvent(ticket, {
         action: 'President returned ticket',
@@ -2255,27 +2192,41 @@ function recordPresidentDecision(reference, user, body = {}) {
     }
   } else {
     ticket.presidentPlanDecision = decisionRecord;
-    if (decision === 'approve') {
+    if (normalizedDecision === 'approve') {
       ticket.status = 'in_mitigation';
+      if (ticket.actionPlan) {
+        ticket.actionPlan.publishedToReporterAt = ticket.actionPlan.publishedToReporterAt || now;
+        ticket.actionPlan.submittedForReviewAt = ticket.actionPlan.submittedForReviewAt || now;
+      }
       appendTicketAuditEvent(ticket, {
         action: 'President approved',
-        detail: note || 'Action plan approved. Department may begin implementation.',
+        detail: note || 'Action plan approved. Released to the reporter for implementation.',
         actorUsername: user.username,
         actorName: user.displayName || user.username,
         actorRole: 'president',
       });
-    } else if (decision === 'reject') {
+      notifyReporterTicketUpdate(ticket, {
+        recipientUsername: ticket.submittedBy,
+        type: 'action_plan_approved',
+        title: 'Action plan approved',
+        message: `The President approved the mitigation plan for ${ticket.reference}. Apply the solution and submit your accomplishment report.`,
+      });
+    } else if (normalizedDecision === 'reject') {
       ticket.status = 'in_progress';
       ticket.actionPlan = null;
       appendTicketAuditEvent(ticket, {
-        action: 'President rejected action plan',
-        detail: note || 'Action plan rejected by the President.',
+        action: 'President declined action plan',
+        detail: note || 'Action plan declined by the President.',
         actorUsername: user.username,
         actorName: user.displayName || user.username,
         actorRole: 'president',
       });
-    } else if (decision === 'return') {
+    } else if (normalizedDecision === 'return') {
       ticket.status = 'in_progress';
+      if (ticket.actionPlan) {
+        ticket.actionPlan.publishedToReporterAt = null;
+        ticket.actionPlan.submittedForReviewAt = null;
+      }
       appendTicketAuditEvent(ticket, {
         action: 'President returned action plan',
         detail: note || 'Returned to department for revision.',
@@ -2289,24 +2240,47 @@ function recordPresidentDecision(reference, user, body = {}) {
   ticket.presidentReviewPhase = null;
   ticket.updatedAt = now;
   saveStore();
-  logPresidentAction(ticket, user, `president_${decision}`, note);
+  logPresidentAction(ticket, user, `president_${normalizedDecision}`, note);
 
   const notifyTitle = isFinalPhase
-    ? (decision === 'return' ? 'Returned for revision' : 'Ticket closed')
+    ? (normalizedDecision === 'return' ? 'Returned for revision' : 'Ticket closed')
     : {
         approve: 'Action plan approved',
-        reject: 'Action plan rejected',
+        reject: 'Action plan declined',
         return: 'Action plan returned',
-      }[decision];
+      }[normalizedDecision];
 
-  notifyWorkflowStakeholders(ticket, decision === 'close' || decision === 'approve' && isFinalPhase ? 'closure' : 'return', {
+  notifyWorkflowStakeholders(ticket, normalizedDecision === 'close' || (normalizedDecision === 'approve' && isFinalPhase) ? 'closure' : 'return', {
     actor: user,
-    type: `president_${decision}`,
+    type: `president_${normalizedDecision}`,
     title: notifyTitle,
-    message: `The President ${decisionLabels[decision]?.toLowerCase() || decision} ${ticket.reference}.${note ? ` Reason: ${note}` : ''}`,
+    message: `The President ${decisionLabels[normalizedDecision]?.toLowerCase() || normalizedDecision} ${ticket.reference}.${note ? ` Reason: ${note}` : ''}`,
   });
 
-  return { ticket: publicTicket(ticket), flashKey: `president_${decision}` };
+  return { ticket: publicTicket(ticket), flashKey: `president_${normalizedDecision}` };
+}
+
+function addPresidentThreadComment(reference, user, body = {}) {
+  const { saveStore } = getStore();
+  if (user.role !== 'president') {
+    return { error: 'Only the President may post presidential comments.' };
+  }
+  const ticket = getTicketByRefForPresident(reference);
+  if (!ticket) return { error: 'Ticket not found or outside presidential review scope (High/Critical only).' };
+
+  const result = postThreadCommentForTicket(ticket, user, body);
+  if (result.error) return result;
+  saveStore();
+  logPresidentAction(ticket, user, 'president_comment', String(body.comment || body.body || '').trim().slice(0, 120));
+
+  notifyWorkflowStakeholders(ticket, 'comment', {
+    actor: user,
+    type: 'president_comment',
+    title: 'President comment',
+    message: `${user.displayName || user.username} commented on ${ticket.reference}.`,
+  });
+
+  return { ticket: publicTicket(ticket) };
 }
 
 function addExecutiveComment(reference, user, body) {
@@ -2317,29 +2291,12 @@ function addExecutiveComment(reference, user, body) {
   const ticket = getTicketByRefForExecutive(reference);
   if (!ticket) return { error: 'Ticket not found.' };
   if (!canExecutiveCommentOnTicket(ticket)) {
-    return { error: 'Executive Committee may only comment on High and Critical risk reports.' };
+    return { error: 'Comments are not available for draft tickets.' };
   }
 
-  const text = String(body.comment || body.body || '').trim();
-  if (!text) return { error: 'Comment cannot be empty.' };
-  if (text.length > 2000) return { error: 'Comment is too long (max 2000 characters).' };
-
-  ensurePrivateComments(ticket);
-  const now = new Date().toISOString();
-  const record = {
-    id: `excmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    authorUsername: user.username,
-    authorName: user.displayName || user.username,
-    authorRole: user.role,
-    roleLabel: user.roleLabel || user.role,
-    body: text,
-    at: now,
-    parentId: null,
-  };
-  ticket.executiveComments.push(record);
-  ticket.updatedAt = now;
+  const result = postThreadCommentForTicket(ticket, user, body);
+  if (result.error) return result;
   saveStore();
-  notifyExecutiveComment(ticket, user);
 
   const { appendReportLog } = require('./store');
   appendReportLog({
@@ -2349,150 +2306,7 @@ function addExecutiveComment(reference, user, body) {
     submitterRole: 'executive',
     status: getStatusLabel(ticket.status),
     action: 'executive_comment_added',
-    detail: 'Executive Committee oversight comment posted.',
-  });
-
-  return { ticket: publicTicket(ticket) };
-}
-
-function replyToExecutiveComment(reference, user, body) {
-  const { saveStore } = getStore();
-  if (user.role !== 'audit_officer') {
-    return { error: 'Only the Compliance Officer may reply to executive comments.' };
-  }
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-
-  const text = String(body.comment || body.body || '').trim();
-  if (!text) return { error: 'Reply cannot be empty.' };
-  if (text.length > 2000) return { error: 'Reply is too long (max 2000 characters).' };
-
-  const parentId = String(body.parentId || '').trim();
-  if (!parentId) return { error: 'Select an executive comment to reply to.' };
-
-  ensurePrivateComments(ticket);
-  const parent = ticket.executiveComments.find((c) => c.id === parentId && !c.parentId);
-  if (!parent) return { error: 'Executive comment not found.' };
-
-  const now = new Date().toISOString();
-  const record = {
-    id: `excmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    authorUsername: user.username,
-    authorName: user.displayName || user.username,
-    authorRole: user.role,
-    roleLabel: user.roleLabel || user.role,
-    body: text,
-    at: now,
-    parentId,
-  };
-  ticket.executiveComments.push(record);
-  ticket.updatedAt = now;
-  saveStore();
-  notifyExecutiveReply(ticket, user);
-
-  const { appendReportLog } = require('./store');
-  appendReportLog({
-    ticketRef: ticket.reference,
-    title: ticket.title,
-    submittedBy: user.username,
-    submitterRole: user.role,
-    status: getStatusLabel(ticket.status),
-    action: 'executive_comment_reply',
-    detail: 'Reply to executive oversight comment.',
-  });
-
-  return { ticket: publicTicket(ticket) };
-}
-
-function approveSolutionByAudit(reference, username, body) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-  if (!AUDIT_REVIEW_STATUSES.includes(ticket.status)) {
-    return { error: 'This ticket is not awaiting compliance review.' };
-  }
-
-  const dueRaw = String(body.mitigationDueAt || '').trim();
-  if (dueRaw) {
-    const due = new Date(dueRaw);
-    if (Number.isNaN(due.getTime())) return { error: 'Invalid implementation due date.' };
-    ticket.mitigationDueAt = due.toISOString();
-  } else if (!ticket.mitigationDueAt) {
-    const due = new Date();
-    due.setDate(due.getDate() + 14);
-    ticket.mitigationDueAt = due.toISOString();
-  }
-
-  const notes = String(body.auditNotes || '').trim();
-  ticket.auditNotes = notes || 'Compliance approved the action plan.';
-  ticket.compliancePlanReview = {
-    approvedAt: new Date().toISOString(),
-    approvedBy: username,
-    notes: ticket.auditNotes,
-  };
-  ticket.updatedAt = new Date().toISOString();
-
-  appendTicketAuditEvent(ticket, {
-    action: 'Compliance review completed',
-    detail: 'Action plan validated. Forwarded for presidential approval or implementation.',
-    actorUsername: username,
-    actorName: username,
-    actorRole: 'audit_officer',
-  });
-
-  if (requiresPresidentApproval(ticket)) {
-    ticket.status = 'pending_president';
-    ticket.presidentReviewPhase = 'action_plan';
-  } else {
-    ticket.status = 'in_mitigation';
-    ticket.presidentReviewPhase = null;
-  }
-
-  saveStore();
-  logAuditAction(ticket, username, 'solution_approved');
-
-  notifyWorkflowStakeholders(ticket, 'approval', {
-    actor: { username, role: 'audit_officer', displayName: username },
-    type: 'compliance_approved',
-    title: 'Compliance validation completed',
-    message: `Compliance approved the action plan for ${ticket.reference}.`,
-  });
-
-  return { ticket: publicTicket(ticket) };
-}
-
-function returnSolutionToRmo(reference, username, body) {
-  const { saveStore } = getStore();
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-  if (!AUDIT_REVIEW_STATUSES.includes(ticket.status)) {
-    return { error: 'This ticket is not awaiting compliance review.' };
-  }
-
-  const notes = String(body.auditNotes || '').trim();
-  if (!notes) return { error: 'Compliance notes are required when requesting revisions from the RMO.' };
-
-  ticket.auditNotes = notes;
-  ticket.status = 'in_progress';
-  ticket.presidentReviewPhase = null;
-  ticket.updatedAt = new Date().toISOString();
-
-  appendTicketAuditEvent(ticket, {
-    action: 'Compliance returned action plan',
-    detail: notes,
-    actorUsername: username,
-    actorName: username,
-    actorRole: 'audit_officer',
-  });
-
-  saveStore();
-  logAuditAction(ticket, username, 'solution_returned_to_dept');
-
-  notifyWorkflowStakeholders(ticket, 'return', {
-    actor: { username, role: 'audit_officer', displayName: username },
-    type: 'compliance_returned',
-    title: 'Action plan returned for revision',
-    message: `Compliance returned the action plan for ${ticket.reference} to the department.`,
+    detail: 'Executive Committee comment posted to the shared ticket discussion.',
   });
 
   return { ticket: publicTicket(ticket) };
@@ -2514,6 +2328,7 @@ function postThreadCommentForTicket(ticket, user, body, { parentIdRequired = fal
 
   const record = buildThreadCommentRecord(user, text, { parentId });
   ticket.threadComments.push(record);
+  syncOversightCommentToExecutiveFeed(ticket, record);
   ticket.updatedAt = new Date().toISOString();
 
   appendTicketAuditEvent(ticket, {
@@ -2604,55 +2419,6 @@ function addReporterThreadComment(reference, user, body) {
   return { ticket: publicTicket(ticket) };
 }
 
-/* —— Comments / Audit trail ——
- * A shared comment thread on a ticket. Per the RMS flowchart, the Compliance
- * Officer (and RMO) can leave comments / suggestions on a risk report; every
- * comment is recorded in the Report history (Audit Trail).
- */
-
-function addTicketComment(reference, user, body) {
-  const { saveStore } = getStore();
-  if (user.role !== 'audit_officer') {
-    return { error: 'Only the Compliance Officer may post private oversight comments.' };
-  }
-  const ticket = getTicketByRefForAudit(reference);
-  if (!ticket) return { error: 'Ticket not found.' };
-
-  const text = String(body.comment || body.body || '').trim();
-  if (!text) return { error: 'Comment cannot be empty.' };
-  if (text.length > 2000) return { error: 'Comment is too long (max 2000 characters).' };
-
-  ensurePrivateComments(ticket);
-  const now = new Date().toISOString();
-  const record = {
-    id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    authorUsername: user.username,
-    authorName: user.displayName || user.username,
-    authorRole: user.role,
-    roleLabel: user.roleLabel || user.role,
-    body: text,
-    at: now,
-    private: true,
-  };
-  ticket.privateComments.push(record);
-  ticket.updatedAt = now;
-  saveStore();
-  notifyPrivateComment(ticket, user);
-
-  const { appendReportLog } = require('./store');
-  appendReportLog({
-    ticketRef: ticket.reference,
-    title: ticket.title,
-    submittedBy: user.username,
-    submitterRole: user.role,
-    status: getStatusLabel(ticket.status),
-    action: 'private_comment_added',
-    detail: 'Private RMU/Compliance oversight comment (not visible to ticket reporter).',
-  });
-
-  return { ticket: publicTicket(ticket) };
-}
-
 /* —— Department Head / Vice President ——
  * President's revised model: the AI-routed responsible department owns the
  * ticket. The Department Head / VP is the owner and drives the lifecycle —
@@ -2687,11 +2453,19 @@ function ensureDeptHeadFields(ticket) {
 /** Dept-head action plans should go to the reporter, not legacy audit review. */
 function repairDeptHeadLegacyAuditStatus(ticket) {
   ensureDeptHeadFields(ticket);
+  const now = new Date().toISOString();
+
+  if (ticket.status === 'audit_returned' && ticket.ownership?.state === 'accepted') {
+    ticket.status = 'in_progress';
+    ticket.presidentReviewPhase = null;
+    ticket.updatedAt = now;
+    return true;
+  }
+
   if (ticket.status !== 'under_audit') return false;
   if (ticket.ownership?.state !== 'accepted') return false;
   if (!String(ticket.actionPlan?.summary || '').trim()) return false;
 
-  const now = new Date().toISOString();
   const published = ticket.actionPlan.publishedToReporterAt || ticket.actionPlan.submittedForReviewAt || now;
   ticket.status = 'in_mitigation';
   ticket.presidentReviewPhase = null;
@@ -3026,30 +2800,55 @@ function saveActionPlan(reference, user, body = {}) {
   ticket.updatedAt = now;
 
   if (submitForReview) {
-    ticket.status = 'in_mitigation';
-    ticket.presidentReviewPhase = null;
-    appendTicketAuditEvent(ticket, {
-      action: 'Action plan sent to reporter',
-      detail: `Mitigation plan published to ${ticket.submittedByName || ticket.submittedBy || 'the reporter'} for implementation.${targetDate ? ` Target date: ${targetDate}.` : ''}`,
-      actorUsername: user.username,
-      actorName: user.displayName || user.username,
-      actorRole: 'dept_head',
-    });
-    notifyReporterTicketUpdate(ticket, {
-      recipientUsername: ticket.submittedBy,
-      type: 'action_plan_published',
-      title: 'Department action plan ready',
-      message: `${formatDepartmentLabel(ticket.department)} published a mitigation plan for ${ticket.reference}. Review the plan, apply the solution, and submit your accomplishment report.`,
-    });
-    notifyRoles(['rm_officer'], {
-      type: 'action_plan_published',
-      title: 'Action plan sent to reporter',
-      message: `${formatDepartmentLabel(ticket.department)} sent the mitigation plan for ${ticket.reference} to the reporter for implementation.`,
-      ticketRef: ticket.reference,
-      fromUsername: user.username,
-      fromName: user.displayName || user.username,
-      fromRole: 'dept_head',
-    }, { excludeUsername: user.username });
+    if (requiresPresidentApproval(ticket)) {
+      // High / Critical — hold for President approval before releasing to the reporter.
+      ticket.status = 'pending_president';
+      ticket.presidentReviewPhase = 'action_plan';
+      ticket.presidentPlanDecision = null;
+      ticket.actionPlan.publishedToReporterAt = null;
+      ticket.actionPlan.submittedForReviewAt = now;
+      appendTicketAuditEvent(ticket, {
+        action: 'Action plan submitted to President',
+        detail: `High/Critical action plan submitted for presidential approval.${targetDate ? ` Target date: ${targetDate}.` : ''}`,
+        actorUsername: user.username,
+        actorName: user.displayName || user.username,
+        actorRole: 'dept_head',
+      });
+      notifyRoles(['president', 'rm_officer'], {
+        type: 'action_plan_president_review',
+        title: 'Action plan awaiting President',
+        message: `${formatDepartmentLabel(ticket.department)} submitted an action plan for ${ticket.reference} (High/Critical). Awaiting President approval.`,
+        ticketRef: ticket.reference,
+        fromUsername: user.username,
+        fromName: user.displayName || user.username,
+        fromRole: 'dept_head',
+      }, { excludeUsername: user.username });
+    } else {
+      ticket.status = 'in_mitigation';
+      ticket.presidentReviewPhase = null;
+      appendTicketAuditEvent(ticket, {
+        action: 'Action plan sent to reporter',
+        detail: `Mitigation plan published to ${ticket.submittedByName || ticket.submittedBy || 'the reporter'} for implementation.${targetDate ? ` Target date: ${targetDate}.` : ''}`,
+        actorUsername: user.username,
+        actorName: user.displayName || user.username,
+        actorRole: 'dept_head',
+      });
+      notifyReporterTicketUpdate(ticket, {
+        recipientUsername: ticket.submittedBy,
+        type: 'action_plan_published',
+        title: 'Department action plan ready',
+        message: `${formatDepartmentLabel(ticket.department)} published a mitigation plan for ${ticket.reference}. Review the plan, apply the solution, and submit your accomplishment report.`,
+      });
+      notifyRoles(['rm_officer'], {
+        type: 'action_plan_published',
+        title: 'Action plan sent to reporter',
+        message: `${formatDepartmentLabel(ticket.department)} sent the mitigation plan for ${ticket.reference} to the reporter for implementation.`,
+        ticketRef: ticket.reference,
+        fromUsername: user.username,
+        fromName: user.displayName || user.username,
+        fromRole: 'dept_head',
+      }, { excludeUsername: user.username });
+    }
   } else {
     appendTicketAuditEvent(ticket, {
       action: existed ? 'Action plan updated' : 'Action plan created',
@@ -3067,9 +2866,20 @@ function saveActionPlan(reference, user, body = {}) {
   }
 
   saveStore();
-  logDeptHeadAction(ticket, user, submitForReview ? 'action_plan_published' : (existed ? 'action_plan_updated' : 'action_plan_created'));
+  logDeptHeadAction(
+    ticket,
+    user,
+    submitForReview
+      ? (requiresPresidentApproval(ticket) ? 'action_plan_submitted_president' : 'action_plan_published')
+      : (existed ? 'action_plan_updated' : 'action_plan_created'),
+  );
 
-  return { ticket: publicTicket(ticket), flashKey: submitForReview ? 'action_plan_published' : undefined };
+  let flashKey;
+  if (submitForReview) {
+    flashKey = requiresPresidentApproval(ticket) ? 'action_plan_submitted_president' : 'action_plan_published';
+  }
+
+  return { ticket: publicTicket(ticket), flashKey };
 }
 
 function assignPersonnel(reference, user, body = {}) {
@@ -3565,17 +3375,6 @@ module.exports = {
   escalateTicketForRmu,
   overrideAiClassificationForRmu,
   addRmuThreadComment,
-  getTicketByRefForAudit,
-  listTicketsForAudit,
-  listAuditReviewQueue,
-  listAuditFinalValidationQueue,
-  getAuditStats,
-  findAttachmentForAudit,
-  approveSolutionByAudit,
-  returnSolutionToRmo,
-  closeTicketAsAudit,
-  returnAccomplishmentAsAudit,
-  addTicketComment,
   addReporterThreadComment,
   getTicketByRefForDeptHead,
   listTicketsForDeptHead,
@@ -3610,14 +3409,16 @@ module.exports = {
   canExecutiveCommentOnTicket,
   findAttachmentForExecutive,
   addExecutiveComment,
-  replyToExecutiveComment,
   getTicketByRefForPresident,
   listTicketsForPresident,
   listPresidentPendingQueue,
   getPresidentStats,
   findAttachmentForPresident,
   recordPresidentDecision,
+  addPresidentThreadComment,
   requiresPresidentApproval,
+  needsPresidentActionPlanDecision,
+  oversightCommentsForTicket,
   listTicketsForAdmin,
   getAdminTicketStats,
   getTicketByRefForAdmin,

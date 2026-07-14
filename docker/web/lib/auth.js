@@ -48,16 +48,6 @@ function requireRmOfficer(req, res, next) {
   return next();
 }
 
-function requireAuditOfficer(req, res, next) {
-  if (!req.session?.user) {
-    return res.redirect('/login');
-  }
-  if (req.session.user.role !== 'audit_officer') {
-    return res.status(403).send('Compliance Officer access only.');
-  }
-  return next();
-}
-
 function requireExecutive(req, res, next) {
   if (!req.session?.user) {
     return res.redirect('/login');
@@ -130,7 +120,6 @@ module.exports = {
   requireSupervisor,
   requireDeptHead,
   requireRmOfficer,
-  requireAuditOfficer,
   requireExecutive,
   requirePresident,
   requireRole,

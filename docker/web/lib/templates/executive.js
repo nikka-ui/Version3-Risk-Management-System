@@ -1,7 +1,9 @@
 const { getCategoryLabel, getStatusLabel, getStatusTone, RISK_CATEGORIES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { matrixCellTier } = require('../tickets');
-const { flashMessage, executiveCommentsSection } = require('./layout');
+const { flashMessage } = require('./layout');
+const { threadDiscussionSection } = require('./thread-discussion');
+const { executiveCommentsSection } = require('./layout');
 const { executiveAppLayout } = require('./executive-layout');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
@@ -308,7 +310,7 @@ function executiveOverviewPage(user, dashboard, flash) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'Dashboard',
-      desc: 'View-only oversight of organization-wide risks. You may comment on High and Critical reports only — you cannot approve, reject, transfer, or close tickets.',
+      desc: 'View-only oversight of organization-wide risks. You may comment on any submitted ticket — you cannot approve, reject, transfer, or close tickets.',
       actionHtml: '<a href="/executive/register" class="sup-btn-primary">Open risk register</a>',
     })}
     <div class="sup-kpi-grid sup-kpi-grid--levels">
@@ -385,7 +387,7 @@ function allTicketsPage(user, tickets, flash, filters = {}, stats = {}) {
 function criticalTicketsPage(user, tickets, flash, stats = {}) {
   return ticketsListPage(user, {
     title: 'Critical risks',
-    desc: 'Extreme/Critical risk reports. You may post oversight comments on High and Critical reports.',
+    desc: 'Extreme/Critical risk reports. You may post oversight comments on any ticket from the risk register.',
     tickets,
     flash,
     activeNav: 'register',
@@ -568,13 +570,12 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
   const isCritical = riskLevelId === 'critical';
   const statusHtml = `${riskLevelBadge(riskLevelId, riskLevel?.label || t.riskLevelLabel)} · ${statusPill(t.status, t.isOverdue)}`;
 
-  const commentBlock = isHighCritical
-    ? executiveCommentsSection(t.executiveComments, {
-        postAction: `/executive/tickets/${escapeHtml(ref)}/comment`,
-        canPost: true,
-      })
-    : `${executiveCommentsSection(t.executiveComments, { canPost: false })}
-       <p class="sup-muted-block exec-view-only-hint">View only — Executive Committee may comment on High and Critical risks only. Approve, reject, transfer, and close actions are not available for this role.</p>`;
+  const commentBlock = executiveCommentsSection(t.oversightComments || [], {
+    postAction: `/executive/tickets/${escapeHtml(ref)}/comment`,
+    canPost: true,
+    canReply: false,
+    hint: '<p class="text-muted section-hint">Visible to the Risk Governance Office (RMU) and Department Head. Not visible to the ticket reporter.</p>',
+  });
 
   const body = `
     ${flashMessage(flash)}
@@ -586,11 +587,12 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
       backHref: '/executive/register',
       backLabel: 'Back to risk register',
     })}
-    ${isCritical ? '<div class="critical-banner" role="status">Critical risk — you may post an oversight comment on this report</div>' : ''}
-    ${isHighCritical && !isCritical ? '<div class="critical-banner critical-banner--high" role="status">High risk — you may post an oversight comment on this report</div>' : ''}
+    ${isCritical ? '<div class="critical-banner" role="status">Critical risk — prioritized for executive oversight</div>' : ''}
+    ${isHighCritical && !isCritical ? '<div class="critical-banner critical-banner--high" role="status">High risk — prioritized for executive oversight</div>' : ''}
     ${ticketReadonlySections(t)}
     <div class="sup-detail-stack sup-detail-stack--comments">
       ${commentBlock}
+      <p class="sup-muted-block exec-view-only-hint">View only for decisions — approve, reject, transfer, and close actions are not available for this role. Comments you post are visible to the Department Head and Risk Governance Office (RMU).</p>
     </div>`;
 
   return executivePage({

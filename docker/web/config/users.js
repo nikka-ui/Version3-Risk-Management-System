@@ -107,16 +107,6 @@ const SEED_USERS = [
     department: 'Operations',
     position: 'Department Supervisor',
   },
-  {
-    username: 'compliance',
-    password: 'a3c2026',
-    role: 'audit_officer',
-    displayName: 'Compliance Officer',
-    employeeId: 'EMP-COMP001',
-    email: 'compliance@rms.local',
-    department: 'Internal Audit',
-    position: 'Compliance Officer',
-  },
 ];
 
 module.exports = { SEED_USERS };

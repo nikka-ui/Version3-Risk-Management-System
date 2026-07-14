@@ -8,7 +8,6 @@ const {
   requireSupervisor,
   requireDeptHead,
   requireRmOfficer,
-  requireAuditOfficer,
   requireExecutive,
   requirePresident,
   sessionUser,
@@ -60,13 +59,6 @@ const {
   renderDeptHeadTicketPage,
 } = require('./lib/templates/dept-head');
 const {
-  auditOverviewPage,
-  auditReviewQueuePage,
-  auditFinalValidationQueuePage,
-  allTicketsPage: auditAllTicketsPage,
-  renderAuditTicketPage,
-} = require('./lib/templates/audit');
-const {
   executiveOverviewPage,
   allTicketsPage: executiveAllTicketsPage,
   criticalTicketsPage,
@@ -112,19 +104,8 @@ const {
   listOfficerMonitoringQueue,
   getTicketByRefForOfficer,
   findAttachmentForOfficer,
-  addTicketComment,
   addRmuThreadComment,
   ticketForRole,
-  getTicketByRefForAudit,
-  listTicketsForAudit,
-  listAuditReviewQueue,
-  listAuditFinalValidationQueue,
-  getAuditStats,
-  findAttachmentForAudit,
-  approveSolutionByAudit,
-  returnSolutionToRmo,
-  closeTicketAsAudit,
-  returnAccomplishmentAsAudit,
   addReporterThreadComment,
   getTicketByRefForDeptHead,
   listTicketsForDeptHead,
@@ -140,7 +121,6 @@ const {
   saveActionPlan,
   assignPersonnel,
   uploadDeptDocuments,
-  addProgressUpdate,
   submitFinalResolution,
   closeTicketAsDeptHead,
   reopenTicketAsOfficer,
@@ -154,13 +134,13 @@ const {
   getTicketByRefForExecutive,
   findAttachmentForExecutive,
   addExecutiveComment,
-  replyToExecutiveComment,
   getPresidentStats,
   listTicketsForPresident,
   listPresidentPendingQueue,
   getTicketByRefForPresident,
   findAttachmentForPresident,
   recordPresidentDecision,
+  addPresidentThreadComment,
   publicTicket,
   listTicketsForAdmin,
   getAdminTicketStats,
@@ -258,14 +238,10 @@ function flashFromQuery(query) {
     comment_posted: 'Comment posted to the ticket thread.',
     notifications_read: 'All notifications marked as read.',
     mitigation_assigned: 'Mitigation assignment simulated (development).',
-    rmo_accepted: 'Mitigation solution submitted to the Compliance Officer for review.',
+    rmo_accepted: 'Mitigation solution released for implementation.',
     rmo_rejected: 'Report returned to department for revision.',
     rmo_closed: 'Ticket closed after final validation.',
     rmo_returned: 'Accomplishment returned for further implementation.',
-    audit_approved: 'Compliance validation completed. Action plan approved for implementation or presidential review.',
-    audit_returned: 'Action plan returned to the department for revision.',
-    audit_closed: 'Compliance review completed. Ticket forwarded for presidential final decision or closed.',
-    audit_accomplishment_returned: 'Revisions requested. Accomplishment returned to the department.',
     comment_added: 'Comment posted.',
     ownership_accepted: 'Ownership accepted. This ticket is now in progress under your department.',
     ownership_rejected: 'Ticket returned by the department. Revise your report and resubmit.',
@@ -273,19 +249,20 @@ function flashFromQuery(query) {
     action_plan_saved: 'Action plan saved.',
     action_plan_published: 'Action plan sent to the ticket reporter for implementation.',
     action_plan_submitted: 'Action plan sent to the ticket reporter for implementation.',
+    action_plan_submitted_president: 'Action plan submitted to the President for approval (High/Critical).',
     personnel_assigned: 'Personnel assigned to the ticket.',
     documents_uploaded_dept: 'Documents uploaded successfully.',
-    progress_submitted: 'Progress update submitted.',
     ticket_closed_dept: 'Ticket closed after accomplishment review.',
     ticket_reopened: 'Ticket reopened and assigned to the selected department.',
     resolution_submitted: 'Final resolution submitted. Awaiting the President\u2019s decision.',
     resolution_submitted_president: 'Final resolution submitted. Awaiting the President\u2019s decision (High/Critical risk).',
     resolution_submitted_auto: 'Final resolution auto-approved per department policy (Low/Moderate risk).',
     resolution_submitted_resolved: 'Final resolution accepted. Ticket resolved (Low/Moderate risk — no presidential review required).',
-    president_approve: 'Presidential approval recorded.',
-    president_reject: 'Action plan rejected. Ticket returned to the department.',
-    president_return: 'Ticket returned to the department for further work.',
+    president_approve: 'Action plan approved. Released for implementation.',
+    president_reject: 'Action plan declined. Department must submit a new plan.',
+    president_return: 'Action plan returned to the department for revision.',
     president_close: 'Ticket closed.',
+    president_comment: 'Comment posted.',
     dept_comment_posted: 'Comment posted to the ticket thread.',
     executive_comment_added: 'Executive Committee comment posted.',
     executive_reply_added: 'Reply posted.',
@@ -793,9 +770,14 @@ app.post('/supervisor/notifications/read-all', requireSupervisor, (req, res) => 
   return res.redirect('/supervisor/notifications?flash=notifications_read');
 });
 
-app.post('/supervisor/tickets/:ref/comment', requireSupervisor, (req, res) => {
+app.post('/supervisor/tickets/:ref/comment', requireSupervisor, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
-  const result = addReporterThreadComment(ref, req.session.user, req.body);
+  if (req.uploadError) {
+    return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = addReporterThreadComment(ref, req.session.user, req.body, {
+    uploadedFiles: req.files,
+  });
   if (result.error) {
     return res.redirect(`/supervisor/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
@@ -1007,15 +989,6 @@ app.post('/dept/tickets/:ref/documents', requireDeptHead, handleEvidenceUpload, 
   return res.redirect(`/dept/tickets/${ref}?flash=documents_uploaded_dept`);
 }));
 
-app.post('/dept/tickets/:ref/progress', requireDeptHead, (req, res) => {
-  const ref = req.params.ref;
-  const result = addProgressUpdate(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/dept/tickets/${ref}?flash=progress_submitted`);
-});
-
 app.post('/dept/tickets/:ref/resolution', requireDeptHead, (req, res) => {
   const ref = req.params.ref;
   const result = submitFinalResolution(ref, req.session.user, req.body);
@@ -1034,9 +1007,14 @@ app.post('/dept/tickets/:ref/close', requireDeptHead, (req, res) => {
   return res.redirect(`/dept/tickets/${ref}?flash=${result.flashKey || 'ticket_closed_dept'}`);
 });
 
-app.post('/dept/tickets/:ref/comment', requireDeptHead, (req, res) => {
+app.post('/dept/tickets/:ref/comment', requireDeptHead, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
-  const result = addDeptHeadThreadComment(ref, req.session.user, req.body);
+  if (req.uploadError) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
+  const result = addDeptHeadThreadComment(ref, req.session.user, req.body, {
+    uploadedFiles: req.files,
+  });
   if (result.error) {
     return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
@@ -1171,8 +1149,11 @@ app.get('/officer/attachments/:id', requireRmOfficer, asyncRoute(async (req, res
   await sendAttachment(res, found);
 }));
 
-app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, (req, res) => {
+app.post('/officer/tickets/:ref/thread-comment', requireRmOfficer, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
+  if (req.uploadError) {
+    return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
   const result = addRmuThreadComment(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/officer/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
@@ -1192,127 +1173,6 @@ app.post('/officer/tickets/:ref/reopen', requireRmOfficer, (req, res) => {
 app.post('/officer/notifications/read-all', requireRmOfficer, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/officer';
-  return res.redirect(back);
-});
-
-/* —— Compliance Officer (routes retain /audit and requireAuditOfficer for compatibility) —— */
-
-app.get('/audit', requireAuditOfficer, (req, res) => {
-  res.type('html').send(
-    auditOverviewPage(req.session.user, getAuditStats(), flashFromQuery(req.query)),
-  );
-});
-
-app.get('/audit/review', requireAuditOfficer, (req, res) => {
-  const stats = getAuditStats();
-  res.type('html').send(
-    auditReviewQueuePage(
-      req.session.user,
-      listAuditReviewQueue(),
-      flashFromQuery(req.query),
-      { error: req.query.error ? decodeURIComponent(req.query.error) : null, stats },
-    ),
-  );
-});
-
-app.get('/audit/final-validation', requireAuditOfficer, (req, res) => {
-  const stats = getAuditStats();
-  res.type('html').send(
-    auditFinalValidationQueuePage(
-      req.session.user,
-      listAuditFinalValidationQueue(),
-      flashFromQuery(req.query),
-      { error: req.query.error ? decodeURIComponent(req.query.error) : null, stats },
-    ),
-  );
-});
-
-app.get('/audit/tickets', requireAuditOfficer, (req, res) => {
-  const stats = getAuditStats();
-  res.type('html').send(
-    auditAllTicketsPage(req.session.user, listTicketsForAudit(), flashFromQuery(req.query), { stats }),
-  );
-});
-
-app.get('/audit/tickets/:ref', requireAuditOfficer, asyncRoute(async (req, res) => {
-  const ref = req.params.ref;
-  markTicketNotificationsRead(req.session.user, ref);
-  const raw = getTicketByRefForAudit(ref);
-  if (!raw) {
-    return res.redirect('/audit/tickets?flash=not_found');
-  }
-  const ticket = await ticketForRole(raw, 'audit_officer');
-  res.type('html').send(
-    renderAuditTicketPage(req.session.user, ticket, {
-      flash: flashFromQuery(req.query),
-      error: req.query.error ? decodeURIComponent(req.query.error) : null,
-      stats: getAuditStats(),
-    }),
-  );
-}));
-
-app.get('/audit/attachments/:id', requireAuditOfficer, asyncRoute(async (req, res) => {
-  const found = await findAttachmentForAudit(req.params.id);
-  await sendAttachment(res, found);
-}));
-
-app.post('/audit/tickets/:ref/approve', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = approveSolutionByAudit(ref, req.session.user.username, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect('/audit/review?flash=audit_approved');
-});
-
-app.post('/audit/tickets/:ref/return', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = returnSolutionToRmo(ref, req.session.user.username, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect('/audit/review?flash=audit_returned');
-});
-
-app.post('/audit/tickets/:ref/close', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = closeTicketAsAudit(ref, req.session.user.username, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect('/audit/final-validation?flash=audit_closed');
-});
-
-app.post('/audit/tickets/:ref/return-accomplishment', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = returnAccomplishmentAsAudit(ref, req.session.user.username, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect('/audit/final-validation?flash=audit_accomplishment_returned');
-});
-
-app.post('/audit/tickets/:ref/comment', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = addTicketComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/audit/tickets/${ref}?flash=comment_added`);
-});
-
-app.post('/audit/tickets/:ref/executive-reply', requireAuditOfficer, (req, res) => {
-  const ref = req.params.ref;
-  const result = replyToExecutiveComment(ref, req.session.user, req.body);
-  if (result.error) {
-    return res.redirect(`/audit/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
-  }
-  return res.redirect(`/audit/tickets/${ref}?flash=executive_reply_added`);
-});
-
-app.post('/audit/notifications/read-all', requireAuditOfficer, (req, res) => {
-  markNotificationsReadForUser(req.session.user);
-  const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/audit';
   return res.redirect(back);
 });
 
@@ -1407,8 +1267,11 @@ app.get('/executive/attachments/:id', requireExecutive, asyncRoute(async (req, r
   await sendAttachment(res, found);
 }));
 
-app.post('/executive/tickets/:ref/comment', requireExecutive, (req, res) => {
+app.post('/executive/tickets/:ref/comment', requireExecutive, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
+  if (req.uploadError) {
+    return res.redirect(`/executive/tickets/${ref}?error=${encodeURIComponent(req.uploadError)}`);
+  }
   const result = addExecutiveComment(ref, req.session.user, req.body);
   if (result.error) {
     return res.redirect(`/executive/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
@@ -1482,6 +1345,15 @@ app.post('/president/tickets/:ref/decision', requirePresident, (req, res) => {
     return res.redirect(`/president/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect(`/president/tickets/${ref}?flash=${result.flashKey || 'president_approve'}`);
+});
+
+app.post('/president/tickets/:ref/comment', requirePresident, handleEvidenceUpload, (req, res) => {
+  const ref = req.params.ref;
+  const result = addPresidentThreadComment(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/president/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/president/tickets/${ref}?flash=president_comment`);
 });
 
 app.get('/president/attachments/:id', requirePresident, asyncRoute(async (req, res) => {

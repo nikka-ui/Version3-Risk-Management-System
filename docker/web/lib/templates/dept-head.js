@@ -13,6 +13,7 @@ const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const { supTicketHead, supDetailCard } = require('./console-ui');
 const { threadDiscussionSection } = require('./thread-discussion');
+const { executiveCommentsSection } = require('./layout');
 
 /* —— shared bits —— */
 
@@ -398,11 +399,19 @@ function reassignmentHistoryCard(ticket) {
 function actionPlanCard(ticket, ref, { editable }) {
   const plan = ticket.actionPlan;
   const isDraft = plan && !plan.publishedToReporterAt && !plan.submittedForReviewAt;
+  const riskLevel = ticket.riskLevel || ticket.ai?.riskLevel?.id;
+  const needsPresident = ['high', 'critical'].includes(riskLevel);
+  const submitLabel = needsPresident
+    ? 'Submit to President for approval'
+    : 'Send to reporter for implementation';
+  const draftHint = needsPresident
+    ? 'Draft saved — not submitted yet. Set a target date and submit to the President for approval (High/Critical).'
+    : 'Draft saved — not sent to the reporter yet. Set a target date and use “Send to reporter for implementation” when ready.';
   const view = plan
     ? `<div class="sup-card__body">
         <p class="dept-plan__summary">${escapeHtml(plan.summary)}</p>
         ${(plan.steps || []).length ? `<ol class="dept-plan__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>` : ''}
-        <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))} by ${escapeHtml(plan.updatedByName || '—')}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}${plan.publishedToReporterAt || plan.submittedForReviewAt ? ` · sent to reporter ${escapeHtml(formatDate(plan.publishedToReporterAt || plan.submittedForReviewAt))}` : ''}</p>
+        <p class="sup-muted-block">v${plan.version} · updated ${escapeHtml(formatDate(plan.updatedAt))} by ${escapeHtml(plan.updatedByName || '—')}${plan.targetDate ? ` · target ${escapeHtml(formatDate(plan.targetDate))}` : ''}${plan.publishedToReporterAt || plan.submittedForReviewAt ? ` · ${plan.publishedToReporterAt ? `sent to reporter ${escapeHtml(formatDate(plan.publishedToReporterAt))}` : `submitted for review ${escapeHtml(formatDate(plan.submittedForReviewAt))}`}` : ''}</p>
       </div>`
     : `<div class="sup-card__body"><p class="sup-muted-block">No action plan yet.</p></div>`;
 
@@ -417,70 +426,20 @@ function actionPlanCard(ticket, ref, { editable }) {
           <textarea id="planSteps" name="steps" rows="3" placeholder="Step 1&#10;Step 2&#10;Step 3">${escapeHtml((plan?.steps || []).join('\n'))}</textarea>
         </div>
         <div class="field field--console">
-          <label for="planTarget">Target completion date <span class="text-muted">(required to send to reporter)</span></label>
+          <label for="planTarget">Target completion date <span class="text-muted">(required to submit)</span></label>
           <input id="planTarget" name="targetDate" type="date" value="${plan?.targetDate ? new Date(plan.targetDate).toISOString().slice(0, 10) : ''}">
         </div>
         <button type="submit" class="btn-accept--outline">${plan ? 'Save draft' : 'Save action plan draft'}</button>
-        <button type="submit" name="submitForReview" value="1" class="btn-primary btn-primary--auto">Send to reporter for implementation</button>
+        <button type="submit" name="submitForReview" value="1" class="btn-primary btn-primary--auto">${escapeHtml(submitLabel)}</button>
       </form>`
     : '';
 
   return `<section class="sup-card sup-card--accent">
     <div class="sup-card__head"><h2>Action plan${ticket.actionPlan ? ` <span class="text-muted">(v${ticket.actionPlan.version})</span>` : ''}${isDraft ? ' <span class="pill pill--warn">Draft</span>' : ''}</h2></div>
-    ${isDraft ? '<div class="dept-plan-draft-banner" role="status">Draft saved — not sent to the reporter yet. Set a target date and use “Send to reporter for implementation” when ready.</div>' : ''}
+    ${isDraft ? `<div class="dept-plan-draft-banner" role="status">${escapeHtml(draftHint)}</div>` : ''}
     ${view}
     ${form ? `<div class="sup-card__body">${form}</div>` : ''}
   </section>`;
-}
-
-function deptExecutionToolbar(ref, { editable }) {
-  if (!editable) return '';
-  return `<div class="dept-compact-actions" aria-label="Ticket workbench actions">
-    <button type="button" class="dept-compact-btn" data-dept-modal-open="progress">Post progress update</button>
-  </div>`;
-}
-
-function progressCard(ticket, ref, { editable }) {
-  const updates = ticket.progressUpdates || [];
-  if (!updates.length) return '';
-
-  const list = `<ul class="dept-progress">${[...updates]
-    .reverse()
-    .map(
-      (u) => `<li class="dept-progress__item">
-        <div class="dept-progress__meta">
-          ${u.percent != null ? `<span class="dept-progress__pct">${u.percent}%</span>` : ''}
-          <span class="dept-progress__author">${escapeHtml(u.authorName || u.authorUsername)}</span>
-          <span class="dept-progress__time">${escapeHtml(formatDate(u.at))}</span>
-        </div>
-        <p class="dept-progress__body">${escapeHtml(u.body)}</p>
-      </li>`,
-    )
-    .join('')}</ul>`;
-
-  return `<section class="sup-card sup-card--compact dept-panel--compact">
-    <div class="sup-card__head"><h2>Progress updates <span class="text-muted">(${updates.length})</span></h2></div>
-    <div class="sup-card__body">${list}</div>
-  </section>`;
-}
-
-function deptExecutionModals(ref) {
-  const progressForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/progress" class="stack-form stack-form--console dept-modal__form">
-    <div class="field field--console">
-      <label for="progressBody">Progress update</label>
-      <textarea id="progressBody" name="update" rows="3" required placeholder="Describe what has been done since the last update…"></textarea>
-    </div>
-    <div class="field field--console">
-      <label for="progressPct">Completion %</label>
-      <input id="progressPct" name="percent" type="number" min="0" max="100" placeholder="e.g. 60">
-    </div>
-    <div class="dept-modal__actions">
-      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
-      <button type="submit" class="btn-primary btn-primary--auto">Submit update</button>
-    </div>
-  </form>`;
-
-  return deptModalShell('dept-modal-progress', 'Post progress update', 'Record implementation progress for the reporter and audit trail.', progressForm);
 }
 
 function documentsSection(ticket, ref, { editable }) {
@@ -767,6 +726,18 @@ function timelineBlock(ticket) {
   </div>`;
 }
 
+function oversightCommentsCard(ticket) {
+  const comments = ticket.oversightComments || [];
+  const level = ticket.riskLevel || ticket.ai?.riskLevel?.id;
+  const isHighCritical = level === 'high' || level === 'critical';
+  if (!comments.length && !isHighCritical) return '';
+  return executiveCommentsSection(comments, {
+    canPost: false,
+    canReply: false,
+    hint: '<p class="text-muted section-hint">Oversight comments from the Executive Committee and President. Visible to your department and the Risk Governance Office (RMU).</p>',
+  });
+}
+
 function activitySection(ticket, ref, user) {
   const commentCount = (ticket.threadComments || []).length;
   const historyCount = (ticket.auditTrail || []).length;
@@ -782,6 +753,7 @@ function activitySection(ticket, ref, user) {
     canReact: true,
     canEditOwn: true,
     currentUsername: user?.username,
+    showAttachments: false,
     composePlaceholder: 'Discuss this ticket with the reporter and Risk Management Unit…',
   }).replace('<section class="sup-card sup-card--thread">', '<div class="dept-activity__panel" data-activity-panel="comments">')
     .replace(/<div class="sup-card__head"><h2><\/h2><\/div>\s*/, '')
@@ -848,17 +820,16 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ${aiCard(t)}
     ${reassignmentHistoryCard(t)}
     ${actionPlanCard(t, ref, { editable: canExecute })}
-    ${deptExecutionToolbar(ref, { editable: canExecute })}
-    ${progressCard(t, ref, { editable: canExecute })}
     ${documentsSection(t, ref, { editable: canExecute })}
     ${accomplishmentReviewCard(t)}
     ${finalResolutionCard(t, ref, { editable: canExecute })}
     ${presidentDecisionCard(t)}
+    ${oversightCommentsCard(t)}
     ${activitySection(t, ref, user)}`;
 
   const showOwnershipBar = isAssigned;
   const showReassignBar = canExecute;
-  const showModals = showOwnershipBar || showReassignBar || canClose || canExecute;
+  const showModals = showOwnershipBar || showReassignBar || canClose;
 
   const body = `
     ${flashMessage(opts.flash)}
@@ -882,7 +853,6 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
       </aside>
     </div>
     ${showModals ? deptOwnershipModals(ref, t) : ''}
-    ${canExecute ? deptExecutionModals(ref) : ''}
     ${canClose ? closureModal(ref) : ''}
     ${ACTIVITY_TABS_SCRIPT}
     ${showModals ? DEPT_MODALS_SCRIPT : ''}`;

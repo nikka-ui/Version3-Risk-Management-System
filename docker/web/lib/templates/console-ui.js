@@ -10,13 +10,16 @@ function supPageHead({ title, desc, actionHtml = '' }) {
   </div>`;
 }
 
-function supTicketHead({ title, ref, statusHtml, backHref, backLabel }) {
+function supTicketHead({ title, ref, statusHtml, backHref, backLabel, actionHtml }) {
   return `<div class="sup-page-head sup-page-head--ticket">
     <div>
       <h1>${escapeHtml(title)}</h1>
       <p class="sup-page-desc"><span class="mono">${escapeHtml(ref)}</span> · ${statusHtml}</p>
     </div>
-    <a href="${backHref}" class="sup-btn-outline">${escapeHtml(backLabel)}</a>
+    <div class="sup-page-head__actions">
+      ${actionHtml || ''}
+      <a href="${backHref}" class="sup-btn-outline">${escapeHtml(backLabel)}</a>
+    </div>
   </div>`;
 }
 

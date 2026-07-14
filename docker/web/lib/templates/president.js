@@ -4,7 +4,8 @@ const { flashMessage } = require('./layout');
 const { presidentAppLayout } = require('./president-layout');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
-const { supPageHead, supTicketHead, supQuickActions, supDetailCard, supDecisionPanel } = require('./console-ui');
+const { threadDiscussionSection } = require('./thread-discussion');
+const { supPageHead, supTicketHead, supQuickActions, supDetailCard } = require('./console-ui');
 
 const TABLE_HEAD = `<tr>
   <th>Reference</th>
@@ -147,111 +148,239 @@ function complianceFindingsCard(ticket) {
   );
 }
 
+function needsActionPlanDecision(ticket) {
+  const level = ticket.riskLevel || ticket.ai?.riskLevel?.id;
+  if (!['high', 'critical'].includes(level)) return false;
+  if (!String(ticket.actionPlan?.summary || '').trim()) return false;
+  if (ticket.presidentPlanDecision?.decisionId === 'approve') return false;
+  if (ticket.status === 'pending_president_final') return false;
+  if (['closed', 'resolved', 'draft'].includes(ticket.status)) return false;
+  return true;
+}
+
 function actionPlanCard(ticket) {
   const plan = ticket.actionPlan;
   if (!plan) return '';
+  const steps = (plan.steps || []).length
+    ? `<ol class="dept-plan__steps">${plan.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ol>`
+    : '';
   return supDetailCard(
     'Department action plan',
-    `<p>${escapeHtml(plan.summary || plan.description || '—')}</p>
-     ${plan.dueAt ? `<p class="sup-muted-block">Target: ${escapeHtml(formatDate(plan.dueAt))}</p>` : ''}`,
+    `<p class="dept-plan__summary">${escapeHtml(plan.summary || plan.description || '—')}</p>
+     ${steps}
+     ${plan.targetDate || plan.dueAt ? `<p class="sup-muted-block">Target: ${escapeHtml(formatDate(plan.targetDate || plan.dueAt))}</p>` : ''}
+     ${plan.updatedByName ? `<p class="sup-muted-block">Updated by ${escapeHtml(plan.updatedByName)}${plan.updatedAt ? ` · ${escapeHtml(formatDate(plan.updatedAt))}` : ''}</p>` : ''}`,
+    { accent: true },
   );
 }
 
-function presidentDecisionPanel(ticket, ref) {
-  const isActionPlanPhase = ticket.status === 'pending_president' && !ticket.presidentPlanDecision;
-  const isFinalPhase = ticket.status === 'pending_president_final' && !ticket.presidentFinalDecision;
-  if (!isActionPlanPhase && !isFinalPhase) return '';
+function detailsSidebar(ticket) {
+  const riskLevel = ticket.ai?.riskLevel || { id: ticket.riskLevel, label: ticket.riskLevelLabel };
+  const due = ticket.actionPlan?.targetDate || ticket.mitigationDueAt;
+  return `<div class="dept-side-card">
+    <h3 class="dept-side-card__title">Details</h3>
+    <dl class="detail-dl detail-dl--console">
+      <dt>Department</dt><dd>${escapeHtml(ticket.department || '—')}</dd>
+      <dt>Submitted by</dt><dd>${escapeHtml(ticket.submittedByName || ticket.submittedBy || '—')}</dd>
+      <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(ticket.category))}</dd>
+      <dt>Risk level</dt><dd>${riskLevelBadge(riskLevel?.id || ticket.riskLevel, riskLevel?.label || ticket.riskLevelLabel)}</dd>
+      <dt>Status</dt><dd>${statusPill(ticket.status, ticket.isOverdue)}</dd>
+      <dt>Submitted</dt><dd>${escapeHtml(formatDate(ticket.submittedAt || ticket.createdAt))}</dd>
+      ${due ? `<dt>Target date</dt><dd>${escapeHtml(formatDate(due))}</dd>` : ''}
+    </dl>
+  </div>`;
+}
 
-  if (isFinalPhase) {
-    return supDecisionPanel({
-      title: 'President final decision',
-      desc: 'After compliance review of the accomplishment report, close the ticket or return it to the department for further work.',
-      bodyHtml: `<div class="decision-actions">
-        <section class="decision-action-card decision-action-card--accept">
-          <h3 class="decision-action-card__title">Close ticket</h3>
-          <form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console">
-            <input type="hidden" name="decision" value="close">
-            <div class="field field--console">
-              <label for="closeNote">Note <span class="text-muted">(optional)</span></label>
-              <textarea id="closeNote" name="note" rows="2" placeholder="Optional closing note…"></textarea>
-            </div>
-            <button type="submit" class="btn-accept--outline">Close ticket</button>
-          </form>
-        </section>
-        <section class="decision-action-card decision-action-card--return">
-          <h3 class="decision-action-card__title">Return to department</h3>
-          <form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console">
-            <input type="hidden" name="decision" value="return">
-            <div class="field field--console">
-              <label for="returnNoteFinal">Reason <span class="text-muted">(required)</span></label>
-              <textarea id="returnNoteFinal" name="note" rows="2" required placeholder="What should the department revise or complete…"></textarea>
-            </div>
-            <button type="submit" class="btn-outline btn-primary--auto">Return ticket</button>
-          </form>
-        </section>
-      </div>`,
-    });
+function presidentModalShell(id, title, desc, formHtml) {
+  return `<div class="dept-modal" id="${escapeHtml(id)}" hidden aria-hidden="true">
+    <div class="dept-modal__backdrop" data-pres-modal-close tabindex="-1" aria-hidden="true"></div>
+    <div class="dept-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="${escapeHtml(id)}-title">
+      <div class="dept-modal__head">
+        <h2 class="dept-modal__title" id="${escapeHtml(id)}-title">${escapeHtml(title)}</h2>
+        <button type="button" class="dept-modal__close" data-pres-modal-close aria-label="Close">&times;</button>
+      </div>
+      ${desc ? `<p class="dept-modal__desc">${escapeHtml(desc)}</p>` : ''}
+      ${formHtml}
+    </div>
+  </div>`;
+}
+
+/** Side action bar — Approve / Decline / Return (mirrors department-head ownership bar). */
+function actionPlanDecisionSideBar(ticket, ref) {
+  if (!needsActionPlanDecision(ticket)) return '';
+  return `<section class="dept-action-bar dept-action-bar--side" id="president-decision" aria-label="Action plan decision">
+    <div class="dept-action-bar__copy">
+      <strong>Action plan decision</strong>
+      <p>Approve or decline this High/Critical action plan before implementation.</p>
+    </div>
+    <div class="dept-action-bar__buttons">
+      <button type="button" class="dept-action-btn dept-action-btn--accept" data-pres-modal-open="approve">Approve action plan</button>
+      <button type="button" class="dept-action-btn dept-action-btn--reject" data-pres-modal-open="decline">Decline action plan</button>
+      <button type="button" class="dept-action-btn dept-action-btn--reassign" data-pres-modal-open="return">Return for revision</button>
+    </div>
+  </section>`;
+}
+
+function presidentFinalDecisionSideBar(ticket, ref) {
+  if (ticket.status !== 'pending_president_final' || ticket.presidentFinalDecision) return '';
+  return `<section class="dept-action-bar dept-action-bar--side" aria-label="Final decision">
+    <div class="dept-action-bar__copy">
+      <strong>Final decision</strong>
+      <p>Close the ticket or return it to the department.</p>
+    </div>
+    <div class="dept-action-bar__buttons">
+      <button type="button" class="dept-action-btn dept-action-btn--accept" data-pres-modal-open="close">Close ticket</button>
+      <button type="button" class="dept-action-btn dept-action-btn--reassign" data-pres-modal-open="return-final">Return to department</button>
+    </div>
+  </section>`;
+}
+
+function presidentDecisionModals(ticket, ref) {
+  const modals = [];
+
+  if (needsActionPlanDecision(ticket)) {
+    const approveForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
+      <input type="hidden" name="decision" value="approve">
+      <div class="field field--console">
+        <label for="approveNote">Note <span class="text-muted">(optional)</span></label>
+        <textarea id="approveNote" name="note" rows="3" placeholder="Optional approval note…"></textarea>
+      </div>
+      <div class="dept-modal__actions">
+        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
+        <button type="submit" class="btn-accept--outline">Approve action plan</button>
+      </div>
+    </form>`;
+
+    const declineForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
+      <input type="hidden" name="decision" value="decline">
+      <div class="field field--console">
+        <label for="declineNote">Reason <span class="text-muted">(required)</span></label>
+        <textarea id="declineNote" name="note" rows="3" required placeholder="Explain why the action plan is declined…"></textarea>
+      </div>
+      <div class="dept-modal__actions">
+        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
+        <button type="submit" class="btn-danger--outline">Decline action plan</button>
+      </div>
+    </form>`;
+
+    const returnForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
+      <input type="hidden" name="decision" value="return">
+      <div class="field field--console">
+        <label for="returnNote">Instructions <span class="text-muted">(required)</span></label>
+        <textarea id="returnNote" name="note" rows="3" required placeholder="What should the department revise…"></textarea>
+      </div>
+      <div class="dept-modal__actions">
+        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
+        <button type="submit" class="btn-primary btn-primary--auto">Return to department</button>
+      </div>
+    </form>`;
+
+    modals.push(
+      presidentModalShell('pres-modal-approve', 'Approve action plan', 'Release this plan to the reporter for implementation.', approveForm),
+      presidentModalShell('pres-modal-decline', 'Decline action plan', 'Reject the plan. The department must create a new one.', declineForm),
+      presidentModalShell('pres-modal-return', 'Return for revision', 'Send the plan back with revision instructions.', returnForm),
+    );
   }
 
-  return supDecisionPanel({
-    title: 'President approval',
-    desc: 'Review the validated action plan. Approve to release the department for implementation, or return/reject for revision.',
-    bodyHtml: `<div class="decision-actions">
-      <section class="decision-action-card decision-action-card--accept">
-        <h3 class="decision-action-card__title">Approve action plan</h3>
-        <form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console">
-          <input type="hidden" name="decision" value="approve">
-          <div class="field field--console">
-            <label for="approveNote">Note <span class="text-muted">(optional)</span></label>
-            <textarea id="approveNote" name="note" rows="2" placeholder="Optional approval note…"></textarea>
-          </div>
-          <button type="submit" class="btn-accept--outline">Approve for implementation</button>
-        </form>
-      </section>
-      <section class="decision-action-card decision-action-card--return">
-        <h3 class="decision-action-card__title">Reject action plan</h3>
-        <form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console">
-          <input type="hidden" name="decision" value="reject">
-          <div class="field field--console">
-            <label for="rejectNote">Reason <span class="text-muted">(required)</span></label>
-            <textarea id="rejectNote" name="note" rows="2" required placeholder="Explain why the action plan is rejected…"></textarea>
-          </div>
-          <button type="submit" class="btn-danger--outline">Reject action plan</button>
-        </form>
-      </section>
-      <section class="decision-action-card decision-action-card--reassign">
-        <h3 class="decision-action-card__title">Return for revision</h3>
-        <form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console">
-          <input type="hidden" name="decision" value="return">
-          <div class="field field--console">
-            <label for="returnNote">Instructions <span class="text-muted">(required)</span></label>
-            <textarea id="returnNote" name="note" rows="2" required placeholder="What should the department revise…"></textarea>
-          </div>
-          <button type="submit" class="btn-outline btn-primary--auto">Return to department</button>
-        </form>
-      </section>
-    </div>`,
-  });
+  if (ticket.status === 'pending_president_final' && !ticket.presidentFinalDecision) {
+    const closeForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
+      <input type="hidden" name="decision" value="close">
+      <div class="field field--console">
+        <label for="closeNote">Note <span class="text-muted">(optional)</span></label>
+        <textarea id="closeNote" name="note" rows="3" placeholder="Optional closing note…"></textarea>
+      </div>
+      <div class="dept-modal__actions">
+        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
+        <button type="submit" class="btn-accept--outline">Close ticket</button>
+      </div>
+    </form>`;
+
+    const returnFinalForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
+      <input type="hidden" name="decision" value="return">
+      <div class="field field--console">
+        <label for="returnNoteFinal">Reason <span class="text-muted">(required)</span></label>
+        <textarea id="returnNoteFinal" name="note" rows="3" required placeholder="What should the department revise or complete…"></textarea>
+      </div>
+      <div class="dept-modal__actions">
+        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
+        <button type="submit" class="btn-primary btn-primary--auto">Return ticket</button>
+      </div>
+    </form>`;
+
+    modals.push(
+      presidentModalShell('pres-modal-close', 'Close ticket', 'Close this ticket after accomplishment review.', closeForm),
+      presidentModalShell('pres-modal-return-final', 'Return to department', 'Return the ticket for further work.', returnFinalForm),
+    );
+  }
+
+  return modals.join('');
 }
+
+const PRESIDENT_MODALS_SCRIPT = `<script>
+(function () {
+  function closeAllPresModals() {
+    document.querySelectorAll('.dept-modal:not([hidden])').forEach(function (modal) {
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+    });
+    document.body.classList.remove('dept-modal-open');
+  }
+
+  function openPresModal(id) {
+    closeAllPresModals();
+    var modal = document.getElementById(id);
+    if (!modal) return;
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('dept-modal-open');
+    var focusable = modal.querySelector('textarea, select, button:not(.dept-modal__close)');
+    if (focusable) focusable.focus();
+  }
+
+  document.querySelectorAll('[data-pres-modal-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      openPresModal('pres-modal-' + btn.getAttribute('data-pres-modal-open'));
+    });
+  });
+
+  document.querySelectorAll('[data-pres-modal-close]').forEach(function (el) {
+    el.addEventListener('click', closeAllPresModals);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') closeAllPresModals();
+  });
+})();
+</script>`;
 
 function presidentDecisionCard(ticket) {
   const decisions = [ticket.presidentPlanDecision, ticket.presidentFinalDecision, ticket.presidentDecision].filter(Boolean);
-  if (!decisions.length) {
-    if (['pending_president', 'pending_president_final'].includes(ticket.status)) {
-      return `<section class="sup-card sup-card--accent">
-        <div class="sup-card__head"><h2>President decision</h2></div>
-        <div class="sup-card__body"><p class="sup-muted-block">Awaiting the President\u2019s decision.</p></div>
-      </section>`;
-    }
-    return '';
-  }
-  return decisions.map((d) => supDetailCard(
-    d.phase === 'final' ? 'President final decision' : 'President approval',
-    `<p><strong>${escapeHtml(d.decision || 'Decision')}</strong></p>
+  if (!decisions.length) return '';
+  return decisions.map((d) =>
+    supDetailCard(
+      d.phase === 'final' ? 'President final decision' : 'President approval',
+      `<p><strong>${escapeHtml(d.decision || 'Decision')}</strong></p>
      ${d.note ? `<p>${escapeHtml(d.note)}</p>` : ''}
      <p class="sup-muted-block">${escapeHtml(d.authorName || 'President')} · ${escapeHtml(formatDate(d.at))}</p>`,
-    { accent: true },
-  )).join('');
+      { accent: true },
+    ),
+  ).join('');
+}
+
+function commentsSection(ticket, ref, user) {
+  return threadDiscussionSection(ticket, ref, {
+    title: 'Comments',
+    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Governance Office (RMU).',
+    postAction: `/president/tickets/${escapeHtml(ref)}/comment`,
+    canPost: true,
+    canReact: false,
+    canEditOwn: false,
+    currentUsername: user?.username,
+    showAttachments: false,
+    composeLabel: 'Add comment',
+    composePlaceholder: 'Comment on this High/Critical risk action plan…',
+    submitLabel: 'Post comment',
+  });
 }
 
 const KPI_ICONS = {
@@ -303,7 +432,7 @@ function presidentOverviewPage(user, stats, flash) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'President dashboard',
-      desc: 'Final approving authority for High and Critical organizational risks. Low and Moderate risks are resolved by departments and may be auto-approved per department policy.',
+      desc: 'Final approving authority for High and Critical organizational risks. Review and approve or decline department action plans before implementation.',
       actionHtml: stats.pendingCount
         ? '<a href="/president/pending" class="sup-btn-primary">Review pending decisions</a>'
         : '',
@@ -329,7 +458,7 @@ function pendingQueuePage(user, tickets, flash, stats = {}) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'Pending decisions',
-      desc: 'High and Critical risk tickets with final resolutions awaiting your approval.',
+      desc: 'High and Critical risk action plans awaiting your approval or decline.',
     })}
     ${tableCard({ rows, emptyMessage: 'No tickets awaiting presidential decision.', showHead: false })}`;
 
@@ -349,7 +478,7 @@ function riskListPage(user, { title, desc, tickets, flash, activeNav, level, sta
 function highTicketsPage(user, tickets, flash, stats = {}) {
   return riskListPage(user, {
     title: 'High risks',
-    desc: 'High-risk reports requiring presidential oversight when a final resolution is submitted.',
+    desc: 'High-risk reports. Action plans on these tickets require presidential approve or decline.',
     tickets,
     flash,
     activeNav: 'high',
@@ -374,26 +503,42 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
   const t = ticket;
   const ref = t.reference;
   const riskLevel = t.ai?.riskLevel || { id: t.riskLevel, label: t.riskLevelLabel };
-  const isCritical = (riskLevel?.id || t.riskLevel) === 'critical';
-  const statusHtml = `${riskLevelBadge(riskLevel?.id || t.riskLevel, riskLevel?.label || t.riskLevelLabel)} · ${statusPill(t.status, t.isOverdue)}`;
+  const riskLevelId = riskLevel?.id || t.riskLevel;
+  const isCritical = riskLevelId === 'critical';
+  const isHigh = riskLevelId === 'high';
+  const needsDecision = needsActionPlanDecision(t) || t.status === 'pending_president_final';
+  const statusHtml = `${riskLevelBadge(riskLevelId, riskLevel?.label || t.riskLevelLabel)} · ${statusPill(t.status, t.isOverdue)}`;
+  const showModals = needsActionPlanDecision(t) || t.status === 'pending_president_final';
 
-  const detailInner = `<dl class="detail-dl detail-dl--console">
-      <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
-      <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
-      <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
-      <dt>Risk level</dt><dd>${riskLevelBadge(riskLevel?.id || t.riskLevel, riskLevel?.label || t.riskLevelLabel)}</dd>
-      <dt>Status</dt><dd>${statusPill(t.status, t.isOverdue)}</dd>
-      <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
-    </dl>
-    <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`;
-
-  const aiInner = t.ai
-    ? `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
-        <dl class="detail-dl detail-dl--console">
-          <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
-          <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
-        </dl>`
-    : '<p class="sup-muted-block">No AI classification available.</p>';
+  const main = `
+    ${supDetailCard('Risk details', `<dl class="detail-dl detail-dl--console">
+        <dt>Submitted by</dt><dd>${escapeHtml(t.submittedByName || t.submittedBy)} (${escapeHtml(t.department)})</dd>
+        <dt>Location</dt><dd>${escapeHtml(t.location || '—')}</dd>
+        <dt>Category</dt><dd>${escapeHtml(getCategoryLabel(t.category))}</dd>
+        <dt>Risk level</dt><dd>${riskLevelBadge(riskLevelId, riskLevel?.label || t.riskLevelLabel)}</dd>
+        <dt>Status</dt><dd>${statusPill(t.status, t.isOverdue)}</dd>
+        <dt>Submitted</dt><dd>${escapeHtml(formatDate(t.submittedAt || t.createdAt))}</dd>
+      </dl>
+      <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`)}
+    ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
+    ${evidenceSection(t, { attachmentBasePath: '/president/attachments', theme: 'console', interactive: true })}
+    ${supDetailCard(
+      'AI classification',
+      t.ai
+        ? `<p class="sup-muted-block">${escapeHtml(t.ai.summary)}</p>
+            <dl class="detail-dl detail-dl--console">
+              <dt>Likelihood</dt><dd>${t.ai.likelihood || t.likelihood}/5</dd>
+              <dt>Impact</dt><dd>${t.ai.impact || t.impact}/5</dd>
+            </dl>`
+        : '<p class="sup-muted-block">No AI classification available.</p>',
+      { compact: true },
+    )}
+    ${actionPlanCard(t)}
+    ${finalResolutionCard(t)}
+    ${rmuRecommendationsCard(t)}
+    ${complianceFindingsCard(t)}
+    ${presidentDecisionCard(t)}
+    ${commentsSection(t, ref, user)}`;
 
   const body = `
     ${flashMessage(flash)}
@@ -406,23 +551,22 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
       backLabel: 'Back to pending',
     })}
     ${isCritical ? '<div class="critical-banner" role="status">Critical risk — requires presidential oversight</div>' : ''}
-    <div class="sup-detail-stack">
-      ${supDetailCard('Risk details', detailInner)}
-      ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
-      ${evidenceSection(t, { attachmentBasePath: '/president/attachments', theme: 'console', interactive: true })}
-      ${supDetailCard('AI classification', aiInner, { compact: true })}
-      ${actionPlanCard(t)}
-      ${finalResolutionCard(t)}
-      ${rmuRecommendationsCard(t)}
-      ${complianceFindingsCard(t)}
-      ${presidentDecisionCard(t)}
-      ${presidentDecisionPanel(t, ref)}
-    </div>`;
+    ${isHigh ? '<div class="critical-banner critical-banner--high" role="status">High risk — action plan requires presidential approval</div>' : ''}
+    <div class="dept-detail">
+      <div class="dept-detail__main">${main}</div>
+      <aside class="dept-detail__side">
+        ${detailsSidebar(t)}
+        ${actionPlanDecisionSideBar(t, ref)}
+        ${presidentFinalDecisionSideBar(t, ref)}
+      </aside>
+    </div>
+    ${showModals ? presidentDecisionModals(t, ref) : ''}
+    ${showModals ? PRESIDENT_MODALS_SCRIPT : ''}`;
 
   return presidentPage({
     title: ref,
     user,
-    activeNav: 'pending',
+    activeNav: needsDecision ? 'pending' : (isCritical ? 'critical' : 'high'),
     body,
     stats,
   });
