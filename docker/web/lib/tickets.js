@@ -720,7 +720,7 @@ function listTicketsForSupervisor(username) {
 function getTicketByRef(reference, username) {
   const { store, saveStore } = getStore();
   const ticket = (store.riskTickets || []).find(
-    (t) => t.reference === reference && t.submittedBy === username,
+    (t) => t.reference === reference && t.submittedBy === username && isVisibleTicket(t),
   );
   if (ticket && repairDeptHeadLegacyAuditStatus(ticket)) {
     saveStore();
