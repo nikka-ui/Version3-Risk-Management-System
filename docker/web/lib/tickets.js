@@ -49,6 +49,7 @@ const {
   notifyOverdueStakeholders,
   notifyWorkflowStakeholders,
   formatDepartmentLabel,
+  ticketHref,
 } = require('./notifications');
 const { getRoleLabel } = require('../config/roles');
 
@@ -952,6 +953,7 @@ function notifyMentionedUsers(ticket, comment, actor) {
         title: 'You were mentioned',
         message: `${actor.displayName || actor.username} mentioned you on ${ticket.reference}`,
         ticketRef: ticket.reference,
+        href: ticketHref(target.role, ticket.reference),
         fromUsername: actor.username,
         fromName: actor.displayName || actor.username,
         fromRole: actor.role,
@@ -2480,7 +2482,15 @@ function isDeptHeadTicketForUser(ticket, user) {
   if (ticket.ownership?.ownerUsername && ticket.ownership.ownerUsername === user.username) {
     return true;
   }
-  return departmentsMatch(user.department, ticket.department);
+  if (departmentsMatch(user.department, ticket.department)) return true;
+  // Match profile labels like "Finance Department" against ticket dept "Finance/Accounting".
+  if (
+    ticket.ownership?.ownerDepartment
+    && departmentsMatch(user.department, ticket.ownership.ownerDepartment)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function getTicketByRefForDeptHead(reference, user) {

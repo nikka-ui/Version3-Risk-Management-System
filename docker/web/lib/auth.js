@@ -1,4 +1,38 @@
 const { findUserRecord, publicUser } = require('./store');
+const { roleDashboardPath } = require('../config/roles');
+
+const ROLE_TICKET_PATH = {
+  supervisor: '/supervisor/tickets',
+  dept_head: '/dept/tickets',
+  rm_officer: '/officer/tickets',
+  executive: '/executive/tickets',
+  president: '/president/tickets',
+};
+
+/**
+ * If an authenticated user hits another role's ticket detail URL (common with
+ * legacy notification links), send them to the same ticket in their own console.
+ */
+function redirectToOwnTicketConsole(req, res, expectedRole) {
+  const user = req.session?.user;
+  if (!user || user.role === expectedRole) return false;
+  if (req.method !== 'GET') return false;
+
+  const match = String(req.path || '').match(/\/tickets\/([^/]+)\/?$/);
+  if (!match) return false;
+
+  const ref = match[1];
+  if (!ref || ref === 'new') return false;
+
+  const base = ROLE_TICKET_PATH[user.role];
+  if (base) {
+    res.redirect(`${base}/${encodeURIComponent(ref)}`);
+    return true;
+  }
+
+  res.redirect(roleDashboardPath(user.role));
+  return true;
+}
 
 function requireAuth(req, res, next) {
   if (req.session?.user) {
@@ -23,6 +57,7 @@ function requireSupervisor(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'supervisor') {
+    if (redirectToOwnTicketConsole(req, res, 'supervisor')) return undefined;
     return res.status(403).send('Ticket Reporter access only.');
   }
   return next();
@@ -33,6 +68,7 @@ function requireDeptHead(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'dept_head') {
+    if (redirectToOwnTicketConsole(req, res, 'dept_head')) return undefined;
     return res.status(403).send('Department Head / Vice President access only.');
   }
   return next();
@@ -43,6 +79,7 @@ function requireRmOfficer(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'rm_officer') {
+    if (redirectToOwnTicketConsole(req, res, 'rm_officer')) return undefined;
     return res.status(403).send('Risk Governance Office (RMU) access only.');
   }
   return next();
@@ -53,6 +90,7 @@ function requireExecutive(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'executive') {
+    if (redirectToOwnTicketConsole(req, res, 'executive')) return undefined;
     return res.status(403).send('Executive Committee access only.');
   }
   return next();
@@ -63,6 +101,7 @@ function requirePresident(req, res, next) {
     return res.redirect('/login');
   }
   if (req.session.user.role !== 'president') {
+    if (redirectToOwnTicketConsole(req, res, 'president')) return undefined;
     return res.status(403).send('President access only.');
   }
   return next();

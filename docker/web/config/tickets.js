@@ -160,7 +160,15 @@ const REPORTER_OVERDUE_EXCLUDED_STATUSES = [
  */
 const DEPARTMENT_ALIASES = {
   it: ['it', 'information technology', 'i.t.', 'it department'],
-  finance: ['finance', 'finance/accounting', 'accounting', 'finance and accounting', 'fin'],
+  finance: [
+    'finance',
+    'finance/accounting',
+    'accounting',
+    'finance and accounting',
+    'finance & accounting',
+    'fin',
+    'finance department',
+  ],
   hr: ['hr', 'hrms', 'human resources', 'human resource management'],
   operations: ['operations', 'ops', 'operation'],
   admin: ['admin', 'administration', 'administrative'],
@@ -175,8 +183,10 @@ const DEPARTMENT_ALIASES = {
 };
 
 function canonicalDepartment(name) {
-  const key = String(name || '').trim().toLowerCase();
+  let key = String(name || '').trim().toLowerCase();
   if (!key) return '';
+  // Normalize "Finance Department" / "IT Dept" style labels from user profiles.
+  key = key.replace(/\s+departments?$/i, '').replace(/\s+depts?$/i, '').trim();
   for (const [canonical, aliases] of Object.entries(DEPARTMENT_ALIASES)) {
     if (aliases.includes(key)) return canonical;
   }

@@ -485,9 +485,24 @@ function finalResolutionCard(ticket, ref, { editable }) {
 function accomplishmentReviewCard(ticket) {
   const acc = ticket.accomplishment;
   if (!acc) return '';
+  // Prefer live ticket evidence (downloadable); fall back to accomplishment snapshot names.
+  const liveEvidence = (ticket.evidence || []).filter((e) => e.storageKey || e.id || !e.legacy);
+  const evidenceItems = liveEvidence.length ? liveEvidence : (acc.evidence || []);
+  const evidenceBlock = evidenceItems.length
+    ? `<div class="accomplishment-block">
+         <h3 class="accomplishment-block__label">Supporting evidence</h3>
+         <ul class="accomplishment-block__list">${evidenceItems.map((e) => {
+    const name = escapeHtml(e.name || e.originalName || 'Attachment');
+    const href = e.id ? `/dept/attachments/${escapeHtml(e.id)}` : '';
+    return href
+      ? `<li><a href="${href}" class="sup-link" target="_blank" rel="noopener">${name}</a></li>`
+      : `<li>${name}</li>`;
+  }).join('')}</ul>
+       </div>`
+    : '';
   return supDetailCard(
     'Reporter accomplishment report',
-    `<p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}</p>
+    `<p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}. Review the summary and evidence, then close the ticket to validate.</p>
      <div class="accomplishment-blocks">
        <div class="accomplishment-block">
          <h3 class="accomplishment-block__label">Implementation summary</h3>
@@ -497,6 +512,7 @@ function accomplishmentReviewCard(ticket) {
          <h3 class="accomplishment-block__label">Outcomes and results</h3>
          <p class="accomplishment-block__content">${escapeHtml(acc.outcomes)}</p>
        </div>
+       ${evidenceBlock}
      </div>`,
     { accent: true },
   );
@@ -803,6 +819,8 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ? `<div class="dept-status-notice dept-status-notice--error" role="note">This ticket was returned to the reporter${t.ownership?.rejectionReason ? `: ${escapeHtml(t.ownership.rejectionReason)}` : ''}. Awaiting reporter revision.</div>`
     : t.status === 'in_mitigation'
       ? `<div class="dept-status-notice dept-status-notice--info" role="note">Mitigation plan sent to the reporter. Awaiting their implementation and accomplishment report.</div>`
+    : t.status === 'pending_audit'
+      ? `<div class="dept-status-notice dept-status-notice--info" role="note">The reporter submitted an accomplishment report. Review it below, then use <strong>Close ticket</strong> to validate and close.</div>`
     : t.status === 'closed'
       ? `<div class="dept-status-notice dept-status-notice--success" role="note">This ticket is closed${t.closure?.closedByName ? ` by ${escapeHtml(t.closure.closedByName)}` : ''}${t.closure?.closedAt ? ` on ${escapeHtml(formatDate(t.closure.closedAt))}` : ''}.</div>`
       : '';

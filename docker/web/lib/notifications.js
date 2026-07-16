@@ -47,10 +47,13 @@ function notifyRoles(roles, payload, { excludeUsername } = {}) {
 }
 
 function notifyUser(username, payload) {
+  const { findUserRecord } = require('./store');
+  const recipient = findUserRecord(username);
+  const role = recipient?.role || 'supervisor';
   appendNotification({
     recipientUsername: username,
     ...payload,
-    href: payload.href || ticketHref('supervisor', payload.ticketRef),
+    href: payload.href || ticketHref(role, payload.ticketRef),
   });
 }
 

@@ -777,8 +777,34 @@ function appendNotification(entry) {
 function notificationMatchesUser(n, user) {
   if (!user) return false;
   if (n.recipientUsername && n.recipientUsername === user.username) return true;
-  if (n.recipientRole && n.recipientRole === user.role) return true;
+  if (n.recipientRole && n.recipientRole === user.role) {
+    // Role-wide dept-head fallbacks must not spam every head with other departments' tickets.
+    if (user.role === 'dept_head' && n.ticketRef && user.department) {
+      const store = loadStore();
+      const ticket = (store.riskTickets || []).find((t) => t.reference === n.ticketRef);
+      if (ticket) {
+        const { departmentsMatch } = require('../config/tickets');
+        if (ticket.ownership?.ownerUsername === user.username) return true;
+        return departmentsMatch(user.department, ticket.department);
+      }
+    }
+    return true;
+  }
   return false;
+}
+
+const ROLE_TICKET_PATH = {
+  supervisor: '/supervisor/tickets',
+  dept_head: '/dept/tickets',
+  rm_officer: '/officer/tickets',
+  executive: '/executive/tickets',
+  president: '/president/tickets',
+};
+
+function ticketHrefForUser(user, ticketRef) {
+  if (!ticketRef || !user?.role) return null;
+  const base = ROLE_TICKET_PATH[user.role];
+  return base ? `${base}/${ticketRef}` : null;
 }
 
 function getNotifications(limit = 20) {
@@ -788,9 +814,22 @@ function getNotifications(limit = 20) {
 
 function getNotificationsForUser(user, limit = 15) {
   const store = loadStore();
+  const ticketsByRef = new Map((store.riskTickets || []).map((t) => [t.reference, t]));
   return (store.notifications || [])
     .filter((n) => notificationMatchesUser(n, user))
-    .slice(0, limit);
+    .filter((n) => {
+      // Hide notifications for soft-deleted tickets so deleted work does not keep surfacing.
+      if (!n.ticketRef) return true;
+      const ticket = ticketsByRef.get(n.ticketRef);
+      if (!ticket) return true;
+      return !ticket.deleted;
+    })
+    .slice(0, limit)
+    .map((n) => {
+      // Always deep-link into the viewer's own console (fixes legacy /supervisor links for dept heads).
+      const href = ticketHrefForUser(user, n.ticketRef);
+      return href ? { ...n, href } : n;
+    });
 }
 
 function getUnreadNotificationCount(user) {
