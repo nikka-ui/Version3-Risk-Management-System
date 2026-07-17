@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { id: 'pending', href: '/president/pending', label: 'Pending decisions', icon: 'pending', statKey: 'pendingCount' },
   { id: 'critical', href: '/president/critical', label: 'Critical risks', icon: 'critical', statKey: 'criticalCount' },
   { id: 'high', href: '/president/high', label: 'High risks', icon: 'high', statKey: 'highCount' },
+  { id: 'trends', href: '/president/trends', label: 'Trends', icon: 'trends' },
 ];
 
 function navIcon(name) {
@@ -15,6 +16,7 @@ function navIcon(name) {
     pending: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
     critical: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
     high: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16l4-4 3 2 5-7"/><path d="M15 7h4v4"/></svg>`,
+    trends: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
   };
   return icons[name] || '';
 }
@@ -71,7 +73,7 @@ function presidentAppLayout({ title, user, activeNav, body, stats = {}, notifica
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.username)}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.position || user.username)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

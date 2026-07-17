@@ -71,6 +71,7 @@ const {
 } = require('./lib/templates/executive');
 const {
   presidentOverviewPage,
+  presidentTrendsPage,
   pendingQueuePage,
   highTicketsPage,
   criticalTicketsPage: presidentCriticalTicketsPage,
@@ -135,6 +136,7 @@ const {
   findAttachmentForExecutive,
   addExecutiveComment,
   getPresidentStats,
+  getPresidentDashboardData,
   listTicketsForPresident,
   listPresidentPendingQueue,
   getTicketByRefForPresident,
@@ -1291,9 +1293,15 @@ app.get('/president', requirePresident, (req, res) => {
   res.type('html').send(
     presidentOverviewPage(
       req.session.user,
-      getPresidentStats(),
+      getPresidentDashboardData(),
       flashFromQuery(req.query),
     ),
+  );
+});
+
+app.get('/president/trends', requirePresident, (req, res) => {
+  res.type('html').send(
+    presidentTrendsPage(req.session.user, getPresidentDashboardData(), flashFromQuery(req.query)),
   );
 });
 

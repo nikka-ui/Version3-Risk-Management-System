@@ -2,6 +2,7 @@ const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../confi
 const { escapeHtml, formatDate } = require('../html');
 const { flashMessage } = require('./layout');
 const { presidentAppLayout } = require('./president-layout');
+const { trendChart } = require('./executive');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const { threadDiscussionSection } = require('./thread-discussion');
@@ -384,20 +385,45 @@ function commentsSection(ticket, ref, user) {
 }
 
 const KPI_ICONS = {
+  low: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>`,
+  moderate: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><circle cx="12" cy="12" r="2.25" fill="currentColor" stroke="none"/></svg>`,
   high: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16l4-4 3 2 5-7"/><path d="M15 7h4v4"/></svg>`,
   critical: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="13"/><circle cx="12" cy="16.5" r="0.75" fill="currentColor" stroke="none"/></svg>`,
   pending: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  total: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>`,
+  open: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
+  closed: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7l-9 9-4-4"/></svg>`,
+};
+
+/* Only these lists exist for the President console; Low/Moderate cards render as plain stats. */
+const KPI_HREFS = {
+  pending: '/president/pending',
+  high: '/president/high',
+  critical: '/president/critical',
 };
 
 function levelKpiCard(id, label, count, variant = '') {
-  const href = id === 'pending' ? '/president/pending' : `/president/${id}`;
-  return `<a href="${href}" class="sup-kpi sup-kpi--risk sup-kpi--risk-${id === 'pending' ? 'high' : id}${variant ? ` ${variant}` : ''}">
-    <span class="sup-kpi__icon">${KPI_ICONS[id] || KPI_ICONS.high}</span>
+  const href = KPI_HREFS[id];
+  const cls = `sup-kpi sup-kpi--risk sup-kpi--risk-${id === 'pending' ? 'high' : id}${variant ? ` ${variant}` : ''}`;
+  const inner = `<span class="sup-kpi__icon">${KPI_ICONS[id] || KPI_ICONS.high}</span>
     <span class="sup-kpi__body">
       <span class="sup-kpi__value">${count}</span>
       <span class="sup-kpi__label">${escapeHtml(label)}</span>
-    </span>
-  </a>`;
+    </span>`;
+  return href
+    ? `<a href="${href}" class="${cls}">${inner}</a>`
+    : `<div class="${cls}">${inner}</div>`;
+}
+
+function statKpi(icon, value, label, href) {
+  const inner = `<span class="sup-kpi__icon">${icon}</span>
+    <span class="sup-kpi__body">
+      <span class="sup-kpi__value">${value}</span>
+      <span class="sup-kpi__label">${escapeHtml(label)}</span>
+    </span>`;
+  return href
+    ? `<a href="${href}" class="sup-kpi">${inner}</a>`
+    : `<div class="sup-kpi">${inner}</div>`;
 }
 
 function presidentPage({ title, user, activeNav, body, stats = {}, notifications }) {
@@ -411,7 +437,8 @@ function presidentPage({ title, user, activeNav, body, stats = {}, notifications
   });
 }
 
-function presidentOverviewPage(user, stats, flash) {
+function presidentOverviewPage(user, dashboard, flash) {
+  const { stats, org } = dashboard;
   const pendingRows = ticketTableRows(stats.pendingTickets || []);
   const pendingSection = stats.pendingCount
     ? tableCard({
@@ -432,24 +459,48 @@ function presidentOverviewPage(user, stats, flash) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'President dashboard',
-      desc: 'Final approving authority for High and Critical organizational risks. Review and approve or decline department action plans before implementation.',
+      desc: 'Organization-wide risk oversight. Final approving authority for High and Critical risks — review and approve or decline department action plans before implementation.',
       actionHtml: stats.pendingCount
         ? '<a href="/president/pending" class="sup-btn-primary">Review pending decisions</a>'
         : '',
     })}
     <div class="sup-kpi-grid sup-kpi-grid--levels">
-      ${levelKpiCard('pending', 'Pending decisions', stats.pendingCount, stats.pendingCount ? 'sup-kpi--warn' : '')}
-      ${levelKpiCard('high', 'High risks', stats.byLevel.high)}
-      ${levelKpiCard('critical', 'Critical risks', stats.byLevel.critical, stats.byLevel.critical ? 'sup-kpi--warn' : '')}
+      ${levelKpiCard('low', 'Low', org.byLevel.low)}
+      ${levelKpiCard('moderate', 'Moderate', org.byLevel.moderate)}
+      ${levelKpiCard('high', 'High', org.byLevel.high)}
+      ${levelKpiCard('critical', 'Critical', org.byLevel.critical, org.byLevel.critical ? 'sup-kpi--warn' : '')}
+    </div>
+    <div class="sup-kpi-grid sup-kpi-grid--stats">
+      ${statKpi(KPI_ICONS.total, org.total, 'Total reports')}
+      ${statKpi(KPI_ICONS.open, org.open, 'Open')}
+      ${statKpi(KPI_ICONS.closed, org.closed, 'Closed')}
+      ${statKpi(KPI_ICONS.pending, stats.pendingCount, 'Pending decisions', '/president/pending')}
     </div>
     ${supQuickActions([
       { href: '/president/pending', label: 'Pending decisions', count: stats.pendingCount },
       { href: '/president/critical', label: 'Critical risks', count: stats.criticalCount },
       { href: '/president/high', label: 'High risks', count: stats.highCount },
+      { href: '/president/trends', label: 'Trends', count: null },
     ])}
     ${pendingSection}`;
 
   return presidentPage({ title: 'President dashboard', user, activeNav: 'overview', body, stats });
+}
+
+function presidentTrendsPage(user, dashboard, flash) {
+  const { stats, trends } = dashboard;
+  const body = `
+    ${flashMessage(flash)}
+    ${supPageHead({
+      title: 'Trends',
+      desc: 'Monthly volume of submitted risk reports over the last 12 months. High/Critical share is highlighted.',
+    })}
+    <section class="sup-card">
+      <div class="sup-card__head"><h2>Report volume trend</h2></div>
+      <div class="sup-card__body">${trendChart(trends)}</div>
+    </section>`;
+
+  return presidentPage({ title: 'Trends', user, activeNav: 'trends', body, stats });
 }
 
 function pendingQueuePage(user, tickets, flash, stats = {}) {
@@ -574,6 +625,7 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
 
 module.exports = {
   presidentOverviewPage,
+  presidentTrendsPage,
   pendingQueuePage,
   highTicketsPage,
   criticalTicketsPage,

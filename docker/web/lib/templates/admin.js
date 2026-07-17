@@ -127,10 +127,8 @@ function adminOverviewPage(user, data, flash) {
       ${kpiCard('/admin/departments', KPI_ICONS.dept, stats.departments, 'Departments')}
       ${kpiCard('/admin/tickets?status=open', KPI_ICONS.open, stats.openTickets, 'Open Tickets')}
       ${kpiCard('/admin/tickets?status=closed', KPI_ICONS.closed, stats.closedTickets, 'Closed Tickets')}
-      ${kpiCard('/admin/audit-logs', KPI_ICONS.audit, stats.auditLogsToday, 'Audit Logs Today')}
       ${kpiCard('/admin/tickets?level=high', KPI_ICONS.high, stats.highRiskTickets, 'High Risk', 'sup-kpi--warn')}
       ${kpiCard('/admin/tickets?level=critical', KPI_ICONS.high, stats.criticalRiskTickets, 'Critical Risk', 'sup-kpi--warn')}
-      ${kpiCard('/admin/audit-logs?action=login', KPI_ICONS.login, stats.todaysLogins, "Today's Logins")}
     </div>
     ${supQuickActions([
       { href: '/admin/users?action=add', label: 'Add User' },

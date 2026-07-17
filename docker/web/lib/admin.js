@@ -2,11 +2,9 @@ const {
   listUsers,
   listDepartments,
   getAuditLogs,
-  getAuditLogsTodayCount,
   getRecentlyCreatedUsers,
   getDeletedTicketLogs,
   getNotifications,
-  getCredentialLogs,
   appendAuditLog,
   appendNotification,
 } = require('./store');
@@ -59,12 +57,6 @@ function getAdminDashboardStats(ticketStats) {
     closedTickets: ticketStats?.closed || 0,
     highRiskTickets: ticketStats?.highRisk || 0,
     criticalRiskTickets: ticketStats?.criticalRisk || 0,
-    auditLogsToday: getAuditLogsTodayCount(),
-    todaysLogins: getCredentialLogs(500).filter((l) => {
-      if (l.action !== 'login_success') return false;
-      const today = new Date().toISOString().slice(0, 10);
-      return String(l.at).slice(0, 10) === today;
-    }).length,
   };
 }
 

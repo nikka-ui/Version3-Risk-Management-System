@@ -62,6 +62,13 @@ function isVisibleTicket(ticket) {
   return ticket && !ticket.deleted;
 }
 
+/** References of all non-deleted tickets, for filtering records that live outside riskTickets. */
+function visibleTicketRefs(store) {
+  return new Set(
+    (store.riskTickets || []).filter((t) => isVisibleTicket(t)).map((t) => t.reference),
+  );
+}
+
 function nextTicketRef(store) {
   const year = new Date().getFullYear();
   const prefix = `RISK-${year}-`;
@@ -731,7 +738,10 @@ function getTicketByRef(reference, username) {
 function getSupervisorStats(username) {
   const tickets = listTicketsForSupervisor(username);
   const { store } = getStore();
-  const accomplishments = (store.accomplishments || []).filter((a) => a.submittedBy === username);
+  const visibleRefs = visibleTicketRefs(store);
+  const accomplishments = (store.accomplishments || []).filter(
+    (a) => a.submittedBy === username && visibleRefs.has(a.ticketRef),
+  );
   const { getUnreadNotificationCount } = require('./store');
   const user = { username, role: 'supervisor' };
   return {
@@ -756,8 +766,9 @@ function listActionTickets(username) {
 
 function listAccomplishments(username) {
   const { store } = getStore();
+  const visibleRefs = visibleTicketRefs(store);
   return [...(store.accomplishments || [])]
-    .filter((a) => a.submittedBy === username)
+    .filter((a) => a.submittedBy === username && visibleRefs.has(a.ticketRef))
     .sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
 }
 
@@ -916,6 +927,48 @@ function sharedDiscussionComments(ticket, { excludeOversight = false } = {}) {
 function parseMentions(text) {
   const matches = String(text || '').match(/@([a-zA-Z0-9._-]+)/g) || [];
   return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
+}
+
+/** Usernames a ticket reporter may mention: people handling this specific ticket. */
+function reporterMentionableUsernames(ticket) {
+  const { listUsers } = require('./store');
+  const allowed = new Set();
+  if (ticket.ownership?.ownerUsername) {
+    allowed.add(String(ticket.ownership.ownerUsername).toLowerCase());
+  }
+  for (const u of listUsers()) {
+    if (u.role === 'dept_head' && departmentsMatch(u.department, ticket.department)) {
+      allowed.add(u.username.toLowerCase());
+    }
+  }
+  return allowed;
+}
+
+/**
+ * Reporters may only mention users connected to their ticket (the assigned
+ * department head / ticket owner). Department heads and above are unrestricted.
+ * Unknown @tokens that don't match a real user are ignored (plain text).
+ */
+function validateReporterMentions(ticket, text, author) {
+  const mentions = parseMentions(text);
+  if (!mentions.length) return null;
+  const { listUsers } = require('./store');
+  const users = listUsers();
+  const allowed = reporterMentionableUsernames(ticket);
+  if (author?.username) allowed.add(String(author.username).toLowerCase());
+  const blocked = mentions.filter((m) => {
+    const target = users.find((u) => u.username.toLowerCase() === m);
+    return target && !allowed.has(m);
+  });
+  if (blocked.length) {
+    const deptLabel = ticket.department
+      ? ` handling this ticket (${formatDepartmentLabel(ticket.department)})`
+      : ' handling this ticket';
+    return {
+      error: `You can only mention the department head${deptLabel}. Remove: ${blocked.map((m) => `@${m}`).join(', ')}.`,
+    };
+  }
+  return null;
 }
 
 function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment', attachments = [] } = {}) {
@@ -1395,7 +1448,7 @@ function assignMitigationForDemo(reference) {
 function getTicketByRefForOfficer(reference) {
   const { store } = getStore();
   const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
-  if (!ticket || ticket.status === 'draft') return null;
+  if (!isVisibleTicket(ticket) || ticket.status === 'draft') return null;
   return ticket;
 }
 
@@ -1862,7 +1915,7 @@ function addRmuThreadComment(reference, user, body = {}) {
 function getTicketByRefForExecutive(reference) {
   const { store } = getStore();
   const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
-  if (!ticket || ticket.status === 'draft') return null;
+  if (!isVisibleTicket(ticket) || ticket.status === 'draft') return null;
   return ticket;
 }
 
@@ -2042,7 +2095,7 @@ function isPresidentVisibleTicket(ticket) {
 function getTicketByRefForPresident(reference) {
   const { store } = getStore();
   const ticket = (store.riskTickets || []).find((t) => t.reference === reference);
-  if (!ticket || ticket.status === 'draft' || !isPresidentVisibleTicket(ticket)) return null;
+  if (!isVisibleTicket(ticket) || ticket.status === 'draft' || !isPresidentVisibleTicket(ticket)) return null;
   return ticket;
 }
 
@@ -2091,6 +2144,28 @@ function getPresidentStats() {
     pendingTickets,
     open: tickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
     closed: tickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+  };
+}
+
+/**
+ * Executive-style oversight data for the President dashboard: org-wide level
+ * counts and monthly trends (aggregates only — ticket lists stay High/Critical).
+ */
+function getPresidentDashboardData() {
+  const orgTickets = listTicketsForExecutive();
+  const byLevel = { low: 0, moderate: 0, high: 0, critical: 0 };
+  for (const t of orgTickets) {
+    byLevel[t.riskLevel] = (byLevel[t.riskLevel] || 0) + 1;
+  }
+  return {
+    stats: getPresidentStats(),
+    org: {
+      byLevel,
+      total: orgTickets.length,
+      open: orgTickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
+      closed: orgTickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
+    },
+    trends: buildExecutiveTrends(orgTickets),
   };
 }
 
@@ -2367,6 +2442,11 @@ function editThreadComment(reference, user, body, { ticketGetter }) {
     return { error: 'You can only edit your own comments.' };
   }
 
+  if (user.role === 'supervisor') {
+    const mentionError = validateReporterMentions(ticket, text, user);
+    if (mentionError) return mentionError;
+  }
+
   comment.body = text;
   comment.mentions = parseMentions(text);
   comment.editedAt = new Date().toISOString();
@@ -2414,6 +2494,9 @@ function addReporterThreadComment(reference, user, body) {
   if (ticket.status === 'draft') {
     return { error: 'Comments are available after the ticket is submitted.' };
   }
+
+  const mentionError = validateReporterMentions(ticket, body.comment || body.body, user);
+  if (mentionError) return mentionError;
 
   const result = postThreadCommentForTicket(ticket, user, body);
   if (result.error) return result;
@@ -3423,6 +3506,7 @@ module.exports = {
   listTicketsForPresident,
   listPresidentPendingQueue,
   getPresidentStats,
+  getPresidentDashboardData,
   findAttachmentForPresident,
   recordPresidentDecision,
   addPresidentThreadComment,

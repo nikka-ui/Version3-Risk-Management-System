@@ -496,7 +496,7 @@ function timelineSection(timeline = []) {
 function threadCommentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
     title: 'Discussion thread',
-    hint: '',
+    hint: 'You can @mention the department head assigned to this ticket.',
     postAction: `/supervisor/tickets/${ref}/comment`,
     editAction: `/supervisor/tickets/${ref}/comment/edit`,
     reactAction: `/supervisor/tickets/${ref}/comment/react`,
@@ -505,6 +505,7 @@ function threadCommentsSection(ticket, ref, user) {
     canEditOwn: true,
     currentUsername: user?.username,
     showAttachments: false,
+    composePlaceholder: 'Write a comment… Use @username to mention the assigned department head.',
   });
 }
 

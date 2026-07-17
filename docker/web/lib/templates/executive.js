@@ -614,4 +614,5 @@ module.exports = {
   trendsPage,
   statisticsPage,
   departmentPerformancePage,
+  trendChart,
 };
