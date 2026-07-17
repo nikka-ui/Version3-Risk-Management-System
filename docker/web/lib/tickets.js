@@ -971,6 +971,32 @@ function validateReporterMentions(ticket, text, author) {
   return null;
 }
 
+/** Roles a department head is allowed to @mention in the ticket discussion. */
+const DEPT_HEAD_MENTIONABLE_ROLES = ['executive', 'president'];
+
+/**
+ * Department heads may only mention the Executive Committee and the President,
+ * to avoid confusion from cross-department head mentions. Unknown @tokens that
+ * don't match a real user are ignored (treated as plain text).
+ */
+function validateDeptHeadMentions(text, author) {
+  const mentions = parseMentions(text);
+  if (!mentions.length) return null;
+  const { listUsers } = require('./store');
+  const users = listUsers();
+  const blocked = mentions.filter((m) => {
+    if (author?.username && m === String(author.username).toLowerCase()) return false;
+    const target = users.find((u) => u.username.toLowerCase() === m);
+    return target && !DEPT_HEAD_MENTIONABLE_ROLES.includes(target.role);
+  });
+  if (blocked.length) {
+    return {
+      error: `You can only mention the Executive Committee or the President. Remove: ${blocked.map((m) => `@${m}`).join(', ')}.`,
+    };
+  }
+  return null;
+}
+
 function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment', attachments = [] } = {}) {
   const now = new Date().toISOString();
   return {
@@ -2445,6 +2471,9 @@ function editThreadComment(reference, user, body, { ticketGetter }) {
   if (user.role === 'supervisor') {
     const mentionError = validateReporterMentions(ticket, text, user);
     if (mentionError) return mentionError;
+  } else if (user.role === 'dept_head') {
+    const mentionError = validateDeptHeadMentions(text, user);
+    if (mentionError) return mentionError;
   }
 
   comment.body = text;
@@ -3240,6 +3269,9 @@ function addDeptHeadThreadComment(reference, user, body = {}) {
   const ticket = getTicketByRefForDeptHead(reference, user);
   if (!ticket) return { error: 'Ticket not found.' };
   ensureDeptHeadFields(ticket);
+
+  const mentionError = validateDeptHeadMentions(body.comment || body.body, user);
+  if (mentionError) return mentionError;
 
   const result = postThreadCommentForTicket(ticket, user, body);
   if (result.error) return result;

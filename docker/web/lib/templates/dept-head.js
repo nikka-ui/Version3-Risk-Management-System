@@ -442,14 +442,19 @@ function actionPlanCard(ticket, ref, { editable }) {
   </section>`;
 }
 
-function documentsSection(ticket, ref, { editable }) {
-  const evidence = evidenceSection(ticket, {
+/** Reporter's submitted ticket attachments — shown alongside the 5W1H report. */
+function ticketAttachmentsSection(ticket) {
+  return evidenceSection(ticket, {
     attachmentBasePath: '/dept/attachments',
     theme: 'console',
     interactive: true,
   });
-  const uploadForm = editable
-    ? `<section class="sup-card">
+}
+
+/** Department head's own document upload — kept separate from the ticket attachments. */
+function documentsSection(ticket, ref, { editable }) {
+  if (!editable) return '';
+  return `<section class="sup-card">
         <div class="sup-card__head"><h2>Upload documents</h2></div>
         <div class="sup-card__body">
           <form method="post" action="/dept/tickets/${escapeHtml(ref)}/documents" enctype="multipart/form-data" class="stack-form stack-form--console dept-inline-form">
@@ -461,9 +466,7 @@ function documentsSection(ticket, ref, { editable }) {
             <button type="submit" class="btn-accept--outline">Upload</button>
           </form>
         </div>
-      </section>`
-    : '';
-  return `${evidence}${uploadForm}`;
+      </section>`;
 }
 
 function finalResolutionCard(ticket, ref, { editable }) {
@@ -770,7 +773,7 @@ function activitySection(ticket, ref, user) {
     canEditOwn: true,
     currentUsername: user?.username,
     showAttachments: false,
-    composePlaceholder: 'Discuss this ticket with the reporter and Risk Management Unit…',
+    composePlaceholder: 'Discuss this ticket… You can only @mention the Executive Committee or the President.',
   }).replace('<section class="sup-card sup-card--thread">', '<div class="dept-activity__panel" data-activity-panel="comments">')
     .replace(/<div class="sup-card__head"><h2><\/h2><\/div>\s*/, '')
     .replace(/<p class="section-hint"><\/p>\s*/, '')
@@ -835,6 +838,7 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
       <p class="sup-detail-desc">${escapeHtml(t.description || '—')}</p>`,
     )}
     ${supDetailCard('5W1H report', fiveW1HReadonly(t))}
+    ${ticketAttachmentsSection(t)}
     ${aiCard(t)}
     ${reassignmentHistoryCard(t)}
     ${actionPlanCard(t, ref, { editable: canExecute })}
