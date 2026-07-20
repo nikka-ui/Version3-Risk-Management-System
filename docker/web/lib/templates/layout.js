@@ -107,7 +107,6 @@ function executiveNav(active) {
   const items = [
     { id: 'overview', href: '/executive', label: 'Dashboard' },
     { id: 'heatmap', href: '/executive/heatmap', label: 'Heatmap' },
-    { id: 'register', href: '/executive/register', label: 'Risk Register' },
     { id: 'reports', href: '/executive/reports', label: 'Reports' },
     { id: 'trends', href: '/executive/trends', label: 'Trends' },
     { id: 'statistics', href: '/executive/statistics', label: 'Statistics' },

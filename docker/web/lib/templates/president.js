@@ -601,8 +601,9 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
       backHref: '/president/pending',
       backLabel: 'Back to pending',
     })}
-    ${isCritical ? '<div class="critical-banner" role="status">Critical risk — requires presidential oversight</div>' : ''}
-    ${isHigh ? '<div class="critical-banner critical-banner--high" role="status">High risk — action plan requires presidential approval</div>' : ''}
+    ${needsActionPlanDecision(t) && isCritical ? '<div class="critical-banner" role="status">Critical risk — action plan requires presidential approval</div>' : ''}
+    ${needsActionPlanDecision(t) && isHigh ? '<div class="critical-banner critical-banner--high" role="status">High risk — action plan requires presidential approval</div>' : ''}
+    ${t.status === 'pending_president_final' ? '<div class="critical-banner" role="status">Awaiting your final decision to close or return this ticket</div>' : ''}
     <div class="dept-detail">
       <div class="dept-detail__main">${main}</div>
       <aside class="dept-detail__side">

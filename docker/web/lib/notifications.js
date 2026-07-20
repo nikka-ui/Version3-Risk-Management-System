@@ -3,6 +3,8 @@ const { getRoleLabel } = require('../config/roles');
 const { departmentsMatch } = require('../config/tickets');
 
 function ticketRiskLevelId(ticket) {
+  if (ticket?.ai?.riskLevel?.id) return ticket.ai.riskLevel.id;
+  if (ticket?.riskLevel) return ticket.riskLevel;
   const sev = ticket?.ai?.severity
     || (ticket?.likelihood && ticket?.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2);
   if (sev <= 2) return 'low';
@@ -13,6 +15,12 @@ function ticketRiskLevelId(ticket) {
 
 function isCriticalTicket(ticket) {
   return ticketRiskLevelId(ticket) === 'critical';
+}
+
+/** President and Executive oversight: High and Critical only (not Low/Moderate). */
+function isHighOrCriticalTicket(ticket) {
+  const level = ticketRiskLevelId(ticket);
+  return level === 'high' || level === 'critical';
 }
 
 function formatDepartmentLabel(name) {
@@ -216,11 +224,13 @@ function notifyWorkflowStakeholders(ticket, event, {
   const notifyRmu = () => {
     notifyRoles(['rm_officer'], payload, { excludeUsername: exclude });
   };
-  const notifyPresident = () => {
-    notifyRoles(['president'], payload, { excludeUsername: exclude });
+  const notifyPresidentIfHighCritical = () => {
+    if (isHighOrCriticalTicket(ticket)) {
+      notifyRoles(['president'], payload, { excludeUsername: exclude });
+    }
   };
-  const notifyExecutiveIfCritical = () => {
-    if (isCriticalTicket(ticket)) {
+  const notifyExecutiveIfHighCritical = () => {
+    if (isHighOrCriticalTicket(ticket)) {
       notifyRoles(['executive'], payload, { excludeUsername: exclude });
     }
   };
@@ -239,7 +249,7 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'assignment':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyExecutiveIfCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter();
       break;
     case 'reassignment': {
@@ -257,7 +267,7 @@ function notifyWorkflowStakeholders(ticket, event, {
         message: message || `${ticket.reference} was reassigned to ${deptLabel}.`,
       });
       notifyRmu();
-      notifyExecutiveIfCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter(reporterMsg);
       break;
     }
@@ -269,8 +279,8 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'approval':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyPresident();
-      notifyExecutiveIfCritical();
+      notifyPresidentIfHighCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter();
       break;
     case 'return':
@@ -281,21 +291,21 @@ function notifyWorkflowStakeholders(ticket, event, {
     case 'escalation':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyPresident();
-      notifyExecutiveIfCritical();
+      notifyPresidentIfHighCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter();
       break;
     case 'overdue':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyExecutiveIfCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter();
       break;
     case 'closure':
       notifyDeptHeadsForDepartment(ticket, payload);
       notifyRmu();
-      notifyPresident();
-      notifyExecutiveIfCritical();
+      notifyPresidentIfHighCritical();
+      notifyExecutiveIfHighCritical();
       notifyReporter();
       break;
     default:
@@ -329,5 +339,6 @@ module.exports = {
   ticketHref,
   formatDepartmentLabel,
   isCriticalTicket,
+  isHighOrCriticalTicket,
   ticketRiskLevelId,
 };

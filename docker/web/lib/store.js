@@ -812,9 +812,24 @@ function getNotifications(limit = 20) {
   return (store.notifications || []).slice(0, limit);
 }
 
+function notificationTicketRiskLevelId(ticket) {
+  if (ticket?.ai?.riskLevel?.id) return ticket.ai.riskLevel.id;
+  if (ticket?.riskLevel) return ticket.riskLevel;
+  const sev =
+    ticket?.ai?.severity
+    || (ticket?.likelihood && ticket?.impact
+      ? Math.round((ticket.likelihood + ticket.impact) / 2)
+      : 2);
+  if (sev <= 2) return 'low';
+  if (sev === 3) return 'moderate';
+  if (sev === 4) return 'high';
+  return 'critical';
+}
+
 function getNotificationsForUser(user, limit = 15) {
   const store = loadStore();
   const ticketsByRef = new Map((store.riskTickets || []).map((t) => [t.reference, t]));
+  const oversightOnlyHighCritical = user?.role === 'president' || user?.role === 'executive';
   return (store.notifications || [])
     .filter((n) => notificationMatchesUser(n, user))
     .filter((n) => {
@@ -822,7 +837,13 @@ function getNotificationsForUser(user, limit = 15) {
       if (!n.ticketRef) return true;
       const ticket = ticketsByRef.get(n.ticketRef);
       if (!ticket) return true;
-      return !ticket.deleted;
+      if (ticket.deleted) return false;
+      // President / Executive: only High and Critical ticket notifications.
+      if (oversightOnlyHighCritical) {
+        const level = notificationTicketRiskLevelId(ticket);
+        if (level !== 'high' && level !== 'critical') return false;
+      }
+      return true;
     })
     .slice(0, limit)
     .map((n) => {

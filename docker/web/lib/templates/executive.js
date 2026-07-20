@@ -3,7 +3,6 @@ const { escapeHtml, formatDate } = require('../html');
 const { matrixCellTier } = require('../tickets');
 const { flashMessage } = require('./layout');
 const { threadDiscussionSection } = require('./thread-discussion');
-const { executiveCommentsSection } = require('./layout');
 const { executiveAppLayout } = require('./executive-layout');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
@@ -310,7 +309,7 @@ function executiveOverviewPage(user, dashboard, flash) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'Dashboard',
-      desc: 'View-only oversight of organization-wide risks. You may comment on any submitted ticket — you cannot approve, reject, transfer, or close tickets.',
+      desc: 'View-only oversight of organization-wide risks. You cannot approve, reject, transfer, or close tickets.',
       actionHtml: '<a href="/executive/register" class="sup-btn-primary">Open risk register</a>',
     })}
     <div class="sup-kpi-grid sup-kpi-grid--levels">
@@ -387,7 +386,7 @@ function allTicketsPage(user, tickets, flash, filters = {}, stats = {}) {
 function criticalTicketsPage(user, tickets, flash, stats = {}) {
   return ticketsListPage(user, {
     title: 'Critical risks',
-    desc: 'Extreme/Critical risk reports. You may post oversight comments on any ticket from the risk register.',
+    desc: 'Extreme/Critical risk reports prioritized for executive oversight.',
     tickets,
     flash,
     activeNav: 'register',
@@ -570,13 +569,6 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
   const isCritical = riskLevelId === 'critical';
   const statusHtml = `${riskLevelBadge(riskLevelId, riskLevel?.label || t.riskLevelLabel)} · ${statusPill(t.status, t.isOverdue)}`;
 
-  const commentBlock = executiveCommentsSection(t.oversightComments || [], {
-    postAction: `/executive/tickets/${escapeHtml(ref)}/comment`,
-    canPost: true,
-    canReply: false,
-    hint: '<p class="text-muted section-hint">Visible to the Risk Governance Office (RMU) and Department Head. Not visible to the ticket reporter.</p>',
-  });
-
   const body = `
     ${flashMessage(flash)}
     ${error ? flashMessage(error, 'error') : ''}
@@ -584,21 +576,18 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
       title: t.title,
       ref,
       statusHtml,
-      backHref: '/executive/register',
-      backLabel: 'Back to risk register',
+      backHref: '/executive',
+      backLabel: 'Back to dashboard',
     })}
     ${isCritical ? '<div class="critical-banner" role="status">Critical risk — prioritized for executive oversight</div>' : ''}
     ${isHighCritical && !isCritical ? '<div class="critical-banner critical-banner--high" role="status">High risk — prioritized for executive oversight</div>' : ''}
     ${ticketReadonlySections(t)}
-    <div class="sup-detail-stack sup-detail-stack--comments">
-      ${commentBlock}
-      <p class="sup-muted-block exec-view-only-hint">View only for decisions — approve, reject, transfer, and close actions are not available for this role. Comments you post are visible to the Department Head and Risk Governance Office (RMU).</p>
-    </div>`;
+    <p class="sup-muted-block exec-view-only-hint">View only for decisions — approve, reject, transfer, and close actions are not available for this role.</p>`;
 
   return executivePage({
     title: ref,
     user,
-    activeNav: 'register',
+    activeNav: 'overview',
     body,
     stats,
   });

@@ -34,7 +34,7 @@ const ROLES = {
     id: 'executive',
     label: 'Executive Committee',
     description:
-      'View-only oversight: dashboard, heatmap, risk register, reports, trends, statistics, and department performance. May comment on any submitted ticket.',
+      'View-only oversight: dashboard, heatmap, reports, trends, statistics, and department performance.',
     path: '/executive',
     assignable: true,
   },

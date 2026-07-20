@@ -1,12 +1,12 @@
 const { escapeHtml } = require('../html');
 const { findUserRecord } = require('../store');
+const { getRoleLabel } = require('../../config/roles');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
 
 const NAV_ITEMS = [
   { id: 'overview', href: '/executive', label: 'Dashboard', icon: 'dashboard' },
   { id: 'heatmap', href: '/executive/heatmap', label: 'Heatmap', icon: 'heatmap' },
-  { id: 'register', href: '/executive/register', label: 'Risk Register', icon: 'register', statKey: 'total' },
   { id: 'reports', href: '/executive/reports', label: 'Reports', icon: 'reports' },
   { id: 'trends', href: '/executive/trends', label: 'Trends', icon: 'trends' },
   { id: 'statistics', href: '/executive/statistics', label: 'Statistics', icon: 'statistics' },
@@ -45,7 +45,7 @@ function sidebarNav(activeNav, stats = {}) {
 function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const profile = findUserRecord(user.username) || user;
   const displayName = profile.displayName || user.displayName || user.username;
-  const positionLine = profile.position || user.position || user.roleLabel || 'Executive Committee';
+  const roleLine = getRoleLabel(user.role || profile.role) || user.roleLabel || 'Executive Committee';
   const initial = String(displayName || 'U').trim().charAt(0).toUpperCase();
   const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/executive/notifications/read-all' });
 
@@ -81,7 +81,7 @@ function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifica
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(displayName)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(positionLine)}</span>
+        <span class="supervisor-sidebar__user-title">${escapeHtml(roleLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">
