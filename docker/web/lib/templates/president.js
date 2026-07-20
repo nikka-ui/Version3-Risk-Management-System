@@ -370,8 +370,8 @@ function presidentDecisionCard(ticket) {
 
 function commentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
-    title: 'Comments',
-    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Governance Office (RMU).',
+    title: 'Discussion thread',
+    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Governance Office (RMU). Not visible to the ticket reporter.',
     postAction: `/president/tickets/${escapeHtml(ref)}/comment`,
     canPost: true,
     canReact: false,

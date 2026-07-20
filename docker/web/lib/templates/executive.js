@@ -560,6 +560,21 @@ function departmentPerformancePage(user, dashboard, flash) {
   return executivePage({ title: 'Department Performance', user, activeNav: 'departments', body, stats });
 }
 
+function ticketDiscussionSection(ticket, ref) {
+  return threadDiscussionSection(ticket, ref, {
+    title: 'Discussion thread',
+    hint: 'Share oversight guidance. Visible to the Department Head and Risk Governance Office (RMU). Not visible to the ticket reporter.',
+    postAction: `/executive/tickets/${escapeHtml(ref)}/comment`,
+    canPost: ticket.status !== 'draft',
+    canReact: false,
+    canEditOwn: false,
+    showAttachments: false,
+    composeLabel: 'Add comment',
+    composePlaceholder: 'Share oversight guidance on this risk report…',
+    submitLabel: 'Post comment',
+  });
+}
+
 function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
   const t = ticket;
   const ref = t.reference;
@@ -582,6 +597,7 @@ function ticketDetailPage(user, ticket, { flash, error, stats = {} } = {}) {
     ${isCritical ? '<div class="critical-banner" role="status">Critical risk — prioritized for executive oversight</div>' : ''}
     ${isHighCritical && !isCritical ? '<div class="critical-banner critical-banner--high" role="status">High risk — prioritized for executive oversight</div>' : ''}
     ${ticketReadonlySections(t)}
+    ${ticketDiscussionSection(t, ref)}
     <p class="sup-muted-block exec-view-only-hint">View only for decisions — approve, reject, transfer, and close actions are not available for this role.</p>`;
 
   return executivePage({

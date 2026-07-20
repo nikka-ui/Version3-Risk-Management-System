@@ -91,7 +91,6 @@ function officerNav(active) {
     { id: 'overview', href: '/officer', label: 'Overview' },
     { id: 'register', href: '/officer/tickets', label: 'Risk register' },
     { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA' },
-    { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans' },
     { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring' },
   ];
   const links = items

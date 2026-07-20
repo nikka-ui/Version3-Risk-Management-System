@@ -187,6 +187,184 @@ function accomplishmentPendingBlock(ticket) {
   </section>`;
 }
 
+function formatEvidenceFileSize(bytes) {
+  if (!bytes) return '—';
+  const mb = bytes / 1024 / 1024;
+  if (mb < 0.1) return '< 0.1 MB';
+  return `${mb.toFixed(1)} MB`;
+}
+
+function accomplishmentAttachedEvidenceMarkup(ticket, attachmentBasePath) {
+  const items = (ticket?.evidence || []).filter((e) => e.storageKey || !e.legacy);
+  if (!items.length) {
+    return `<p class="upload-evidence-status upload-evidence-status--missing" id="accEvidenceStatus">No evidence uploaded yet — add at least one file below.</p>`;
+  }
+  const rows = items
+    .map((e) => {
+      const name = escapeHtml(e.name || e.originalName || 'File');
+      const meta = escapeHtml(formatEvidenceFileSize(e.size));
+      const href = `${attachmentBasePath}/${escapeHtml(e.id)}`;
+      return `<li class="upload-preview-item upload-preview-item--attached">
+        <span class="upload-pending-item-icon" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <a href="${href}" class="upload-name upload-name--link" target="_blank" rel="noopener">${name}</a>
+        <span class="upload-meta">${meta}</span>
+      </li>`;
+    })
+    .join('');
+  return `<p class="upload-evidence-status upload-evidence-status--ok" id="accEvidenceStatus">${items.length} file${items.length === 1 ? '' : 's'} attached — ready to submit</p>
+    <ul class="upload-preview upload-preview--attached" id="accEvidenceList">${rows}</ul>`;
+}
+
+function addEvidenceUploadFormMarkup(ref, { compact = false } = {}) {
+  const formClass = compact ? 'stack-form stack-form--compact' : 'stack-form';
+  return `<form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="${formClass}" id="addEvidenceForm" enctype="multipart/form-data" novalidate>
+    <div class="upload-zone${compact ? ' upload-zone--compact' : ''}" id="addEvDropzone" role="button" tabindex="0" aria-label="Upload evidence files">
+      <div class="upload-icon" aria-hidden="true">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 16V4" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+          <path d="M7 9L12 4L17 9" stroke="#476C9B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 16.5C19.2 18.7 17.2 20 15 20H9C6.8 20 4.8 18.7 4 16.5" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="upload-title">Drag and drop files here</p>
+      <p class="upload-sub">Accepted types: PDF, PNG, JPG (max 20MB)</p>
+      <button type="button" class="btn-outline btn-upload" id="addEvBrowseBtn">Browse files</button>
+      <input id="addEvFileInput" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" style="display:none">
+    </div>
+    <div class="upload-pending-wrap" id="addEvPending" hidden>
+      <div class="upload-pending-head">
+        <span class="upload-pending-badge" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="upload-pending-label">New files ready to upload</span>
+      </div>
+      <ul class="upload-preview upload-preview--pending" id="addEvPreview"></ul>
+    </div>
+    <div class="upload-message" id="addEvMessage" role="status"></div>
+    <button type="submit" class="btn-primary btn-primary--auto" id="addEvSubmitBtn" disabled>Upload files</button>
+  </form>`;
+}
+
+function addEvidenceUploadFormScript() {
+  return `<script>
+    (function () {
+      const form = document.getElementById('addEvidenceForm');
+      if (!form) return;
+      const dropzone = document.getElementById('addEvDropzone');
+      const browseBtn = document.getElementById('addEvBrowseBtn');
+      const fileInput = document.getElementById('addEvFileInput');
+      const pending = document.getElementById('addEvPending');
+      const preview = document.getElementById('addEvPreview');
+      const message = document.getElementById('addEvMessage');
+      const submitBtn = document.getElementById('addEvSubmitBtn');
+      const allowedExt = new Set(['pdf', 'png', 'jpg', 'jpeg']);
+      let selectedFiles = [];
+
+      function syncInput() {
+        const dt = new DataTransfer();
+        selectedFiles.forEach((f) => dt.items.add(f));
+        fileInput.files = dt.files;
+      }
+
+      function setMessage(msg, type) {
+        message.textContent = msg || '';
+        message.className = 'upload-message';
+        if (type === 'error') message.classList.add('upload-message--error');
+        if (type === 'ok') message.classList.add('upload-message--ok');
+      }
+
+      function notify(msg, type) {
+        setMessage(msg, type);
+        if (window.showAppToast) window.showAppToast(msg, type === 'error' ? 'error' : 'success');
+      }
+
+      function render() {
+        preview.innerHTML = '';
+        if (!selectedFiles.length) {
+          pending.hidden = true;
+          submitBtn.disabled = true;
+          return;
+        }
+        pending.hidden = false;
+        submitBtn.disabled = false;
+        selectedFiles.forEach((f, idx) => {
+          const li = document.createElement('li');
+          li.className = 'upload-preview-item upload-preview-item--pending';
+          li.innerHTML =
+            '<span class="upload-pending-item-icon" aria-hidden="true">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '</svg></span>' +
+            '<span class="upload-name"></span>' +
+            '<span class="upload-meta"></span>' +
+            '<button type="button" class="upload-remove-btn">Remove</button>';
+          li.querySelector('.upload-name').textContent = f.name;
+          li.querySelector('.upload-meta').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB · Ready to upload';
+          li.querySelector('.upload-remove-btn').addEventListener('click', () => {
+            selectedFiles.splice(idx, 1);
+            syncInput();
+            render();
+            if (!selectedFiles.length) setMessage('', null);
+          });
+          preview.appendChild(li);
+        });
+      }
+
+      function validate(file) {
+        const parts = String(file.name || '').toLowerCase().split('.');
+        const ext = parts.length > 1 ? parts[parts.length - 1] : '';
+        if (!allowedExt.has(ext)) return { ok: false, reason: 'Unsupported file type: ' + ext.toUpperCase() };
+        if (file.size > 20 * 1024 * 1024) return { ok: false, reason: 'File exceeds 20MB: ' + file.name };
+        return { ok: true };
+      }
+
+      function addFiles(files) {
+        const arr = Array.from(files || []);
+        const before = selectedFiles.length;
+        const names = [];
+        for (const f of arr) {
+          const v = validate(f);
+          if (!v.ok) { notify(v.reason, 'error'); continue; }
+          selectedFiles.push(f);
+          names.push(f.name);
+        }
+        selectedFiles = selectedFiles.slice(0, 10);
+        const added = selectedFiles.length - before;
+        syncInput();
+        render();
+        if (added > 0) {
+          notify(added === 1 ? '"' + names[names.length - 1] + '" added — ready to upload' : added + ' file(s) added — ready to upload', 'ok');
+          dropzone.classList.add('upload-zone--success');
+          setTimeout(() => dropzone.classList.remove('upload-zone--success'), 2000);
+        }
+      }
+
+      browseBtn.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('click', (e) => { if (e.target === dropzone) fileInput.click(); });
+      dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+      fileInput.addEventListener('change', (e) => { addFiles(e.target.files); });
+      ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+      ['dragleave', 'drop'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+      dropzone.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
+
+      form.addEventListener('submit', (e) => {
+        if (!selectedFiles.length) {
+          e.preventDefault();
+          notify('Select at least one file to upload.', 'error');
+          return;
+        }
+        syncInput();
+      });
+    })();
+  </script>`;
+}
+
 const KPI_ICONS = {
   tickets: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>`,
   drafts: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
@@ -496,7 +674,6 @@ function timelineSection(timeline = []) {
 function threadCommentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
     title: 'Discussion thread',
-    hint: 'You can @mention the department head assigned to this ticket.',
     postAction: `/supervisor/tickets/${ref}/comment`,
     editAction: `/supervisor/tickets/${ref}/comment/edit`,
     reactAction: `/supervisor/tickets/${ref}/comment/react`,
@@ -505,7 +682,7 @@ function threadCommentsSection(ticket, ref, user) {
     canEditOwn: true,
     currentUsername: user?.username,
     showAttachments: false,
-    composePlaceholder: 'Write a comment… Use @username to mention the assigned department head.',
+    composePlaceholder: 'Write a comment…',
   });
 }
 
@@ -584,7 +761,7 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
     ? `<dt>Target date</dt><dd class="${t.isOverdue ? 'cell--overdue' : ''}">${escapeHtml(formatDate(t.dueAt))}${t.isOverdue ? ' <span class="pill pill--bad pill--overdue">Overdue</span>' : ''}</dd>`
     : '';
 
-  const formSection = `<section class="card">
+  const riskDetailsSection = `<section class="card">
         <h2>Risk details</h2>
         <dl class="detail-dl">
           <dt>Title</dt><dd>${escapeHtml(t.title)}</dd>
@@ -597,8 +774,9 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
           ${dueDetailRow}
         </dl>
         <p style="margin-top:1rem">${escapeHtml(t.description || '—')}</p>
-      </section>
-      <section class="card">
+      </section>`;
+
+  const fiveW1HSection = `<section class="card">
         <h2>5W1H</h2>
         ${fiveW1HFields(t, false)}
       </section>`;
@@ -609,202 +787,72 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
     interactive: true,
   });
 
+  const fiveW1HWithAttachmentsSection = `<div class="ticket-detail-group ticket-detail-group--fivew1h">
+      ${fiveW1HSection}
+      ${evidenceSectionHtml}
+    </div>`;
+
   const showAccomplishment = canSupervisorSubmitAccomplishment(t);
   const accomplishmentSubmitted = accomplishmentSubmittedBlock(t.accomplishment);
   const accomplishmentPending = accomplishmentPendingBlock(t);
   const existingEvidenceCount = (t.evidence || []).filter((e) => e.storageKey || !e.legacy).length;
+  const canAddEvidence = ['under_review', 'in_mitigation', 'in_progress', 'returned', 'pending_audit', 'reopened'].includes(t.status);
 
   const addEvidenceForm =
-    ['under_review', 'in_mitigation', 'in_progress', 'returned', 'pending_audit', 'reopened'].includes(t.status)
-      ? `<section class="card${showAccomplishment ? ' card--required-evidence' : ''}">
-          <h2>Add evidence${showAccomplishment ? ' <span class="req" aria-hidden="true">*</span>' : ''}</h2>
-          <p class="text-muted">${
-            showAccomplishment
-              ? 'Required — upload at least one supporting file (PDF, PNG, or JPG) before submitting your accomplishment report.'
-              : 'Upload PDF, PNG, or JPG files (max 20MB each).'
-          }</p>
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/evidence" class="stack-form" id="addEvidenceForm" enctype="multipart/form-data" novalidate>
-            <div class="upload-zone" id="addEvDropzone" role="button" tabindex="0" aria-label="Upload evidence files">
-              <div class="upload-icon" aria-hidden="true">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 16V4" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M7 9L12 4L17 9" stroke="#476C9B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M20 16.5C19.2 18.7 17.2 20 15 20H9C6.8 20 4.8 18.7 4 16.5" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <p class="upload-title">Drag and drop files here</p>
-              <p class="upload-sub">Accepted types: PDF, PNG, JPG (max 20MB)</p>
-              <button type="button" class="btn-outline btn-upload" id="addEvBrowseBtn">Browse files</button>
-              <input id="addEvFileInput" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" style="display:none">
-            </div>
-            <div class="upload-pending-wrap" id="addEvPending" hidden>
-              <div class="upload-pending-head">
-                <span class="upload-pending-badge" aria-hidden="true">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                  </svg>
-                </span>
-                <span class="upload-pending-label">New files ready to upload</span>
-              </div>
-              <ul class="upload-preview upload-preview--pending" id="addEvPreview"></ul>
-            </div>
-            <div class="upload-message" id="addEvMessage" role="status"></div>
-            <button type="submit" class="btn-primary btn-primary--auto" id="addEvSubmitBtn" disabled>Upload files</button>
-          </form>
-          <script>
-            (function () {
-              const form = document.getElementById('addEvidenceForm');
-              if (!form) return;
-              const dropzone = document.getElementById('addEvDropzone');
-              const browseBtn = document.getElementById('addEvBrowseBtn');
-              const fileInput = document.getElementById('addEvFileInput');
-              const pending = document.getElementById('addEvPending');
-              const preview = document.getElementById('addEvPreview');
-              const message = document.getElementById('addEvMessage');
-              const submitBtn = document.getElementById('addEvSubmitBtn');
-              const allowedExt = new Set(['pdf', 'png', 'jpg', 'jpeg']);
-              let selectedFiles = [];
-
-              function syncInput() {
-                const dt = new DataTransfer();
-                selectedFiles.forEach((f) => dt.items.add(f));
-                fileInput.files = dt.files;
-              }
-
-              function setMessage(msg, type) {
-                message.textContent = msg || '';
-                message.className = 'upload-message';
-                if (type === 'error') message.classList.add('upload-message--error');
-                if (type === 'ok') message.classList.add('upload-message--ok');
-              }
-
-              function notify(msg, type) {
-                setMessage(msg, type);
-                if (window.showAppToast) window.showAppToast(msg, type === 'error' ? 'error' : 'success');
-              }
-
-              function render() {
-                preview.innerHTML = '';
-                if (!selectedFiles.length) {
-                  pending.hidden = true;
-                  submitBtn.disabled = true;
-                  return;
-                }
-                pending.hidden = false;
-                submitBtn.disabled = false;
-                selectedFiles.forEach((f, idx) => {
-                  const li = document.createElement('li');
-                  li.className = 'upload-preview-item upload-preview-item--pending';
-                  li.innerHTML =
-                    '<span class="upload-pending-item-icon" aria-hidden="true">' +
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-                    '<path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
-                    '</svg></span>' +
-                    '<span class="upload-name"></span>' +
-                    '<span class="upload-meta"></span>' +
-                    '<button type="button" class="upload-remove-btn">Remove</button>';
-                  li.querySelector('.upload-name').textContent = f.name;
-                  li.querySelector('.upload-meta').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB · Ready to upload';
-                  li.querySelector('.upload-remove-btn').addEventListener('click', () => {
-                    selectedFiles.splice(idx, 1);
-                    syncInput();
-                    render();
-                    if (!selectedFiles.length) setMessage('', null);
-                  });
-                  preview.appendChild(li);
-                });
-              }
-
-              function validate(file) {
-                const parts = String(file.name || '').toLowerCase().split('.');
-                const ext = parts.length > 1 ? parts[parts.length - 1] : '';
-                if (!allowedExt.has(ext)) return { ok: false, reason: 'Unsupported file type: ' + ext.toUpperCase() };
-                if (file.size > 20 * 1024 * 1024) return { ok: false, reason: 'File exceeds 20MB: ' + file.name };
-                return { ok: true };
-              }
-
-              function addFiles(files) {
-                const arr = Array.from(files || []);
-                const before = selectedFiles.length;
-                const names = [];
-                for (const f of arr) {
-                  const v = validate(f);
-                  if (!v.ok) { notify(v.reason, 'error'); continue; }
-                  selectedFiles.push(f);
-                  names.push(f.name);
-                }
-                selectedFiles = selectedFiles.slice(0, 10);
-                const added = selectedFiles.length - before;
-                syncInput();
-                render();
-                if (added > 0) {
-                  notify(added === 1 ? '"' + names[names.length - 1] + '" added — ready to upload' : added + ' file(s) added — ready to upload', 'ok');
-                  dropzone.classList.add('upload-zone--success');
-                  setTimeout(() => dropzone.classList.remove('upload-zone--success'), 2000);
-                }
-              }
-
-              browseBtn.addEventListener('click', () => fileInput.click());
-              dropzone.addEventListener('click', (e) => { if (e.target === dropzone) fileInput.click(); });
-              dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
-              fileInput.addEventListener('change', (e) => { addFiles(e.target.files); });
-              ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-              ['dragleave', 'drop'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
-              dropzone.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
-
-              form.addEventListener('submit', (e) => {
-                if (!selectedFiles.length) {
-                  e.preventDefault();
-                  notify('Select at least one file to upload.', 'error');
-                  return;
-                }
-                syncInput();
-              });
-            })();
-          </script>
+    canAddEvidence && !showAccomplishment
+      ? `<section class="card">
+          <h2>Add evidence</h2>
+          <p class="text-muted">Upload PDF, PNG, or JPG files (max 20MB each).</p>
+          ${addEvidenceUploadFormMarkup(ref)}
+          ${addEvidenceUploadFormScript()}
         </section>`
       : '';
 
   const accomplishmentForm = showAccomplishment
-      ? `<section class="card card--accent accomplishment-report-card">
+      ? `<section class="card card--accent accomplishment-report-card${existingEvidenceCount === 0 ? ' card--required-evidence' : ''}">
           <h2>Submit accomplishment report</h2>
           <p class="text-muted">Document mitigation implementation and outcomes after completing the department action plan. Upload supporting evidence, then submit for department head review and closure.</p>
           ${t.deptActionPlan?.summary ? `<p class="accomplishment-plan-ref"><strong>Department action plan:</strong> ${escapeHtml(t.deptActionPlan.summary)}</p>` : ''}
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="stack-form" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
+          <div class="stack-form accomplishment-report-form">
+          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="accomplishment-report-form__fields" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
             <div class="field field--required">
-              <label for="summary">Implementation summary *</label>
-              <textarea id="summary" name="summary" rows="3" required></textarea>
+              <label for="summary">Implementation summary <span class="req" aria-hidden="true">*</span></label>
+              <textarea id="summary" name="summary" rows="3" required placeholder="Describe what was implemented from the department action plan"></textarea>
             </div>
             <div class="field field--required">
-              <label for="outcomes">Outcomes and results *</label>
-              <textarea id="outcomes" name="outcomes" rows="3" required></textarea>
+              <label for="outcomes">Outcomes and results <span class="req" aria-hidden="true">*</span></label>
+              <textarea id="outcomes" name="outcomes" rows="3" required placeholder="Describe measurable outcomes and results after implementation"></textarea>
             </div>
-            <div class="field field--required" id="accEvidenceField" data-required="evidence">
-              <label for="acc_attachments">Resolution evidence *</label>
-              <p class="field-hint">Upload at least one supporting file (PDF, PNG, or JPG, max 20MB each). You may also use files already attached above.</p>
-              <input id="acc_attachments" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg"${existingEvidenceCount === 0 ? ' required' : ''}>
-            </div>
-            <button type="submit" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${existingEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
           </form>
+          <div class="field field--required accomplishment-evidence-field" id="accEvidenceField" data-required="evidence">
+            <label for="addEvDropzone">Accomplishment result evidence <span class="req" aria-hidden="true">*</span></label>
+            <p class="field-hint">Upload at least one supporting file (PDF, PNG, or JPG, max 20MB each) before submitting your report.</p>
+            <div class="accomplishment-evidence-field__attached" id="accEvidenceAttached">
+              ${accomplishmentAttachedEvidenceMarkup(t, '/supervisor/attachments')}
+            </div>
+            ${addEvidenceUploadFormMarkup(ref, { compact: true })}
+          </div>
+          <div class="accomplishment-submit-row">
+            <button type="submit" form="accomplishmentForm" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${existingEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
+          </div>
+          </div>
+          ${addEvidenceUploadFormScript()}
           <script>
             (function () {
               const form = document.getElementById('accomplishmentForm');
               if (!form) return;
               const savedCount = ${existingEvidenceCount};
-              const fileInput = document.getElementById('acc_attachments');
               const evidenceField = document.getElementById('accEvidenceField');
               const submitBtn = document.getElementById('accomplishmentSubmitBtn');
 
               function updateState() {
-                const newCount = fileInput && fileInput.files ? fileInput.files.length : 0;
-                const hasEvidence = savedCount > 0 || newCount > 0;
+                const hasEvidence = savedCount > 0;
                 if (evidenceField) evidenceField.classList.toggle('field--invalid', !hasEvidence);
                 if (submitBtn) submitBtn.disabled = !hasEvidence;
               }
 
               form.addEventListener('submit', function (e) {
-                const newCount = fileInput && fileInput.files ? fileInput.files.length : 0;
-                if (savedCount === 0 && newCount === 0) {
+                if (savedCount === 0) {
                   e.preventDefault();
                   updateState();
                   if (window.showAppToast) {
@@ -813,7 +861,6 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
                 }
               });
 
-              if (fileInput) fileInput.addEventListener('change', updateState);
               updateState();
             })();
           </script>
@@ -847,14 +894,14 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
     ${deptRejectionBlock}
     ${deptHandlingBlock}
     ${officerBlock}
-    ${formSection}
+    ${riskDetailsSection}
+    ${fiveW1HWithAttachmentsSection}
     ${aiBlock}
     ${supervisorFeedbackBlock}
-    ${evidenceSectionHtml}
-    ${addEvidenceForm}
     ${accomplishmentSubmitted}
     ${accomplishmentPending}
     ${accomplishmentForm}
+    ${addEvidenceForm}
     ${timelineSection(t.timeline || [])}
     ${threadCommentsSection(t, ref, user)}
     ${finalDecisionBlock || closedNoDecision}`;

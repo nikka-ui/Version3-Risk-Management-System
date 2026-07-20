@@ -2266,6 +2266,77 @@ body.attachment-drawer-open {
   line-height: 1.5;
 }
 
+.accomplishment-report-form {
+  margin-bottom: 0;
+}
+
+.accomplishment-report-form__fields {
+  margin: 0;
+}
+
+.ticket-detail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ticket-detail-group--fivew1h .sup-card {
+  margin-bottom: 0;
+}
+
+.accomplishment-evidence-field {
+  margin-top: 0;
+}
+
+.accomplishment-evidence-field .field-hint {
+  margin: 0.25rem 0 0.75rem;
+}
+
+.accomplishment-evidence-field__attached {
+  margin-bottom: 0.75rem;
+}
+
+.accomplishment-evidence-field .upload-evidence-status {
+  margin-bottom: 0.625rem;
+}
+
+.accomplishment-evidence-field .upload-preview--attached {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.accomplishment-evidence-field.field--invalid label {
+  color: #b91c1c;
+}
+
+.accomplishment-evidence-field.field--invalid .upload-zone {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+.upload-preview-item--attached {
+  background: #f8fafc;
+}
+
+.upload-name--link {
+  color: #476c9b;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.upload-name--link:hover {
+  text-decoration: underline;
+}
+
+.upload-zone--compact {
+  padding: 1rem 1.25rem;
+}
+
+.accomplishment-submit-row {
+  margin-top: 0.5rem;
+  padding-top: 0.25rem;
+}
+
 .accomplishment-notice {
   margin: 0.75rem 0 0;
   padding: 0.65rem 0.875rem;
@@ -6179,6 +6250,43 @@ a.officer-kpi:hover {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
+}
+
+.dept-past-due-banner {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: var(--sup-radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #dc2626;
+  color: #7f1d1d;
+}
+
+.dept-past-due-banner__icon {
+  flex-shrink: 0;
+  color: #dc2626;
+}
+
+.dept-past-due-banner__title {
+  margin: 0 0 0.2rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.dept-past-due-banner__message {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.dept-past-due-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #b91c1c;
 }
 
 .dept-assignment-banner {

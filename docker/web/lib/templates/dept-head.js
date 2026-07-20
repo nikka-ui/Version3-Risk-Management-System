@@ -13,7 +13,6 @@ const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const { supTicketHead, supDetailCard } = require('./console-ui');
 const { threadDiscussionSection } = require('./thread-discussion');
-const { executiveCommentsSection } = require('./layout');
 
 /* —— shared bits —— */
 
@@ -337,14 +336,41 @@ function transferIndication(ticket) {
   </div>`;
 }
 
+function pastDueDaysLabel(days) {
+  return days === 1 ? '1 day' : `${days} days`;
+}
+
+function accomplishmentPastDueBanner(ticket) {
+  const pastDue = ticket.accomplishmentPastDue;
+  if (!pastDue) return '';
+  const dueLabel = formatDate(pastDue.dueAt);
+  const daysLabel = pastDueDaysLabel(pastDue.daysPastDue);
+  return `<div class="dept-past-due-banner" role="alert" aria-live="polite">
+    <div class="dept-past-due-banner__icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="dept-past-due-banner__body">
+      <p class="dept-past-due-banner__title">Way past target date</p>
+      <p class="dept-past-due-banner__message">The accomplishment report was submitted <strong>${escapeHtml(daysLabel)} after</strong> the target date of <strong>${escapeHtml(dueLabel)}</strong>.</p>
+    </div>
+  </div>`;
+}
+
 function detailsSidebar(ticket) {
   const riskLevel = ticketRiskLevel(ticket);
   const owner = ticket.ownership?.ownerName
     ? `${escapeHtml(ticket.ownership.ownerName)}`
     : '<span class="text-muted">Unassigned</span>';
-  const due = ticket.mitigationDueAt || ticket.actionPlan?.targetDate;
+  const due = ticket.dueAt || ticket.mitigationDueAt || ticket.actionPlan?.targetDate;
+  const pastDue = ticket.accomplishmentPastDue;
   const submittedAt = ticket.submittedAt || ticket.routedAt || ticket.createdAt;
   const incidentDate = formatIncidentDate(ticket.fiveW1H?.when);
+  const dueRow = due
+    ? `<dt>Target date</dt><dd class="${pastDue ? 'cell--overdue' : ''}">${escapeHtml(formatDate(due))}${pastDue ? ` <span class="pill pill--bad pill--overdue">Past due</span>` : ''}${pastDue ? `<p class="dept-past-due-note">${escapeHtml(pastDueDaysLabel(pastDue.daysPastDue))} late at submission</p>` : ''}</dd>`
+    : '';
 
   return `<div class="dept-side-card">
     <h3 class="dept-side-card__title">Details</h3>
@@ -360,7 +386,7 @@ function detailsSidebar(ticket) {
       <dt>Likelihood × Impact</dt><dd>${ticket.likelihood} × ${ticket.impact} (${ticket.riskScore || ticket.likelihood * ticket.impact})</dd>
       <dt>Submitted</dt><dd>${escapeHtml(formatDate(submittedAt))}</dd>
       ${incidentDate ? `<dt>Incident occurred</dt><dd>${escapeHtml(incidentDate)}</dd>` : ''}
-      ${due ? `<dt>Target date</dt><dd>${escapeHtml(formatDate(due))}</dd>` : ''}
+      ${dueRow}
     </dl>
   </div>`;
 }
@@ -505,7 +531,8 @@ function accomplishmentReviewCard(ticket) {
     : '';
   return supDetailCard(
     'Reporter accomplishment report',
-    `<p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}. Review the summary and evidence, then close the ticket to validate.</p>
+    `${accomplishmentPastDueBanner(ticket)}
+     <p class="sup-muted-block">Submitted by ${escapeHtml(acc.submittedByName || acc.submittedBy)} on ${escapeHtml(formatDate(acc.submittedAt))}. Review the summary and evidence, then close the ticket to validate.</p>
      <div class="accomplishment-blocks">
        <div class="accomplishment-block">
          <h3 class="accomplishment-block__label">Implementation summary</h3>
@@ -745,18 +772,6 @@ function timelineBlock(ticket) {
   </div>`;
 }
 
-function oversightCommentsCard(ticket) {
-  const comments = ticket.oversightComments || [];
-  const level = ticket.riskLevel || ticket.ai?.riskLevel?.id;
-  const isHighCritical = level === 'high' || level === 'critical';
-  if (!comments.length && !isHighCritical) return '';
-  return executiveCommentsSection(comments, {
-    canPost: false,
-    canReply: false,
-    hint: '<p class="text-muted section-hint">Oversight comments from the Executive Committee and President. Visible to your department and the Risk Governance Office (RMU).</p>',
-  });
-}
-
 function activitySection(ticket, ref, user) {
   const commentCount = (ticket.threadComments || []).length;
   const historyCount = (ticket.auditTrail || []).length;
@@ -773,7 +788,7 @@ function activitySection(ticket, ref, user) {
     canEditOwn: true,
     currentUsername: user?.username,
     showAttachments: false,
-    composePlaceholder: 'Discuss this ticket… You can only @mention the Executive Committee or the President.',
+    composePlaceholder: 'Discuss this ticket…',
   }).replace('<section class="sup-card sup-card--thread">', '<div class="dept-activity__panel" data-activity-panel="comments">')
     .replace(/<div class="sup-card__head"><h2><\/h2><\/div>\s*/, '')
     .replace(/<p class="section-hint"><\/p>\s*/, '')
@@ -846,7 +861,6 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
     ${accomplishmentReviewCard(t)}
     ${finalResolutionCard(t, ref, { editable: canExecute })}
     ${presidentDecisionCard(t)}
-    ${oversightCommentsCard(t)}
     ${activitySection(t, ref, user)}`;
 
   const showOwnershipBar = isAssigned;

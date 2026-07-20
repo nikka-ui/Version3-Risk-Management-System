@@ -1,7 +1,7 @@
 const { getCategoryLabel, getStatusLabel, getStatusTone, DEPARTMENTS } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
-const { flashMessage, executiveCommentsSection } = require('./layout');
+const { flashMessage } = require('./layout');
 const { threadDiscussionSection } = require('./thread-discussion');
 const { officerAppLayout } = require('./officer-layout');
 const { layoutNotifications } = require('../notifications');
@@ -82,15 +82,6 @@ function ticketRiskLevel(ticket) {
       ? Math.round((ticket.likelihood + ticket.impact) / 2)
       : 2);
   return riskLevelFromSeverityLocal(sev);
-}
-
-function executiveCommentsReadonly(ticket) {
-  const comments = ticket.oversightComments || ticket.executiveComments || [];
-  if (!comments.length) return '';
-  return executiveCommentsSection(comments, {
-    canReply: false,
-    hint: '<p class="text-muted section-hint">Oversight comments from the Executive Committee and President. Visible to the RMU and Department Head.</p>',
-  });
 }
 
 function aiReadonlyCard(ticket) {
@@ -617,7 +608,6 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
     ${accBlock}
     ${closureBlock}
     ${reopenBlock}
-    ${executiveCommentsReadonly(t)}
     ${threadCommentsBlock(t, ref)}`;
 
   return officerPageLayout({

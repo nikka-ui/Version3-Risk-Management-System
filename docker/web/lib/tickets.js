@@ -109,6 +109,19 @@ function computeTicketOverdue(ticket) {
   return Date.now() > due.getTime();
 }
 
+/** Days the accomplishment was submitted after the target date (null if on time or no data). */
+function computeAccomplishmentPastDue(ticket, accomplishment) {
+  if (!accomplishment?.submittedAt) return null;
+  const dueRaw = ticket.actionPlan?.targetDate || ticket.mitigationDueAt;
+  const due = parseDueDate(dueRaw);
+  if (!due) return null;
+  const submitted = new Date(accomplishment.submittedAt);
+  if (Number.isNaN(submitted.getTime())) return null;
+  if (submitted.getTime() <= due.getTime()) return null;
+  const daysPastDue = Math.ceil((submitted.getTime() - due.getTime()) / (24 * 60 * 60 * 1000));
+  return { daysPastDue, dueAt: dueRaw };
+}
+
 function isUnpublishedActionPlan(ticket) {
   const plan = ticket.actionPlan;
   if (!String(plan?.summary || '').trim()) return false;
@@ -878,7 +891,7 @@ function oversightCommentsForTicket(ticket) {
       authorRole: c.authorRole || 'executive',
       roleLabel: c.roleLabel || c.authorPosition || getRoleLabel(c.authorRole || 'executive'),
       reactions: c.reactions || {},
-      mentions: c.mentions || parseMentions(c.body),
+      mentions: [],
       attachments: c.attachments || [],
     }));
   return [...fromThread, ...legacy].sort(
@@ -916,85 +929,12 @@ function sharedDiscussionComments(ticket, { excludeOversight = false } = {}) {
           authorRole: c.authorRole || 'executive',
           roleLabel: c.roleLabel || c.authorPosition || 'Executive Committee',
           reactions: c.reactions || {},
-          mentions: c.mentions || parseMentions(c.body),
+          mentions: [],
           attachments: c.attachments || [],
         }));
   return [...thread, ...legacyExecutive].sort(
     (a, b) => new Date(a.at || 0) - new Date(b.at || 0),
   );
-}
-
-function parseMentions(text) {
-  const matches = String(text || '').match(/@([a-zA-Z0-9._-]+)/g) || [];
-  return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))];
-}
-
-/** Usernames a ticket reporter may mention: people handling this specific ticket. */
-function reporterMentionableUsernames(ticket) {
-  const { listUsers } = require('./store');
-  const allowed = new Set();
-  if (ticket.ownership?.ownerUsername) {
-    allowed.add(String(ticket.ownership.ownerUsername).toLowerCase());
-  }
-  for (const u of listUsers()) {
-    if (u.role === 'dept_head' && departmentsMatch(u.department, ticket.department)) {
-      allowed.add(u.username.toLowerCase());
-    }
-  }
-  return allowed;
-}
-
-/**
- * Reporters may only mention users connected to their ticket (the assigned
- * department head / ticket owner). Department heads and above are unrestricted.
- * Unknown @tokens that don't match a real user are ignored (plain text).
- */
-function validateReporterMentions(ticket, text, author) {
-  const mentions = parseMentions(text);
-  if (!mentions.length) return null;
-  const { listUsers } = require('./store');
-  const users = listUsers();
-  const allowed = reporterMentionableUsernames(ticket);
-  if (author?.username) allowed.add(String(author.username).toLowerCase());
-  const blocked = mentions.filter((m) => {
-    const target = users.find((u) => u.username.toLowerCase() === m);
-    return target && !allowed.has(m);
-  });
-  if (blocked.length) {
-    const deptLabel = ticket.department
-      ? ` handling this ticket (${formatDepartmentLabel(ticket.department)})`
-      : ' handling this ticket';
-    return {
-      error: `You can only mention the department head${deptLabel}. Remove: ${blocked.map((m) => `@${m}`).join(', ')}.`,
-    };
-  }
-  return null;
-}
-
-/** Roles a department head is allowed to @mention in the ticket discussion. */
-const DEPT_HEAD_MENTIONABLE_ROLES = ['executive', 'president'];
-
-/**
- * Department heads may only mention the Executive Committee and the President,
- * to avoid confusion from cross-department head mentions. Unknown @tokens that
- * don't match a real user are ignored (treated as plain text).
- */
-function validateDeptHeadMentions(text, author) {
-  const mentions = parseMentions(text);
-  if (!mentions.length) return null;
-  const { listUsers } = require('./store');
-  const users = listUsers();
-  const blocked = mentions.filter((m) => {
-    if (author?.username && m === String(author.username).toLowerCase()) return false;
-    const target = users.find((u) => u.username.toLowerCase() === m);
-    return target && !DEPT_HEAD_MENTIONABLE_ROLES.includes(target.role);
-  });
-  if (blocked.length) {
-    return {
-      error: `You can only mention the Executive Committee or the President. Remove: ${blocked.map((m) => `@${m}`).join(', ')}.`,
-    };
-  }
-  return null;
 }
 
 function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment', attachments = [] } = {}) {
@@ -1011,7 +951,7 @@ function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment
     editedAt: null,
     parentId,
     kind,
-    mentions: parseMentions(text),
+    mentions: [],
     reactions: {},
     attachments: attachments.map((a) => ({
       id: a.id,
@@ -1019,26 +959,6 @@ function buildThreadCommentRecord(user, text, { parentId = null, kind = 'comment
       href: a.href || null,
     })),
   };
-}
-
-function notifyMentionedUsers(ticket, comment, actor) {
-  const { listUsers } = require('./store');
-  const users = listUsers();
-  for (const mention of comment.mentions || []) {
-    const target = users.find((u) => u.username.toLowerCase() === mention);
-    if (target && target.username !== actor.username) {
-      notifyUser(target.username, {
-        type: 'mention',
-        title: 'You were mentioned',
-        message: `${actor.displayName || actor.username} mentioned you on ${ticket.reference}`,
-        ticketRef: ticket.reference,
-        href: ticketHref(target.role, ticket.reference),
-        fromUsername: actor.username,
-        fromName: actor.displayName || actor.username,
-        fromRole: actor.role,
-      });
-    }
-  }
 }
 
 function ensureThreadComments(ticket) {
@@ -1750,7 +1670,7 @@ async function ticketForRole(ticket, role) {
     merged.privateComments = undefined;
     merged.executiveComments = undefined;
     merged.mitigationPlanHistory = undefined;
-    merged.threadComments = sharedDiscussionComments(ticket, { excludeOversight: true });
+    merged.threadComments = sharedDiscussionComments(ticket);
     merged.timeline = getTicketTimelineForReporter(ticket);
     merged.ownership = ticket.ownership || null;
     merged.reassignments = ticket.reassignments || [];
@@ -1766,6 +1686,8 @@ async function ticketForRole(ticket, role) {
     merged.suggestedMitigation = ticket.ai?.suggestedMitigation || null;
     merged.evidence = ticket.evidence || [];
     merged.accomplishment = getAccomplishmentForTicket(ticket);
+    merged.accomplishmentPastDue = computeAccomplishmentPastDue(ticket, merged.accomplishment);
+    merged.dueAt = ticket.actionPlan?.targetDate || ticket.mitigationDueAt || null;
     merged.closure = ticket.closure || null;
     merged.fiveW1H = ticket.fiveW1H || null;
     merged.riskLevel = ticketRiskLevelId(ticket);
@@ -2442,7 +2364,6 @@ function postThreadCommentForTicket(ticket, user, body, { parentIdRequired = fal
     actorRole: user.role,
   });
 
-  notifyMentionedUsers(ticket, record, user);
   notifyWorkflowStakeholders(ticket, 'comment', {
     actor: user,
     type: 'thread_comment',
@@ -2468,16 +2389,7 @@ function editThreadComment(reference, user, body, { ticketGetter }) {
     return { error: 'You can only edit your own comments.' };
   }
 
-  if (user.role === 'supervisor') {
-    const mentionError = validateReporterMentions(ticket, text, user);
-    if (mentionError) return mentionError;
-  } else if (user.role === 'dept_head') {
-    const mentionError = validateDeptHeadMentions(text, user);
-    if (mentionError) return mentionError;
-  }
-
   comment.body = text;
-  comment.mentions = parseMentions(text);
   comment.editedAt = new Date().toISOString();
   ticket.updatedAt = comment.editedAt;
 
@@ -2523,9 +2435,6 @@ function addReporterThreadComment(reference, user, body) {
   if (ticket.status === 'draft') {
     return { error: 'Comments are available after the ticket is submitted.' };
   }
-
-  const mentionError = validateReporterMentions(ticket, body.comment || body.body, user);
-  if (mentionError) return mentionError;
 
   const result = postThreadCommentForTicket(ticket, user, body);
   if (result.error) return result;
@@ -3269,9 +3178,6 @@ function addDeptHeadThreadComment(reference, user, body = {}) {
   const ticket = getTicketByRefForDeptHead(reference, user);
   if (!ticket) return { error: 'Ticket not found.' };
   ensureDeptHeadFields(ticket);
-
-  const mentionError = validateDeptHeadMentions(body.comment || body.body, user);
-  if (mentionError) return mentionError;
 
   const result = postThreadCommentForTicket(ticket, user, body);
   if (result.error) return result;

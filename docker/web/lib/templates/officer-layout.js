@@ -6,7 +6,6 @@ const NAV_ITEMS = [
   { id: 'dashboard', href: '/officer', label: 'Dashboard', icon: 'dashboard' },
   { id: 'register', href: '/officer/tickets', label: 'Risk register', icon: 'reports', statKey: 'total' },
   { id: 'overdue', href: '/officer/overdue', label: 'Overdue & SLA', icon: 'overdue', statKey: 'overdueMitigation' },
-  { id: 'action-plans', href: '/officer/action-plans', label: 'Action plans', icon: 'final', statKey: 'awaitingFinalValidation' },
   { id: 'monitoring', href: '/officer/monitoring', label: 'Monitoring', icon: 'monitoring', statKey: 'inMitigation' },
 ];
 

@@ -20,11 +20,7 @@ function avatarColor(seed) {
 }
 
 function highlightMentions(text) {
-  const escaped = escapeHtml(text);
-  return escaped.replace(
-    /@([a-zA-Z0-9._-]+)/g,
-    '<span class="mention">@$1</span>',
-  );
+  return escapeHtml(text);
 }
 
 function renderReactions(comment, { reactAction } = {}) {
@@ -78,7 +74,7 @@ function renderRedditComment(c, comments, opts, { isReply, depth = 0 } = {}) {
     canEditOwn = false,
     currentUsername,
     replyLabel = 'Reply',
-    replyPlaceholder = 'Write a reply… Use @username to mention someone.',
+    replyPlaceholder = 'Write a reply…',
     executive = false,
   } = opts;
 
@@ -130,7 +126,9 @@ function renderRedditComment(c, comments, opts, { isReply, depth = 0 } = {}) {
     : '';
 
   const eventCls = c.kind && c.kind !== 'comment' ? ' reddit-comment--event' : '';
-  const executiveCls = executive && c.authorRole === 'executive' ? ' reddit-comment--executive' : '';
+  const executiveCls = (executive || ['executive', 'president'].includes(c.authorRole))
+    ? ' reddit-comment--executive'
+    : '';
 
   const reactionBar = canReact ? renderReactions(c, { reactAction }) : '';
   const reactions = reactionBar
@@ -198,7 +196,7 @@ function redditPostForm(ref, opts = {}) {
     postAction,
     canPost = true,
     label = 'Add comment',
-    placeholder = 'Write a comment… Use @username to mention someone.',
+    placeholder = 'Write a comment…',
     showAttachments = false,
     submitLabel = 'Post comment',
     formClass = 'reddit-compose',
@@ -225,7 +223,7 @@ function redditPostForm(ref, opts = {}) {
 }
 
 /**
- * Reddit-style threaded discussion: comments, replies, mentions, attachments, reactions.
+ * Reddit-style threaded discussion: comments, replies, attachments, reactions.
  */
 function threadDiscussionSection(ticket, ref, opts = {}) {
   const {
