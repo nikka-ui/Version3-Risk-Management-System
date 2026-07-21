@@ -242,10 +242,6 @@ function presidentDecisionModals(ticket, ref) {
   if (needsActionPlanDecision(ticket)) {
     const approveForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
       <input type="hidden" name="decision" value="approve">
-      <div class="field field--console">
-        <label for="approveNote">Note <span class="text-muted">(optional)</span></label>
-        <textarea id="approveNote" name="note" rows="3" placeholder="Optional approval note…"></textarea>
-      </div>
       <div class="dept-modal__actions">
         <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
         <button type="submit" class="btn-accept--outline">Approve action plan</button>
