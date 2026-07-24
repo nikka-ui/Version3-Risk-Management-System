@@ -563,7 +563,7 @@ function departmentPerformancePage(user, dashboard, flash) {
 function ticketDiscussionSection(ticket, ref) {
   return threadDiscussionSection(ticket, ref, {
     title: 'Discussion thread',
-    hint: 'Share oversight guidance. Visible to the Department Head and Risk Governance Office (RMU). Not visible to the ticket reporter.',
+    hint: 'Share oversight guidance. Visible to the Department Head and Risk Management Officer (RMO). Not visible to the ticket reporter.',
     postAction: `/executive/tickets/${escapeHtml(ref)}/comment`,
     canPost: ticket.status !== 'draft',
     canReact: false,

@@ -78,7 +78,7 @@ function adminAppLayout({ title, user, activeNav, body, stats = {} }) {
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.username)}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'System Administrator')}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

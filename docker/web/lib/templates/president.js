@@ -119,7 +119,7 @@ function rmuRecommendationsCard(ticket) {
       </li>`,
     )
     .join('');
-  return supDetailCard('RMU recommendations', `<ul class="audit-trail-list">${rows}</ul>`);
+  return supDetailCard('RMO recommendations', `<ul class="audit-trail-list">${rows}</ul>`);
 }
 
 function complianceFindingsCard(ticket) {
@@ -367,7 +367,7 @@ function presidentDecisionCard(ticket) {
 function commentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
     title: 'Discussion thread',
-    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Governance Office (RMU). Not visible to the ticket reporter.',
+    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Management Officer (RMO). Not visible to the ticket reporter.',
     postAction: `/president/tickets/${escapeHtml(ref)}/comment`,
     canPost: true,
     canReact: false,

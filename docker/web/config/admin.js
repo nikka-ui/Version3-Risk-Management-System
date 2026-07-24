@@ -9,14 +9,14 @@ const SEED_DEPARTMENTS = [
   { code: 'IT', name: 'Information Technology', description: 'IT infrastructure and systems', status: 'active' },
   { code: 'HR', name: 'Human Resources', description: 'Human resources and talent management', status: 'active' },
   { code: 'BD', name: 'Business Development', description: 'Business development and partnerships', status: 'active' },
-  { code: 'RMO', name: 'RMO', description: 'Risk Governance Office (RMU)', status: 'active' },
+  { code: 'RMO', name: 'RMO', description: 'Risk Management Officer (RMO)', status: 'active' },
   { code: 'PCEO', name: 'PCEO', description: 'President and Chief Executive Office', status: 'active' },
   { code: 'IA', name: 'Internal Audit', description: 'Internal audit and assurance', status: 'active' },
 ];
 
 const SEED_POSITIONS = [
   'Department Supervisor',
-  'Risk Governance Officer',
+  'Risk Management Officer',
   'Executive Director',
   'Executive Committee Member',
   'Finance Supervisor',
@@ -25,8 +25,10 @@ const SEED_POSITIONS = [
 ];
 
 const DEFAULT_SYSTEM_SETTINGS = {
+  landingTagline: 'Identify. Assess. Mitigate.',
+  landingHeadline: 'ACCC Risk\nManagement\nSystem',
+  organizationName: 'ACCC',
   systemName: 'AI-Assisted ISO 31000 Risk Management System',
-  organizationName: 'Risk Management Office',
   themeColor: '#2563eb',
   defaultRiskLevels: ['low', 'moderate', 'high', 'critical'],
   ticketNumberFormat: 'RISK-{YEAR}-{SEQ}',

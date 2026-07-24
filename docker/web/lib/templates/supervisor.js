@@ -164,7 +164,7 @@ function accomplishmentSubmittedBlock(accomplishment) {
   if (!accomplishment) return '';
   return `<section class="card card--accent accomplishment-report-card">
     <h2>Accomplishment report submitted</h2>
-    <p class="text-muted">Submitted ${escapeHtml(formatDate(accomplishment.submittedAt))} · sent to your department head for review and closure. The Risk Governance Office is notified.</p>
+    <p class="text-muted">Submitted ${escapeHtml(formatDate(accomplishment.submittedAt))} · sent to your department head for review and closure. The Risk Management Officer is notified.</p>
     <div class="accomplishment-blocks">
       <div class="accomplishment-block">
         <h3 class="accomplishment-block__label">Implementation summary</h3>

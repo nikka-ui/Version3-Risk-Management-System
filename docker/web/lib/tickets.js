@@ -1783,7 +1783,7 @@ function ensureRmuFields(ticket) {
 }
 
 const RMU_OWNERSHIP_DENIED =
-  'The Risk Governance Office (RMU) does not own tickets. Use Recommend, Comment, or Escalate instead.';
+  'The Risk Management Officer (RMO) does not own tickets. Use Recommend, Comment, or Escalate instead.';
 
 function rejectTicketForOfficer(reference, username, body) {
   return { error: RMU_OWNERSHIP_DENIED };
@@ -1794,11 +1794,11 @@ function acceptAndAssignMitigation(reference, username, body) {
 }
 
 function updateMitigationPlanForOfficer(reference, user, body) {
-  return { error: 'The RMU cannot implement or edit mitigation solutions.' };
+  return { error: 'The RMO cannot implement or edit mitigation solutions.' };
 }
 
 function closeTicketAsOfficer(reference, username, body) {
-  return { error: 'The RMU cannot close tickets.' };
+  return { error: 'The RMO cannot close tickets.' };
 }
 
 function returnAccomplishmentForRevision(reference, username, body) {
@@ -1806,15 +1806,15 @@ function returnAccomplishmentForRevision(reference, username, body) {
 }
 
 function addRmuRecommendation(reference, user, body = {}) {
-  return { error: 'The RMU cannot submit recommendations. Use the discussion thread to comment.' };
+  return { error: 'The RMO cannot submit recommendations. Use the discussion thread to comment.' };
 }
 
 function escalateTicketForRmu(reference, user, body = {}) {
-  return { error: 'The RMU cannot escalate tickets.' };
+  return { error: 'The RMO cannot escalate tickets.' };
 }
 
 function overrideAiClassificationForRmu(reference, user, body = {}) {
-  return { error: 'The RMU cannot override AI classifications.' };
+  return { error: 'The RMO cannot override AI classifications.' };
 }
 
 function addRmuThreadComment(reference, user, body = {}) {
@@ -1836,7 +1836,7 @@ function addRmuThreadComment(reference, user, body = {}) {
   ticket.updatedAt = new Date().toISOString();
 
   appendTicketAuditEvent(ticket, {
-    action: parentId ? 'RMU thread reply' : 'RMU governance comment',
+    action: parentId ? 'RMO thread reply' : 'RMO governance comment',
     detail: text.length > 120 ? `${text.slice(0, 120)}…` : text,
     actorUsername: user.username,
     actorName: user.displayName || user.username,
@@ -1848,8 +1848,8 @@ function addRmuThreadComment(reference, user, body = {}) {
   if (ticket.submittedBy) {
     notifyUser(ticket.submittedBy, {
       type: 'thread_comment',
-      title: 'RMU comment on your ticket',
-      message: `The Risk Governance Office commented on ${ticket.reference}.`,
+      title: 'RMO comment on your ticket',
+      message: `The Risk Management Officer commented on ${ticket.reference}.`,
       ticketRef: ticket.reference,
       fromUsername: user.username,
       fromName: user.displayName || user.username,
@@ -3152,7 +3152,7 @@ function reopenTicketAsOfficer(reference, user, body = {}) {
     actor: user,
     type: 'ticket_reopened',
     title: 'Ticket reopened',
-    message: `${ticket.reference} was reopened by the Risk Governance Office and assigned to ${formatDepartmentLabel(target)}.`,
+    message: `${ticket.reference} was reopened by the Risk Management Officer and assigned to ${formatDepartmentLabel(target)}.`,
     reason,
     targetDepartment: target,
   });

@@ -2,7 +2,7 @@ const { escapeHtml } = require('../html');
 const { appLayout } = require('./layout');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 
-function loginPage({ error, next }) {
+function loginPage({ error, next, branding }) {
   const errorBlock = error
     ? `<div class="alert" role="alert">${escapeHtml(error)}</div>`
     : '';
@@ -11,13 +11,19 @@ function loginPage({ error, next }) {
     : '';
 
   const year = new Date().getFullYear();
+  const tagline = (branding && branding.landingTagline) || 'Identify. Assess. Mitigate.';
+  const headline =
+    (branding && branding.landingHeadline) || 'ACCC Risk\nManagement\nSystem';
+  const organization = (branding && branding.organizationName) || 'ACCC';
+  const headlineTitle = headline.replace(/\s*\n\s*/g, ' ').trim();
+  const pageTitle = `Sign in — ${headlineTitle || organization}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in — ACCC Risk Management System</title>
+  <title>${escapeHtml(pageTitle)}</title>
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>
@@ -26,8 +32,8 @@ function loginPage({ error, next }) {
     <div class="login-card">
       <aside class="login-visual">
         <div class="login-visual__intro">
-          <p class="login-visual__eyebrow">Identify. Assess. Mitigate.</p>
-          <h2 class="login-visual__headline">ACCC Risk<br>Management<br>System</h2>
+          <p class="login-visual__eyebrow">${escapeHtml(tagline)}</p>
+          <h2 class="login-visual__headline">${escapeHtml(headline)}</h2>
         </div>
         <div class="login-visual__art">
           <img src="/img/risk-illustration.png" alt="Risk management dashboard illustration" class="login-visual__img">
@@ -69,7 +75,7 @@ function loginPage({ error, next }) {
           </form>
         </div>
         <footer class="login-foot">
-          <span>&copy; ${year} ACCC. Authorized personnel only.</span>
+          <span>&copy; ${year} ${escapeHtml(organization)}. Authorized personnel only.</span>
         </footer>
       </main>
     </div>
@@ -98,7 +104,7 @@ function dashboardPage(user) {
     supervisor: 'Submit and track risk reports, upload evidence, and record accomplishments.',
     rm_officer: 'View organizational risks, monitor SLA and compliance, and participate in ticket discussion threads — without owning or editing tickets.',
     executive: 'View-only oversight: dashboard, heatmap, reports, trends, statistics, and department performance.',
-    president: 'Final approving authority for High and Critical risks. Review resolutions and RMU recommendations.',
+    president: 'Final approving authority for High and Critical risks. Review resolutions and RMO recommendations.',
     admin: 'Manage accounts, roles, and system logs.',
     employee: 'Access assigned risk workflows and departmental tasks.',
   };
@@ -108,7 +114,7 @@ function dashboardPage(user) {
     user.role === 'admin'
       ? `<p style="margin-top:1rem"><a href="/admin" class="btn-enterprise-primary btn-primary--auto">Open administration</a></p>`
       : user.role === 'rm_officer'
-        ? `<p style="margin-top:1rem"><a href="/officer" class="btn-enterprise-primary btn-primary--auto">Open RMU dashboard</a></p>`
+        ? `<p style="margin-top:1rem"><a href="/officer" class="btn-enterprise-primary btn-primary--auto">Open RMO dashboard</a></p>`
         : user.role === 'supervisor'
           ? `<p style="margin-top:1rem"><a href="/supervisor" class="btn-enterprise-primary btn-primary--auto">Open supervisor dashboard</a></p>`
           : user.role === 'executive'

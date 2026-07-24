@@ -233,7 +233,7 @@ function executiveCommentsSection(comments, { postAction, replyAction, canPost, 
   const cardClass = ['card', 'card--executive-comments', compact ? 'card--compact' : ''].filter(Boolean).join(' ');
   const hintHtml = hint !== undefined
     ? hint
-    : '<p class="text-muted section-hint">Visible to the Risk Governance Office (RMU) and Department Head. Not visible to the ticket reporter.</p>';
+    : '<p class="text-muted section-hint">Visible to the Risk Management Officer (RMO) and Department Head. Not visible to the ticket reporter.</p>';
 
   return `<section class="${cardClass}">
     <h2>Executive &amp; President comments</h2>

@@ -99,6 +99,7 @@ body {
   line-height: 1.08;
   letter-spacing: -0.02em;
   margin: 0;
+  white-space: pre-line;
 }
 
 .login-visual__art {
@@ -5997,6 +5998,18 @@ a.officer-kpi:hover {
 .admin-console .admin-form-card,
 .admin-console .admin-settings-form .sup-card {
   margin-bottom: 0.875rem;
+}
+
+.admin-console .admin-settings-form .sup-muted-block {
+  margin: 0 0 0.85rem;
+}
+
+.admin-console .admin-settings-form textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.4;
 }
 
 .admin-console .admin-action-cell {

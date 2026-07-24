@@ -24,7 +24,7 @@ const ROLES = {
   },
   rm_officer: {
     id: 'rm_officer',
-    label: 'Risk Governance Office (RMU)',
+    label: 'Risk Management Officer (RMO)',
     description:
       'Governance oversight: view organizational risks, monitor SLA and compliance, and participate in ticket discussion threads — does not own, edit, or close tickets',
     path: '/officer',
@@ -42,7 +42,7 @@ const ROLES = {
     id: 'president',
     label: 'President',
     description:
-      'Final approving authority for High and Critical risks: review department resolutions and RMU recommendations; approve, reject, return, or close tickets',
+      'Final approving authority for High and Critical risks: review department resolutions and RMO recommendations; approve, reject, return, or close tickets',
     path: '/president',
     assignable: true,
   },

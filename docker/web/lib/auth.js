@@ -80,7 +80,7 @@ function requireRmOfficer(req, res, next) {
   }
   if (req.session.user.role !== 'rm_officer') {
     if (redirectToOwnTicketConsole(req, res, 'rm_officer')) return undefined;
-    return res.status(403).send('Risk Governance Office (RMU) access only.');
+    return res.status(403).send('Risk Management Officer (RMO) access only.');
   }
   return next();
 }

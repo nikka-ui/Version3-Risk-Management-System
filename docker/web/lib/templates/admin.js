@@ -672,20 +672,26 @@ function settingsPage(user, settings, flash, error) {
     ${error ? flashMessage(error, 'error') : ''}
     ${supPageHead({
       title: 'System Settings',
-      desc: 'Configure general system, AI, security, and backup settings.',
+      desc: 'Configure landing page text, AI, security, and backup settings.',
     })}
     <form method="post" action="/admin/settings" class="admin-settings-form">
       <section class="sup-card sup-card--compact">
-        <h2>General Settings</h2>
+        <h2>Landing Page Title</h2>
+        <p class="sup-muted-block">Edit the sign-in page text only. The illustration image is fixed.</p>
         <div class="admin-form-grid">
-          <div class="field"><label for="systemName">System Name</label>
-            <input id="systemName" name="systemName" type="text" value="${escapeHtml(settings.systemName || '')}"></div>
+          <div class="field admin-form-grid__full"><label for="landingTagline">Tagline</label>
+            <input id="landingTagline" name="landingTagline" type="text" maxlength="120"
+              value="${escapeHtml(settings.landingTagline || '')}"
+              placeholder="Identify. Assess. Mitigate."></div>
+          <div class="field admin-form-grid__full"><label for="landingHeadline">Headline</label>
+            <textarea id="landingHeadline" name="landingHeadline" rows="3" maxlength="200"
+              placeholder="ACCC Risk&#10;Management&#10;System">${escapeHtml(settings.landingHeadline || '')}</textarea>
+            <span class="field-hint">Use a new line for each line shown on the landing page.</span></div>
           <div class="field"><label for="organizationName">Organization Name</label>
-            <input id="organizationName" name="organizationName" type="text" value="${escapeHtml(settings.organizationName || '')}"></div>
-          <div class="field"><label for="themeColor">Theme Color</label>
-            <input id="themeColor" name="themeColor" type="color" value="${escapeHtml(settings.themeColor || '#2563eb')}"></div>
-          <div class="field"><label for="ticketNumberFormat">Ticket Number Format</label>
-            <input id="ticketNumberFormat" name="ticketNumberFormat" type="text" value="${escapeHtml(settings.ticketNumberFormat || '')}"></div>
+            <input id="organizationName" name="organizationName" type="text" maxlength="80"
+              value="${escapeHtml(settings.organizationName || '')}"
+              placeholder="ACCC">
+            <span class="field-hint">Shown in the sign-in page footer.</span></div>
         </div>
       </section>
       <section class="sup-card sup-card--compact">

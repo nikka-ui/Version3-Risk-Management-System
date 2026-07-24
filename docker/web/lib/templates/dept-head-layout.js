@@ -79,7 +79,7 @@ function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notificat
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.position || user.department || 'Department Head')}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'Department Head')}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

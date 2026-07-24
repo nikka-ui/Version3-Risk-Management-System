@@ -168,7 +168,7 @@ function ownershipMonitorCard(ticket) {
   };
   const m = map[state] || map.unassigned;
   const owner = ticket.ownership?.ownerName || ticket.ownerName;
-  const inner = `<p class="sup-muted-block">The RMU monitors this ticket but does <strong>not</strong> own it. Ownership rests with the responsible department.</p>
+  const inner = `<p class="sup-muted-block">The RMO monitors this ticket but does <strong>not</strong> own it. Ownership rests with the responsible department.</p>
     <dl class="detail-dl detail-dl--console">
       <dt>Ownership</dt><dd><span class="pill pill--${m.cls}">${escapeHtml(m.label)}</span></dd>
       <dt>Responsible department</dt><dd>${escapeHtml(ticket.department || '—')}</dd>
@@ -402,7 +402,7 @@ function officerOverviewPage(user, dashboard, flash) {
     <div class="sup-page-head">
       <div>
         <h1>Dashboard</h1>
-        <p class="sup-page-desc">Welcome, Risk Governance Office — view organizational risks, monitor SLA compliance, and participate in ticket discussion threads. The RMU does not own or edit tickets.</p>
+        <p class="sup-page-desc">Welcome, Risk Management Officer — view organizational risks, monitor SLA compliance, and participate in ticket discussion threads. The RMO does not own or edit tickets.</p>
       </div>
       <a href="/officer/overdue" class="filter-pill filter-pill--head">Overdue <span class="filter-pill__count">${stats.overdueMitigation}</span></a>
     </div>
@@ -487,7 +487,7 @@ function queueListPage(user, { title, desc, tickets, flash, error, activeNav, em
 function reviewQueuePage(user, tickets, flash, opts = {}) {
   return queueListPage(user, {
     title: 'AI classification review',
-    desc: 'Review AI analysis and override classifications when necessary. The RMU monitors but does not own these tickets.',
+    desc: 'Review AI analysis and override classifications when necessary. The RMO monitors but does not own these tickets.',
     tickets,
     flash,
     error: opts.error,
@@ -554,8 +554,8 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
   const accBlock = accomplishment
     ? accomplishmentReportSection(accomplishment, {
         notice: t.status === 'closed'
-          ? 'Accomplishment on record. Only the Risk Governance Office can reopen this ticket and reassign it to a department.'
-          : 'Accomplishment on record — RMU monitors only; department head closes the ticket.',
+          ? 'Accomplishment on record. Only the Risk Management Officer can reopen this ticket and reassign it to a department.'
+          : 'Accomplishment on record — RMO monitors only; department head closes the ticket.',
       })
     : '';
 
@@ -567,7 +567,7 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
     ? `<section class="sup-card sup-card--accent officer-reopen-card">
         <div class="sup-card__head"><h2>Reopen ticket</h2></div>
         <div class="sup-card__body">
-          <p class="sup-muted-block">Reopen this closed ticket and assign it back to a department for a new ownership cycle. Only Risk Governance Office users can perform this action.</p>
+          <p class="sup-muted-block">Reopen this closed ticket and assign it back to a department for a new ownership cycle. Only Risk Management Officer users can perform this action.</p>
           <form method="post" action="/officer/tickets/${escapeHtml(ref)}/reopen" class="stack-form stack-form--console">
             <div class="field field--console">
               <label for="reopenReason">Reason <span class="text-muted">(required)</span></label>

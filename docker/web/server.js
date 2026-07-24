@@ -312,7 +312,18 @@ app.get('/login', (req, res) => {
   const errorKey = typeof req.query.error === 'string' ? req.query.error : '';
   const error = loginErrors[errorKey] || null;
   const next = typeof req.query.next === 'string' ? req.query.next : '';
-  res.type('html').send(loginPage({ error, next }));
+  const settings = getSystemSettings();
+  res.type('html').send(
+    loginPage({
+      error,
+      next,
+      branding: {
+        landingTagline: settings.landingTagline,
+        landingHeadline: settings.landingHeadline,
+        organizationName: settings.organizationName,
+      },
+    }),
+  );
 });
 
 app.post('/login', (req, res) => {
@@ -1051,7 +1062,7 @@ app.post('/dept/notifications/read-all', requireDeptHead, (req, res) => {
   return res.redirect(back);
 });
 
-/* —— Risk Governance Office (RMU) —— */
+/* —— Risk Management Officer (RMO) —— */
 
 function officerNoCache(req, res, next) {
   res.set('Cache-Control', 'no-store');
@@ -1802,10 +1813,12 @@ app.get('/admin/settings', requireAdmin, (req, res) => {
 app.post('/admin/settings', requireAdmin, (req, res) => {
   const body = req.body;
   const fields = {
-    systemName: body.systemName,
-    organizationName: body.organizationName,
-    themeColor: body.themeColor,
-    ticketNumberFormat: body.ticketNumberFormat,
+    landingTagline: String(body.landingTagline || '').trim().slice(0, 120),
+    landingHeadline: String(body.landingHeadline || '')
+      .replace(/\r\n/g, '\n')
+      .trim()
+      .slice(0, 200),
+    organizationName: String(body.organizationName || '').trim().slice(0, 80),
     defaultRiskLevels: String(body.defaultRiskLevels || '')
       .split(',')
       .map((s) => s.trim())

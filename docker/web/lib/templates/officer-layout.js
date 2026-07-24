@@ -61,19 +61,19 @@ function officerAppLayout({ title, user, activeNav, body, stats = {}, notificati
         </svg>
       </div>
       <div class="supervisor-sidebar__titles">
-        <span class="supervisor-sidebar__system">Risk Governance</span>
-        <span class="supervisor-sidebar__role">Risk Governance Office (RMU)</span>
+        <span class="supervisor-sidebar__system">Risk Management</span>
+        <span class="supervisor-sidebar__role">${escapeHtml(user.roleLabel || 'Risk Management Officer (RMO)')}</span>
       </div>
     </div>
     <p class="supervisor-sidebar__section">Menu</p>
-    <nav class="supervisor-sidebar__nav" aria-label="RMU navigation">
+    <nav class="supervisor-sidebar__nav" aria-label="RMO navigation">
       ${sidebarNav(activeNav, stats)}
     </nav>
     <div class="supervisor-sidebar__user">
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.position || user.roleLabel || 'Risk Governance Officer')}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'Risk Management Officer (RMO)')}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">
@@ -85,7 +85,7 @@ function officerAppLayout({ title, user, activeNav, body, stats = {}, notificati
       <div class="console-topbar__title">${escapeHtml(title)}</div>
       <div class="console-topbar__actions">
         ${notifHtml}
-        <span class="console-topbar__role-pill">RMU — Governance</span>
+        <span class="console-topbar__role-pill">RMO</span>
       </div>
     </header>
     <main class="supervisor-main">${body}</main>

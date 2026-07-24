@@ -143,7 +143,7 @@ function loadStore() {
         id: `dept-rmo-${Date.now()}`,
         name: 'RMO',
         code: 'RMO',
-        description: 'Risk Governance Office (RMU)',
+        description: 'Risk Management Officer (RMO)',
         head: null,
         status: 'active',
         active: true,
@@ -221,6 +221,11 @@ function loadStore() {
       }
       if (!u.status) {
         u.status = u.active === false ? 'inactive' : 'active';
+        migrated = true;
+      }
+      const expectedLabel = getRoleLabel(u.role);
+      if (expectedLabel && u.roleLabel !== expectedLabel) {
+        u.roleLabel = expectedLabel;
         migrated = true;
       }
     }
@@ -337,7 +342,7 @@ function publicUser(user) {
     department: user.department || '',
     position: user.position || '',
     role: user.role,
-    roleLabel: user.roleLabel || getRoleLabel(user.role),
+    roleLabel: getRoleLabel(user.role),
     displayName: user.displayName,
     status: user.status || (user.active === false ? 'inactive' : 'active'),
     canManageUsers: Boolean(user.canManageUsers),
