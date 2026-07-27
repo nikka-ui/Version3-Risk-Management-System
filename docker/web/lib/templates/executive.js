@@ -12,14 +12,18 @@ const IMPACT_LABELS = ['Negligible', 'Minor', 'Moderate', 'Major', 'Severe'];
 const LIKELIHOOD_LABELS = ['Almost certain', 'Likely', 'Possible', 'Unlikely', 'Rare'];
 
 function riskMatrixGrid(matrix) {
+  const grid =
+    Array.isArray(matrix) && matrix.length === 5
+      ? matrix
+      : Array.from({ length: 5 }, () => Array(5).fill(0));
   const header = `<div class="rm-matrix__corner"></div>
     ${IMPACT_LABELS.map((l) => `<div class="rm-matrix__col-head">${escapeHtml(l)}</div>`).join('')}`;
 
-  const rows = matrix
+  const rows = grid
     .map((row, rowIdx) => {
       const likelihood = 5 - rowIdx;
       const rowHead = `<div class="rm-matrix__row-head">${escapeHtml(LIKELIHOOD_LABELS[rowIdx])}</div>`;
-      const cells = row
+      const cells = (row || Array(5).fill(0))
         .map((count, colIdx) => {
           const impact = colIdx + 1;
           const tier = matrixCellTier(likelihood, impact);
@@ -284,7 +288,7 @@ function categoryFilterPills(activeCategory, activeLevel) {
 }
 
 function executiveOverviewPage(user, dashboard, flash) {
-  const { stats } = dashboard;
+  const { stats, matrix } = dashboard;
   const categoryRows = RISK_CATEGORIES.map((c) => {
     const count = stats.byCategory[c.id] || 0;
     return `<tr>
@@ -331,16 +335,25 @@ function executiveOverviewPage(user, dashboard, flash) {
       { href: '/executive/statistics', label: 'Statistics', count: stats.open },
       { href: '/executive/departments', label: 'Dept performance', count: dashboard.departments.length },
     ])}
-    ${highCriticalSection}
-    <section class="sup-card sup-card--table" style="margin-top:0.875rem">
-      <div class="sup-card__head"><h2>Reports by category</h2></div>
-      <div class="table-wrap">
-        <table class="data-table data-table--compact sup-table">
-          <thead><tr><th>Category</th><th>Count</th><th></th></tr></thead>
-          <tbody>${categoryRows}</tbody>
-        </table>
-      </div>
-    </section>`;
+    <div class="exec-dash-grid">
+      <section class="sup-card">
+        <div class="sup-card__head">
+          <h2>Organization risk matrix</h2>
+          <a href="/executive/heatmap" class="sup-link">Open heatmap</a>
+        </div>
+        <div class="sup-card__body">${riskMatrixGrid(matrix || [])}</div>
+      </section>
+      <section class="sup-card sup-card--table">
+        <div class="sup-card__head"><h2>Reports by category</h2></div>
+        <div class="table-wrap">
+          <table class="data-table data-table--compact sup-table">
+            <thead><tr><th>Category</th><th>Count</th><th></th></tr></thead>
+            <tbody>${categoryRows}</tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    ${highCriticalSection}`;
 
   return executivePage({
     title: 'Dashboard',
@@ -401,11 +414,11 @@ function heatmapPage(user, dashboard, flash) {
   const body = `
     ${flashMessage(flash)}
     ${supPageHead({
-      title: 'Heatmap',
+      title: 'Organization risk matrix',
       desc: 'Likelihood × impact matrix showing the concentration of reported risks across the organization.',
     })}
     <section class="sup-card">
-      <div class="sup-card__head"><h2>Organization risk heatmap</h2></div>
+      <div class="sup-card__head"><h2>Organization risk matrix</h2></div>
       <div class="sup-card__body">${riskMatrixGrid(matrix)}</div>
     </section>`;
 
@@ -620,4 +633,5 @@ module.exports = {
   statisticsPage,
   departmentPerformancePage,
   trendChart,
+  riskMatrixGrid,
 };

@@ -52,8 +52,12 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {}, notific
   const roleLabel = user.roleLabel || 'Ticket Reporter';
   const profile = findUserRecord(user.username) || user;
   const displayName = profile.displayName || user.displayName || user.username;
+  const positionLine = profile.position || user.position || 'Risk Reporter';
   const initial = String(displayName || user.username || 'U').trim().charAt(0).toUpperCase();
-  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/supervisor/notifications/read-all' });
+  const notifHtml = notificationPanelHtml(notifications, {
+    markAllReadAction: '/supervisor/notifications/read-all',
+    openBase: '/supervisor/notifications/open',
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -87,7 +91,7 @@ function supervisorAppLayout({ title, user, activeNav, body, stats = {}, notific
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(displayName)}</span>
-        <span class="supervisor-sidebar__user-title">${escapeHtml(roleLabel)}</span>
+        <span class="supervisor-sidebar__user-title">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

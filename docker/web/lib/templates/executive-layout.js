@@ -1,6 +1,5 @@
 const { escapeHtml } = require('../html');
 const { findUserRecord } = require('../store');
-const { getRoleLabel } = require('../../config/roles');
 const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
 const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
 
@@ -45,9 +44,12 @@ function sidebarNav(activeNav, stats = {}) {
 function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const profile = findUserRecord(user.username) || user;
   const displayName = profile.displayName || user.displayName || user.username;
-  const roleLine = getRoleLabel(user.role || profile.role) || user.roleLabel || 'Executive Committee';
+  const positionLine = profile.position || user.position || 'Executive Committee Member';
   const initial = String(displayName || 'U').trim().charAt(0).toUpperCase();
-  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/executive/notifications/read-all' });
+  const notifHtml = notificationPanelHtml(notifications, {
+    markAllReadAction: '/executive/notifications/read-all',
+    openBase: '/executive/notifications/open',
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -81,7 +83,7 @@ function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifica
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(displayName)}</span>
-        <span class="supervisor-sidebar__user-title">${escapeHtml(roleLine)}</span>
+        <span class="supervisor-sidebar__user-title">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

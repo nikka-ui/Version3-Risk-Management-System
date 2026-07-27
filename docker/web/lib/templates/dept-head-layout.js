@@ -44,8 +44,12 @@ function sidebarNav(activeNav, stats = {}) {
 
 function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
-  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/dept/notifications/read-all' });
+  const notifHtml = notificationPanelHtml(notifications, {
+    markAllReadAction: '/dept/notifications/read-all',
+    openBase: '/dept/notifications/open',
+  });
   const deptLabel = user.department ? escapeHtml(user.department) : 'Department';
+  const positionLine = user.position || 'Department Head / Vice President';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -79,7 +83,7 @@ function deptHeadAppLayout({ title, user, activeNav, body, stats = {}, notificat
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'Department Head')}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

@@ -153,8 +153,8 @@ const {
 } = require('./lib/tickets');
 const { logCredential } = require('./lib/logger');
 const { logAdminAction, notifyAdmin, getAdminDashboardData } = require('./lib/admin');
-const { markTicketNotificationsRead, layoutNotifications } = require('./lib/notifications');
-const { markNotificationsReadForUser } = require('./lib/store');
+const { layoutNotifications } = require('./lib/notifications');
+const { markNotificationsReadForUser, openNotificationForUser } = require('./lib/store');
 const { handleEvidenceUpload } = require('./lib/upload');
 const { initializeAttachmentStorage, hydrateTicketEvidence } = require('./lib/attachments');
 const { migrateLegacyEvidenceFromStore } = require('./lib/attachmentRepository');
@@ -625,7 +625,6 @@ app.get('/supervisor/tickets/:ref', requireSupervisor, asyncRoute(async (req, re
     return res.redirect(`/supervisor/tickets/${raw.reference}/edit`);
   }
   const ticket = await ticketForRole(raw, 'supervisor');
-  markTicketNotificationsRead(req.session.user, req.params.ref);
   res.type('html').send(
     ticketFormPage(user, ticket, {
       mode: 'view',
@@ -783,6 +782,11 @@ app.post('/supervisor/notifications/read-all', requireSupervisor, (req, res) => 
   return res.redirect('/supervisor/notifications?flash=notifications_read');
 });
 
+app.get('/supervisor/notifications/open/:id', requireSupervisor, (req, res) => {
+  const result = openNotificationForUser(req.session.user, req.params.id);
+  return res.redirect(result.href || '/supervisor');
+});
+
 app.post('/supervisor/tickets/:ref/comment', requireSupervisor, handleEvidenceUpload, (req, res) => {
   const ref = req.params.ref;
   if (req.uploadError) {
@@ -925,7 +929,6 @@ app.get('/dept/tickets', requireDeptHead, (req, res) => {
 
 app.get('/dept/tickets/:ref', requireDeptHead, asyncRoute(async (req, res) => {
   const user = req.session.user;
-  markTicketNotificationsRead(user, req.params.ref);
   const raw = getTicketByRefForDeptHead(req.params.ref, user);
   if (!raw) {
     return res.redirect('/dept/tickets?flash=not_found');
@@ -1062,6 +1065,11 @@ app.post('/dept/notifications/read-all', requireDeptHead, (req, res) => {
   return res.redirect(back);
 });
 
+app.get('/dept/notifications/open/:id', requireDeptHead, (req, res) => {
+  const result = openNotificationForUser(req.session.user, req.params.id);
+  return res.redirect(result.href || '/dept');
+});
+
 /* —— Risk Management Officer (RMO) —— */
 
 function officerNoCache(req, res, next) {
@@ -1142,7 +1150,6 @@ app.get('/officer/tickets', requireRmOfficer, (req, res) => {
 
 app.get('/officer/tickets/:ref', requireRmOfficer, asyncRoute(async (req, res) => {
   const ref = req.params.ref;
-  markTicketNotificationsRead(req.session.user, ref);
   const raw = getTicketByRefForOfficer(ref);
   if (!raw) {
     return res.redirect('/officer/tickets?flash=not_found');
@@ -1187,6 +1194,11 @@ app.post('/officer/notifications/read-all', requireRmOfficer, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/officer';
   return res.redirect(back);
+});
+
+app.get('/officer/notifications/open/:id', requireRmOfficer, (req, res) => {
+  const result = openNotificationForUser(req.session.user, req.params.id);
+  return res.redirect(result.href || '/officer');
 });
 
 /* —— Executive Committee (view only) —— */
@@ -1260,7 +1272,6 @@ app.get('/executive/tickets', requireExecutive, (req, res) => {
 
 app.get('/executive/tickets/:ref', requireExecutive, asyncRoute(async (req, res) => {
   const ref = req.params.ref;
-  markTicketNotificationsRead(req.session.user, ref);
   const raw = getTicketByRefForExecutive(ref);
   if (!raw) {
     return res.redirect('/executive/register?flash=not_found');
@@ -1296,6 +1307,11 @@ app.post('/executive/notifications/read-all', requireExecutive, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/executive';
   return res.redirect(back);
+});
+
+app.get('/executive/notifications/open/:id', requireExecutive, (req, res) => {
+  const result = openNotificationForUser(req.session.user, req.params.id);
+  return res.redirect(result.href || '/executive');
 });
 
 /* —— President —— */
@@ -1342,7 +1358,6 @@ app.get('/president/critical', requirePresident, (req, res) => {
 
 app.get('/president/tickets/:ref', requirePresident, asyncRoute(async (req, res) => {
   const ref = req.params.ref;
-  markTicketNotificationsRead(req.session.user, ref);
   const raw = getTicketByRefForPresident(ref);
   if (!raw) {
     return res.redirect('/president/pending?flash=not_found');
@@ -1384,6 +1399,11 @@ app.post('/president/notifications/read-all', requirePresident, (req, res) => {
   markNotificationsReadForUser(req.session.user);
   const back = typeof req.headers.referer === 'string' ? req.headers.referer : '/president';
   return res.redirect(back);
+});
+
+app.get('/president/notifications/open/:id', requirePresident, (req, res) => {
+  const result = openNotificationForUser(req.session.user, req.params.id);
+  return res.redirect(result.href || '/president');
 });
 
 /* —— System Administrator —— */

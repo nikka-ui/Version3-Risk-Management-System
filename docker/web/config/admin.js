@@ -15,12 +15,12 @@ const SEED_DEPARTMENTS = [
 ];
 
 const SEED_POSITIONS = [
-  'Department Supervisor',
+  'Risk Reporter',
+  'Department Head / Vice President',
   'Risk Management Officer',
-  'Executive Director',
+  'Audit & Compliance Officer',
   'Executive Committee Member',
-  'Finance Supervisor',
-  'Operations Supervisor',
+  'President / CEO',
   'System Administrator',
 ];
 

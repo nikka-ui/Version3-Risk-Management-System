@@ -231,7 +231,9 @@ function usersPage(user, users, departments, flash, error, { editUser, filters }
         <form method="post" action="${editUser ? `/admin/users/${escapeHtml(editUser.username)}/edit` : '/admin/users'}" class="admin-user-form">
           <div class="admin-form-grid">
             <div class="field"><label for="employeeId">Employee ID</label>
-              <input id="employeeId" name="employeeId" type="text" value="${escapeHtml(editUser?.employeeId || '')}" ${editUser ? '' : 'required'}></div>
+              <input id="employeeId" name="employeeId" type="text" placeholder="Auto: EMP-001"
+                value="${escapeHtml(editUser?.employeeId || '')}">
+              ${editUser ? '' : '<span class="field-hint">Leave blank to assign the next ID (EMP-001, EMP-002, …).</span>'}</div>
             <div class="field"><label for="displayName">Full Name</label>
               <input id="displayName" name="displayName" type="text" value="${escapeHtml(editUser?.displayName || '')}" required></div>
             <div class="field"><label for="email">Email Address</label>

@@ -23,29 +23,47 @@ function highlightMentions(text) {
   return escapeHtml(text);
 }
 
-function renderReactions(comment, { reactAction } = {}) {
+function renderReactions(comment, { reactAction, currentUsername } = {}) {
   const reactions = comment.reactions || {};
-  const entries = Object.entries(reactions).filter(([, users]) => users?.length);
-  const buttons = reactAction
-    ? REACTION_OPTIONS.map((emoji) => {
-        const active = (reactions[emoji] || []).includes('self');
-        return `<form method="post" action="${escapeHtml(reactAction)}" class="inline-form reaction-form">
-          <input type="hidden" name="commentId" value="${escapeHtml(comment.id)}">
-          <input type="hidden" name="reaction" value="${escapeHtml(emoji)}">
-          <button type="submit" class="reddit-action-btn reddit-action-btn--react${active ? ' is-active' : ''}" title="React with ${emoji}">${emoji}</button>
-        </form>`;
-      }).join('')
-    : '';
+  const entries = Object.entries(reactions).filter(([, users]) => Array.isArray(users) && users.length > 0);
 
   const summary = entries.length
-    ? entries
-        .map(([emoji, users]) => `<span class="reaction-pill" title="${users.length} reaction(s)">${emoji} ${users.length}</span>`)
-        .join('')
+    ? `<div class="reddit-reaction-summary" aria-label="Reactions">
+        ${entries
+          .map(([emoji, users]) => {
+            const mine = currentUsername && users.includes(currentUsername);
+            const title = `${users.length} reaction${users.length === 1 ? '' : 's'}`;
+            if (!reactAction) {
+              return `<span class="reaction-pill${mine ? ' is-active' : ''}" title="${escapeHtml(title)}">${emoji} <span class="reaction-pill__count">${users.length}</span></span>`;
+            }
+            return `<form method="post" action="${escapeHtml(reactAction)}" class="inline-form reaction-form">
+              <input type="hidden" name="commentId" value="${escapeHtml(comment.id)}">
+              <input type="hidden" name="reaction" value="${escapeHtml(emoji)}">
+              <button type="submit" class="reaction-pill${mine ? ' is-active' : ''}" title="${escapeHtml(title)}">${emoji} <span class="reaction-pill__count">${users.length}</span></button>
+            </form>`;
+          })
+          .join('')}
+      </div>`
     : '';
 
-  return summary || buttons
-    ? `<div class="reddit-reactions">${summary}${buttons}</div>`
+  const picker = reactAction
+    ? `<details class="reddit-react-box">
+        <summary class="reddit-action-btn">React</summary>
+        <div class="reddit-reactions" role="group" aria-label="Add reaction">
+          ${REACTION_OPTIONS.map((emoji) => {
+            const mine = currentUsername && (reactions[emoji] || []).includes(currentUsername);
+            return `<form method="post" action="${escapeHtml(reactAction)}" class="inline-form reaction-form">
+              <input type="hidden" name="commentId" value="${escapeHtml(comment.id)}">
+              <input type="hidden" name="reaction" value="${escapeHtml(emoji)}">
+              <button type="submit" class="reddit-action-btn reddit-action-btn--react${mine ? ' is-active' : ''}" title="React with ${emoji}" aria-pressed="${mine ? 'true' : 'false'}">${emoji}</button>
+            </form>`;
+          }).join('')}
+        </div>
+      </details>`
     : '';
+
+  if (!summary && !picker) return '';
+  return `<div class="reddit-reaction-row">${summary}${picker}</div>`;
 }
 
 function renderAttachments(attachments = []) {
@@ -130,13 +148,10 @@ function renderRedditComment(c, comments, opts, { isReply, depth = 0 } = {}) {
     ? ' reddit-comment--executive'
     : '';
 
-  const reactionBar = canReact ? renderReactions(c, { reactAction }) : '';
-  const reactions = reactionBar
-    ? `<details class="reddit-react-box">
-        <summary class="reddit-action-btn">React</summary>
-        ${reactionBar}
-      </details>`
+  const reactionBar = canReact || (c.reactions && Object.values(c.reactions).some((u) => u?.length))
+    ? renderReactions(c, { reactAction: canReact ? reactAction : null, currentUsername })
     : '';
+  const reactions = reactionBar || '';
 
   return `<div class="reddit-comment${eventCls}${executiveCls}" id="comment-${escapeHtml(c.id)}" data-depth="${depth}">
     <div class="reddit-comment__rail">

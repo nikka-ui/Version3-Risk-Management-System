@@ -2105,6 +2105,12 @@ function getPresidentDashboardData() {
   for (const t of orgTickets) {
     byLevel[t.riskLevel] = (byLevel[t.riskLevel] || 0) + 1;
   }
+  const matrix = Array.from({ length: 5 }, () => Array(5).fill(0));
+  for (const t of orgTickets) {
+    const likelihood = Math.max(1, Math.min(5, Number(t.likelihood) || 1));
+    const impact = Math.max(1, Math.min(5, Number(t.impact) || 1));
+    matrix[5 - likelihood][impact - 1] += 1;
+  }
   return {
     stats: getPresidentStats(),
     org: {
@@ -2113,6 +2119,7 @@ function getPresidentDashboardData() {
       open: orgTickets.filter((t) => !['closed', 'resolved'].includes(t.status)).length,
       closed: orgTickets.filter((t) => ['closed', 'resolved'].includes(t.status)).length,
     },
+    matrix,
     trends: buildExecutiveTrends(orgTickets),
   };
 }
@@ -2418,11 +2425,12 @@ function toggleThreadReaction(reference, user, body, { ticketGetter }) {
   if (!comment) return { error: 'Comment not found.' };
 
   if (!comment.reactions) comment.reactions = {};
-  const users = comment.reactions[reaction] || [];
+  const users = [...(comment.reactions[reaction] || [])];
   const idx = users.indexOf(user.username);
   if (idx >= 0) users.splice(idx, 1);
   else users.push(user.username);
-  comment.reactions[reaction] = users;
+  if (users.length) comment.reactions[reaction] = users;
+  else delete comment.reactions[reaction];
   ticket.updatedAt = new Date().toISOString();
   saveStore();
   return { ticket: publicTicket(ticket) };

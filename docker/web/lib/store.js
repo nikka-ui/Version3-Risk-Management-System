@@ -21,10 +21,44 @@ function ensureDataDir() {
   }
 }
 
+/** Parse EMP-001 → 1. Returns null when the ID is not sequential. */
+function parseEmployeeSeq(employeeId) {
+  const match = String(employeeId || '')
+    .trim()
+    .match(/^EMP-(\d+)$/i);
+  return match ? Number(match[1]) : null;
+}
+
+function formatEmployeeId(seq) {
+  return `EMP-${String(seq).padStart(3, '0')}`;
+}
+
+function compareEmployeeId(a, b) {
+  const numA = parseEmployeeSeq(a);
+  const numB = parseEmployeeSeq(b);
+  if (numA != null && numB != null && numA !== numB) return numA - numB;
+  if (numA != null && numB == null) return -1;
+  if (numA == null && numB != null) return 1;
+  return String(a || '').localeCompare(String(b || ''), undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
+function nextEmployeeId(store) {
+  let max = 0;
+  for (const user of store.users || []) {
+    if (user.deleted) continue;
+    const seq = parseEmployeeSeq(user.employeeId);
+    if (seq != null && seq > max) max = seq;
+  }
+  return formatEmployeeId(max + 1);
+}
+
 function seedUserRecord(u, now) {
   return {
     ...u,
-    employeeId: u.employeeId || `EMP-${String(u.username).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}`,
+    employeeId: u.employeeId || formatEmployeeId(1),
     email: u.email || `${u.username}@rms.local`,
     department: u.department || 'Administration',
     position: u.position || getRoleLabel(u.role),
@@ -185,6 +219,62 @@ function loadStore() {
         active: true,
       }));
       migrated = true;
+    } else {
+      const POSITION_RENAMES = {
+        'Department Supervisor': 'Risk Reporter',
+        'Department Head': 'Department Head / Vice President',
+        'Audit Officer': 'Audit & Compliance Officer',
+        'Executive Director': 'Executive Committee Member',
+        'Risk Governance Officer': 'Risk Management Officer',
+        'President and Chief Executive Officer': 'President / CEO',
+      };
+      const byName = new Map(
+        (cache.positions || []).map((p) => [String(p.name || '').toLowerCase(), p]),
+      );
+      for (const [from, to] of Object.entries(POSITION_RENAMES)) {
+        const pos = byName.get(from.toLowerCase());
+        if (!pos) continue;
+        const target = byName.get(to.toLowerCase());
+        if (target && target !== pos) {
+          pos.active = false;
+          pos.updatedAt = now;
+          migrated = true;
+        } else if (pos.name !== to) {
+          pos.name = to;
+          pos.updatedAt = now;
+          byName.set(to.toLowerCase(), pos);
+          migrated = true;
+        }
+      }
+      for (const name of SEED_POSITIONS) {
+        const existing = byName.get(name.toLowerCase());
+        if (existing) {
+          if (existing.active === false) {
+            existing.active = true;
+            existing.updatedAt = now;
+            migrated = true;
+          }
+          continue;
+        }
+        const record = {
+          id: `pos-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name,
+          createdAt: now,
+          updatedAt: now,
+          active: true,
+        };
+        cache.positions.push(record);
+        byName.set(name.toLowerCase(), record);
+        migrated = true;
+      }
+      for (const u of cache.users || []) {
+        const mapped = POSITION_RENAMES[u.position];
+        if (mapped && u.position !== mapped) {
+          u.position = mapped;
+          u.updatedAt = now;
+          migrated = true;
+        }
+      }
     }
     if (!cache.auditLogs) {
       cache.auditLogs = [];
@@ -204,7 +294,7 @@ function loadStore() {
     }
     for (const u of cache.users || []) {
       if (!u.employeeId) {
-        u.employeeId = `EMP-${String(u.username).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}`;
+        u.employeeId = formatEmployeeId(1);
         migrated = true;
       }
       if (!u.email) {
@@ -228,6 +318,27 @@ function loadStore() {
         u.roleLabel = expectedLabel;
         migrated = true;
       }
+    }
+    if (!cache.meta) cache.meta = {};
+    if (!cache.meta.employeeIdsSequential) {
+      const listed = (cache.users || []).filter((u) => !u.deleted);
+      listed.sort((a, b) => {
+        const byId = compareEmployeeId(a.employeeId, b.employeeId);
+        if (byId !== 0) return byId;
+        const byCreated = String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+        if (byCreated !== 0) return byCreated;
+        return String(a.username || '').localeCompare(String(b.username || ''));
+      });
+      listed.forEach((u, index) => {
+        const nextId = formatEmployeeId(index + 1);
+        if (u.employeeId !== nextId) {
+          u.employeeId = nextId;
+          u.updatedAt = now;
+          migrated = true;
+        }
+      });
+      cache.meta.employeeIdsSequential = true;
+      migrated = true;
     }
     const existingUsernames = new Set((cache.users || []).map((u) => u.username));
     for (const seed of SEED_USERS) {
@@ -331,7 +442,11 @@ function listUsers({ includeInactive = false } = {}) {
     .filter((u) => !u.deleted)
     .filter((u) => includeInactive || u.active !== false)
     .map((u) => publicUser(u))
-    .sort((a, b) => a.username.localeCompare(b.username));
+    .sort((a, b) => {
+      const byId = compareEmployeeId(a.employeeId, b.employeeId);
+      if (byId !== 0) return byId;
+      return String(a.username || '').localeCompare(String(b.username || ''));
+    });
 }
 
 function publicUser(user) {
@@ -396,8 +511,9 @@ function createUser({
     return { error: 'Passwords do not match.' };
   }
   const now = new Date().toISOString();
+  const assignedId = String(employeeId || '').trim() || nextEmployeeId(store);
   const base = {
-    employeeId: String(employeeId || `EMP-${normalized.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}`).trim(),
+    employeeId: assignedId,
     email: String(email || `${normalized}@rms.local`).trim().toLowerCase(),
     department: String(department || 'Administration').trim(),
     position: String(position || getRoleLabel(role)).trim(),
@@ -770,8 +886,9 @@ function appendNotification(entry) {
   store.notifications.unshift({
     id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     at: new Date().toISOString(),
-    read: false,
     ...entry,
+    // Always create as unread so the bell badge can alert recipients.
+    read: false,
   });
   if (store.notifications.length > 300) {
     store.notifications = store.notifications.slice(0, 300);
@@ -876,6 +993,20 @@ function markNotificationsReadForUser(user, { ticketRef, ids } = {}) {
   if (changed) saveStore();
 }
 
+/** Mark one notification read and return the deep-link for the viewer's console. */
+function openNotificationForUser(user, notificationId) {
+  const store = loadStore();
+  const id = String(notificationId || '').trim();
+  const n = (store.notifications || []).find((item) => item.id === id && notificationMatchesUser(item, user));
+  if (!n) return { error: 'Notification not found.' };
+  if (!n.read) {
+    n.read = true;
+    saveStore();
+  }
+  const href = ticketHrefForUser(user, n.ticketRef) || n.href || ROLE_TICKET_PATH[user.role] || '/';
+  return { href };
+}
+
 function appendDeletedTicketLog(entry) {
   const store = loadStore();
   if (!store.deletedTicketLogs) store.deletedTicketLogs = [];
@@ -953,6 +1084,7 @@ module.exports = {
   getNotificationsForUser,
   getUnreadNotificationCount,
   markNotificationsReadForUser,
+  openNotificationForUser,
   appendDeletedTicketLog,
   getDeletedTicketLogs,
   getSystemSettings,

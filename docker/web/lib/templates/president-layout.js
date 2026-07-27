@@ -39,7 +39,11 @@ function sidebarNav(activeNav, stats = {}) {
 
 function presidentAppLayout({ title, user, activeNav, body, stats = {}, notifications = [] }) {
   const initial = String(user.displayName || user.username || 'U').trim().charAt(0).toUpperCase();
-  const notifHtml = notificationPanelHtml(notifications, { markAllReadAction: '/president/notifications/read-all' });
+  const positionLine = user.position || 'President / CEO';
+  const notifHtml = notificationPanelHtml(notifications, {
+    markAllReadAction: '/president/notifications/read-all',
+    openBase: '/president/notifications/open',
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -73,7 +77,7 @@ function presidentAppLayout({ title, user, activeNav, body, stats = {}, notifica
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'President / CEO')}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">

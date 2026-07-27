@@ -2,7 +2,7 @@ const { getCategoryLabel, getStatusLabel, getStatusTone } = require('../../confi
 const { escapeHtml, formatDate } = require('../html');
 const { flashMessage } = require('./layout');
 const { presidentAppLayout } = require('./president-layout');
-const { trendChart } = require('./executive');
+const { trendChart, riskMatrixGrid } = require('./executive');
 const { layoutNotifications } = require('../notifications');
 const { evidenceSection } = require('./evidence');
 const { threadDiscussionSection } = require('./thread-discussion');
@@ -434,7 +434,7 @@ function presidentPage({ title, user, activeNav, body, stats = {}, notifications
 }
 
 function presidentOverviewPage(user, dashboard, flash) {
-  const { stats, org } = dashboard;
+  const { stats, org, matrix } = dashboard;
   const pendingRows = ticketTableRows(stats.pendingTickets || []);
   const pendingSection = stats.pendingCount
     ? tableCard({
@@ -478,7 +478,15 @@ function presidentOverviewPage(user, dashboard, flash) {
       { href: '/president/high', label: 'High risks', count: stats.highCount },
       { href: '/president/trends', label: 'Trends', count: null },
     ])}
-    ${pendingSection}`;
+    <div class="exec-dash-grid">
+      <section class="sup-card">
+        <div class="sup-card__head">
+          <h2>Organization risk matrix</h2>
+        </div>
+        <div class="sup-card__body">${riskMatrixGrid(matrix || [])}</div>
+      </section>
+      ${pendingSection}
+    </div>`;
 
   return presidentPage({ title: 'President dashboard', user, activeNav: 'overview', body, stats });
 }

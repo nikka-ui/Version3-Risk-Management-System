@@ -45,6 +45,7 @@ function sidebarNav(activeNav, stats = {}) {
 function adminAppLayout({ title, user, activeNav, body, stats = {} }) {
   const initial = String(user.displayName || user.username || 'A').trim().charAt(0).toUpperCase();
   const roleLabel = user.roleLabel || 'System Administrator';
+  const positionLine = user.position || 'System Administrator';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -78,7 +79,7 @@ function adminAppLayout({ title, user, activeNav, body, stats = {} }) {
       <span class="supervisor-sidebar__avatar" aria-hidden="true">${escapeHtml(initial)}</span>
       <div class="supervisor-sidebar__user-meta">
         <span class="supervisor-sidebar__user-name">${escapeHtml(user.displayName || user.username)}</span>
-        <span class="supervisor-sidebar__user-email">${escapeHtml(user.roleLabel || 'System Administrator')}</span>
+        <span class="supervisor-sidebar__user-email">${escapeHtml(positionLine)}</span>
       </div>
     </div>
     <form class="supervisor-sidebar__logout" method="post" action="/logout">
