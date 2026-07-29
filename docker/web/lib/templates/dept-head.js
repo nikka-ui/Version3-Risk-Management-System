@@ -391,6 +391,36 @@ function detailsSidebar(ticket) {
   </div>`;
 }
 
+function returnForRevisionCard({ canReturn }) {
+  if (!canReturn) return '';
+  return `<section class="dept-return-card" aria-label="Return for revision">
+    <div class="dept-return-card__copy">
+      <strong>Return for revision</strong>
+      <p>Send the ticket back to the reporter if the report is incomplete or needs correction.</p>
+    </div>
+    <button type="button" class="dept-return-card__btn" data-dept-modal-open="return">Return to reporter</button>
+  </section>`;
+}
+
+function returnForRevisionModal(ref) {
+  const returnForm = `<form method="post" action="/dept/tickets/${escapeHtml(ref)}/return" class="stack-form stack-form--console dept-modal__form">
+    <div class="field field--console">
+      <label for="returnReason">Reason for return <span class="text-muted">(required)</span></label>
+      <textarea id="returnReason" name="reason" rows="4" required placeholder="Explain what is missing or what the reporter should revise…"></textarea>
+    </div>
+    <div class="dept-modal__actions">
+      <button type="button" class="btn-outline btn-primary--auto" data-dept-modal-close>Cancel</button>
+      <button type="submit" class="dept-return-card__btn dept-return-card__btn--inline">Return to reporter</button>
+    </div>
+  </form>`;
+  return deptModalShell(
+    'dept-modal-return',
+    'Return for revision',
+    'The reporter will be notified and must revise the risk report before it returns to your department.',
+    returnForm,
+  );
+}
+
 function aiCard(ticket) {
   if (!ticket.ai) return '';
   const inner = `<p class="sup-muted-block">${escapeHtml(ticket.ai.summary)}</p>
@@ -865,7 +895,8 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
 
   const showOwnershipBar = isAssigned;
   const showReassignBar = canExecute;
-  const showModals = showOwnershipBar || showReassignBar || canClose;
+  const canReturn = isAssigned || canExecute;
+  const showModals = showOwnershipBar || showReassignBar || canClose || canReturn;
 
   const body = `
     ${flashMessage(opts.flash)}
@@ -883,12 +914,14 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
       <aside class="dept-detail__side">
         ${transferIndication(t)}
         ${detailsSidebar(t)}
+        ${returnForRevisionCard({ canReturn })}
         ${closureActionCard(ref, { canClose })}
         ${showOwnershipBar ? ownershipActionBar(ref, { mode: 'assigned' }) : ''}
         ${showReassignBar ? ownershipActionBar(ref, { mode: 'reassign' }) : ''}
       </aside>
     </div>
-    ${showModals ? deptOwnershipModals(ref, t) : ''}
+    ${showOwnershipBar || showReassignBar ? deptOwnershipModals(ref, t) : ''}
+    ${canReturn ? returnForRevisionModal(ref) : ''}
     ${canClose ? closureModal(ref) : ''}
     ${ACTIVITY_TABS_SCRIPT}
     ${showModals ? DEPT_MODALS_SCRIPT : ''}`;

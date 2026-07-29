@@ -2707,6 +2707,66 @@ function rejectOwnership(reference, user, body = {}) {
   return { ticket: publicTicket(ticket) };
 }
 
+/** Return an owned ticket to the reporter when the report is insufficient or needs revision. */
+function returnTicketForRevision(reference, user, body = {}) {
+  const { saveStore } = getStore();
+  const ticket = getTicketByRefForDeptHead(reference, user);
+  if (!ticket) return { error: 'Ticket not found.' };
+  ensureDeptHeadFields(ticket);
+
+  const canReturnAssigned = DEPT_HEAD_OWNERSHIP_DECISION_STATUSES.includes(ticket.status);
+  const canReturnOwned = canDeptHeadExecute(ticket, user);
+  if (!canReturnAssigned && !canReturnOwned) {
+    return { error: 'This ticket cannot be returned for revision in its current state.' };
+  }
+
+  const reason = String(body.reason || body.comment || '').trim();
+  if (!reason) return { error: 'A reason is required to return this ticket for revision.' };
+
+  const now = new Date().toISOString();
+  ticket.ownership.state = 'rejected';
+  ticket.ownership.rejectedAt = now;
+  ticket.ownership.rejectionReason = reason;
+  ticket.ownership.rejectedByUsername = user.username;
+  ticket.ownership.rejectedByName = user.displayName || user.username;
+  ticket.ownership.rejectedByPosition = user.position || null;
+  ticket.ownership.ownerUsername = null;
+  ticket.ownership.ownerName = null;
+  ticket.ownership.ownerPosition = null;
+  ticket.status = 'ownership_rejected';
+  ticket.updatedAt = now;
+
+  captureReturnRevisionSnapshot(ticket);
+
+  appendTicketAuditEvent(ticket, {
+    action: 'Returned for revision',
+    detail: reason,
+    actorUsername: user.username,
+    actorName: user.displayName || user.username,
+    actorRole: 'dept_head',
+  });
+  saveStore();
+  logDeptHeadAction(ticket, user, 'report_returned', reason);
+
+  notifyRoles(['rm_officer'], {
+    type: 'ownership_rejected',
+    title: 'Department returned ticket for revision',
+    message: `${ticket.department} returned ${ticket.reference} to the reporter — report needs revision.`,
+    ticketRef: ticket.reference,
+    fromUsername: user.username,
+    fromName: user.displayName || user.username,
+    fromRole: 'dept_head',
+  }, { excludeUsername: user.username });
+  notifyReporterTicketUpdate(ticket, {
+    recipientUsername: ticket.submittedBy,
+    type: 'ownership_rejected',
+    title: 'Ticket returned for revision',
+    message: `${ticket.department} returned ${ticket.reference} for revision. Please update your report and resubmit.`,
+  });
+
+  return { ticket: publicTicket(ticket), flashKey: 'report_returned' };
+}
+
 function reassignTicket(reference, user, body = {}) {
   const { saveStore } = getStore();
   const ticket = getTicketByRefForDeptHead(reference, user);
@@ -3425,6 +3485,7 @@ module.exports = {
   getDeptHeadStats,
   acceptOwnership,
   rejectOwnership,
+  returnTicketForRevision,
   reassignTicket,
   saveActionPlan,
   assignPersonnel,

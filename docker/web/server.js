@@ -118,6 +118,7 @@ const {
   getDeptHeadStats,
   acceptOwnership,
   rejectOwnership,
+  returnTicketForRevision,
   reassignTicket,
   saveActionPlan,
   assignPersonnel,
@@ -247,6 +248,7 @@ function flashFromQuery(query) {
     comment_added: 'Comment posted.',
     ownership_accepted: 'Ownership accepted. This ticket is now in progress under your department.',
     ownership_rejected: 'Ticket returned by the department. Revise your report and resubmit.',
+    report_returned: 'Ticket returned to the reporter for revision.',
     ticket_reassigned: 'Reassignment requested. The reporter and new department have been notified.',
     action_plan_saved: 'Action plan saved.',
     action_plan_published: 'Action plan sent to the ticket reporter for implementation.',
@@ -964,6 +966,15 @@ app.post('/dept/tickets/:ref/reject', requireDeptHead, (req, res) => {
     return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
   }
   return res.redirect('/dept/inbox?flash=ownership_rejected');
+});
+
+app.post('/dept/tickets/:ref/return', requireDeptHead, (req, res) => {
+  const ref = req.params.ref;
+  const result = returnTicketForRevision(ref, req.session.user, req.body);
+  if (result.error) {
+    return res.redirect(`/dept/tickets/${ref}?error=${encodeURIComponent(result.error)}`);
+  }
+  return res.redirect(`/dept/tickets?flash=${result.flashKey || 'report_returned'}`);
 });
 
 app.post('/dept/tickets/:ref/reassign', requireDeptHead, (req, res) => {
