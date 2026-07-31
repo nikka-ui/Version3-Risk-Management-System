@@ -1081,8 +1081,8 @@ async function createTicket(username, displayName, body, { referenceOverride, up
   const fiveW1H = parseFiveW1H(body);
   const title = String(body.title || '').trim();
   if (!title) return { error: 'Risk title is required.' };
-  if (!fiveW1H.what || !fiveW1H.why) {
-    return { error: 'What happened and why are required (5W1H).' };
+  if (!fiveW1H.what || !fiveW1H.why || !fiveW1H.where || !fiveW1H.when || !fiveW1H.who || !fiveW1H.how) {
+    return { error: 'All Incident Details fields are required (What, Why, Where, When, Who, How).' };
   }
 
   const evidenceFromUpload = [];
@@ -1186,8 +1186,8 @@ async function updateTicketDraft(reference, username, body, { uploadedFiles, dra
   const fiveW1H = parseFiveW1H(body);
   const title = String(body.title || '').trim();
   if (!title) return { error: 'Risk title is required.' };
-  if (!fiveW1H.what || !fiveW1H.why) {
-    return { error: 'What happened and why are required (5W1H).' };
+  if (!fiveW1H.what || !fiveW1H.why || !fiveW1H.where || !fiveW1H.when || !fiveW1H.who || !fiveW1H.how) {
+    return { error: 'All Incident Details fields are required (What, Why, Where, When, Who, How).' };
   }
 
   await removeAttachmentsFromTicket(ticket, parseRemoveAttachmentIds(body));
@@ -2714,10 +2714,9 @@ function returnTicketForRevision(reference, user, body = {}) {
   if (!ticket) return { error: 'Ticket not found.' };
   ensureDeptHeadFields(ticket);
 
-  const canReturnAssigned = DEPT_HEAD_OWNERSHIP_DECISION_STATUSES.includes(ticket.status);
   const canReturnOwned = canDeptHeadExecute(ticket, user);
-  if (!canReturnAssigned && !canReturnOwned) {
-    return { error: 'This ticket cannot be returned for revision in its current state.' };
+  if (!canReturnOwned) {
+    return { error: 'Accept ownership before returning this ticket for revision.' };
   }
 
   const reason = String(body.reason || body.comment || '').trim();

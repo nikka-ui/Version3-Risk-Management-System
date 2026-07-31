@@ -583,10 +583,10 @@ function fiveW1HFields(ticket, editable) {
   const fields = [
     { key: 'what', label: 'What happened?', required: true },
     { key: 'why', label: 'Why did it happen?', required: true },
-    { key: 'where', label: 'Where did it occur?', required: false },
-    { key: 'when', label: 'When did it occur?', required: false },
-    { key: 'who', label: 'Who was involved?', required: false },
-    { key: 'how', label: 'How was it discovered?', required: false },
+    { key: 'where', label: 'Where did it occur?', required: true },
+    { key: 'when', label: 'When did it occur?', required: true },
+    { key: 'who', label: 'Who was involved?', required: true },
+    { key: 'how', label: 'How was it discovered?', required: true },
   ];
   if (!editable) {
     return `<div class="w1h-grid w1h-grid--readonly">
@@ -1008,10 +1008,10 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           </div>
         </section>
 
-        <section class="enterprise-card">
+        <section class="enterprise-card" id="incidentDetailsSection" data-required="incident">
           <div class="enterprise-section-head">
-            <h2>INCIDENT DETAILS</h2>
-            <p class="section-hint">AI department assignment uses these fields plus the risk title. Who was involved is not used for routing.</p>
+            <h2>INCIDENT DETAILS <span class="req" aria-hidden="true">*</span></h2>
+            <p class="section-hint">All fields are required. AI department assignment uses these fields plus the risk title. Who was involved is not used for routing.</p>
           </div>
 
           <div class="incident-grid">
@@ -1023,21 +1023,21 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
               <label for="why">${reqLabel('Why did it happen?', { required: true })}</label>
               <textarea id="why" name="why" rows="4" required aria-required="true" placeholder="State the root cause(s) or contributing factors.">${escapeHtml(w.why || '')}</textarea>
             </div>
-            <div class="field">
-              <label for="where">Where did it occur?</label>
-              <textarea id="where" name="where" rows="3" placeholder="Department area, system, or location details.">${escapeHtml(w.where || '')}</textarea>
+            <div class="field field--required" data-required="where">
+              <label for="where">${reqLabel('Where did it occur?', { required: true })}</label>
+              <textarea id="where" name="where" rows="3" required aria-required="true" placeholder="Department area, system, or location details.">${escapeHtml(w.where || '')}</textarea>
             </div>
-            <div class="field">
-              <label for="when">When did it occur?</label>
-              <textarea id="when" name="when" rows="3" placeholder="Date/time or period (approx. is okay).">${escapeHtml(w.when || '')}</textarea>
+            <div class="field field--required" data-required="when">
+              <label for="when">${reqLabel('When did it occur?', { required: true })}</label>
+              <textarea id="when" name="when" rows="3" required aria-required="true" placeholder="Date/time or period (approx. is okay).">${escapeHtml(w.when || '')}</textarea>
             </div>
-            <div class="field">
-              <label for="who">Who was involved?</label>
-              <textarea id="who" name="who" rows="3" placeholder="Teams, roles, vendors, or affected persons.">${escapeHtml(w.who || '')}</textarea>
+            <div class="field field--required" data-required="who">
+              <label for="who">${reqLabel('Who was involved?', { required: true })}</label>
+              <textarea id="who" name="who" rows="3" required aria-required="true" placeholder="Teams, roles, vendors, or affected persons.">${escapeHtml(w.who || '')}</textarea>
             </div>
-            <div class="field">
-              <label for="how">How was it discovered?</label>
-              <textarea id="how" name="how" rows="3" placeholder="How the issue was identified/detected.">${escapeHtml(w.how || '')}</textarea>
+            <div class="field field--required" data-required="how">
+              <label for="how">${reqLabel('How was it discovered?', { required: true })}</label>
+              <textarea id="how" name="how" rows="3" required aria-required="true" placeholder="How the issue was identified/detected.">${escapeHtml(w.how || '')}</textarea>
             </div>
           </div>
         </section>
@@ -1248,6 +1248,10 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           const location = document.getElementById('location').value.trim();
           const what = document.getElementById('what').value.trim();
           const why = document.getElementById('why').value.trim();
+          const where = document.getElementById('where').value.trim();
+          const when = document.getElementById('when').value.trim();
+          const who = document.getElementById('who').value.trim();
+          const how = document.getElementById('how').value.trim();
           const evCount = selectedFiles.length + countSavedNotRemoved();
           const revised = isFormDirty();
           const revisionHint = document.getElementById('revisionRequiredHint');
@@ -1256,6 +1260,10 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
           setFieldInvalid('location', !location);
           setFieldInvalid('what', !what);
           setFieldInvalid('why', !why);
+          setFieldInvalid('where', !where);
+          setFieldInvalid('when', !when);
+          setFieldInvalid('who', !who);
+          setFieldInvalid('how', !how);
 
           const evidenceMissing = evCount === 0;
           const evidenceSection = document.getElementById('evidenceSection');
@@ -1265,7 +1273,8 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
             revisionHint.classList.toggle('revision-required-hint--visible', isReviseMode && !revised);
           }
 
-          const ready = title && location && what && why && !evidenceMissing && revised;
+          const incidentComplete = what && why && where && when && who && how;
+          const ready = title && location && incidentComplete && !evidenceMissing && revised;
           nextBtn.disabled = !ready;
           if (ready) nextBtn.classList.add('btn-enterprise-next-ready');
           else nextBtn.classList.remove('btn-enterprise-next-ready');
@@ -1318,6 +1327,8 @@ function newRiskReportStep1Page(user, ticketRef, { flash, error, ticket = null, 
             e.preventDefault();
             if (isReviseMode && !isFormDirty() && window.showAppToast) {
               window.showAppToast('Make at least one change to the report or evidence before continuing.', 'error');
+            } else if (window.showAppToast) {
+              window.showAppToast('Fill in all Incident Details fields and attach evidence before continuing.', 'error');
             }
             return;
           }

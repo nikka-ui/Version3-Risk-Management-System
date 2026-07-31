@@ -895,7 +895,7 @@ function renderDeptHeadTicketPage(user, ticket, opts = {}) {
 
   const showOwnershipBar = isAssigned;
   const showReassignBar = canExecute;
-  const canReturn = isAssigned || canExecute;
+  const canReturn = canExecute;
   const showModals = showOwnershipBar || showReassignBar || canClose || canReturn;
 
   const body = `
