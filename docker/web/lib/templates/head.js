@@ -5,9 +5,13 @@ const FONT_LINKS = `
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">`;
 
 /** Bump this when CSS/JS assets change so browsers fetch the new files. */
-const ASSET_VERSION = '20260706b';
+const ASSET_VERSION = '20260803f';
+
+/** Favicon link with a cache-busting version query. */
+const FAVICON_LINK = `<link rel="icon" type="image/png" href="/img/favicon.png?v=${ASSET_VERSION}">
+  <link rel="apple-touch-icon" href="/img/favicon.png?v=${ASSET_VERSION}">`;
 
 /** Stylesheet link with a cache-busting version query. */
 const STYLESHEET_LINK = `<link rel="stylesheet" href="/css/app.css?v=${ASSET_VERSION}">`;
 
-module.exports = { FONT_LINKS, ASSET_VERSION, STYLESHEET_LINK };
+module.exports = { FONT_LINKS, ASSET_VERSION, FAVICON_LINK, STYLESHEET_LINK };

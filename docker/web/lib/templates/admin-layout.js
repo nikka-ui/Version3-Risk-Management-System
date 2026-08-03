@@ -1,5 +1,5 @@
 const { escapeHtml } = require('../html');
-const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { FONT_LINKS, FAVICON_LINK, STYLESHEET_LINK } = require('./head');
 
 const NAV_ITEMS = [
   { id: 'dashboard', href: '/admin', label: 'Dashboard', icon: 'dashboard' },
@@ -53,6 +53,7 @@ function adminAppLayout({ title, user, activeNav, body, stats = {} }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} — RMS</title>
+  ${FAVICON_LINK}
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>

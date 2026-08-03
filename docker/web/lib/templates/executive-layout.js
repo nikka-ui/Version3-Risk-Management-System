@@ -1,6 +1,6 @@
 const { escapeHtml } = require('../html');
 const { findUserRecord } = require('../store');
-const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { FONT_LINKS, FAVICON_LINK, STYLESHEET_LINK } = require('./head');
 const { notificationPanelHtml, NOTIFICATION_PANEL_SCRIPT } = require('./notification-ui');
 
 const NAV_ITEMS = [
@@ -57,6 +57,7 @@ function executiveAppLayout({ title, user, activeNav, body, stats = {}, notifica
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} — RMS</title>
+  ${FAVICON_LINK}
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>

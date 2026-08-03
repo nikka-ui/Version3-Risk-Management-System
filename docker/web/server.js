@@ -185,6 +185,7 @@ const {
   updateSystemSettings,
 } = require('./lib/store');
 const { isAssignableRole, roleDashboardPath } = require('./config/roles');
+const { DEFAULT_SYSTEM_SETTINGS } = require('./config/admin');
 const { REPORTER_REVISION_STATUSES } = require('./config/tickets');
 
 const app = express();
@@ -230,6 +231,8 @@ function flashFromQuery(query) {
     deactivated: 'User deactivated successfully.',
     password_reset: 'Password reset successfully.',
     settings_saved: 'System settings saved successfully.',
+    landing_reset: 'Landing page text restored to system defaults.',
+    ai_reset: 'AI configuration restored to system defaults.',
     ticket_deleted: 'Ticket deleted successfully (soft delete).',
     draft_saved: 'Draft saved successfully.',
     preview_generated: 'AI preview generated successfully.',
@@ -1874,6 +1877,32 @@ app.post('/admin/settings', requireAdmin, (req, res) => {
     description: 'System settings were updated',
   });
   return res.redirect('/admin/settings?flash=settings_saved');
+});
+
+app.post('/admin/settings/reset-landing', requireAdmin, (req, res) => {
+  updateSystemSettings({
+    landingTagline: DEFAULT_SYSTEM_SETTINGS.landingTagline,
+    landingHeadline: DEFAULT_SYSTEM_SETTINGS.landingHeadline,
+    organizationName: DEFAULT_SYSTEM_SETTINGS.organizationName,
+  });
+  logAdminAction(req, {
+    action: 'settings_reset_landing',
+    module: 'System Settings',
+    description: 'Landing page text restored to system defaults',
+  });
+  return res.redirect('/admin/settings?flash=landing_reset');
+});
+
+app.post('/admin/settings/reset-ai', requireAdmin, (req, res) => {
+  updateSystemSettings({
+    defaultRiskLevels: [...DEFAULT_SYSTEM_SETTINGS.defaultRiskLevels],
+  });
+  logAdminAction(req, {
+    action: 'settings_reset_ai',
+    module: 'System Settings',
+    description: 'AI configuration restored to system defaults',
+  });
+  return res.redirect('/admin/settings?flash=ai_reset');
 });
 
 /* Legacy admin routes → redirect */

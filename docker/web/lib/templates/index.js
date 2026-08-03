@@ -1,6 +1,6 @@
 const { escapeHtml } = require('../html');
 const { appLayout } = require('./layout');
-const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { FONT_LINKS, FAVICON_LINK, STYLESHEET_LINK } = require('./head');
 
 function loginPage({ error, next, branding }) {
   const errorBlock = error
@@ -15,8 +15,7 @@ function loginPage({ error, next, branding }) {
   const headline =
     (branding && branding.landingHeadline) || 'ACCC Risk\nManagement\nSystem';
   const organization = (branding && branding.organizationName) || 'ACCC';
-  const headlineTitle = headline.replace(/\s*\n\s*/g, ' ').trim();
-  const pageTitle = `Sign in — ${headlineTitle || organization}`;
+  const pageTitle = 'ACCC Risk Management System';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -24,6 +23,7 @@ function loginPage({ error, next, branding }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(pageTitle)}</title>
+  ${FAVICON_LINK}
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>

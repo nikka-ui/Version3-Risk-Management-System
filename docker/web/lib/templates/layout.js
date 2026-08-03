@@ -1,5 +1,5 @@
 const { escapeHtml } = require('../html');
-const { FONT_LINKS, STYLESHEET_LINK } = require('./head');
+const { FONT_LINKS, FAVICON_LINK, STYLESHEET_LINK } = require('./head');
 
 function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   const isAdmin = user.role === 'admin' || navVariant === 'admin';
@@ -38,6 +38,7 @@ function appLayout({ title, user, activeNav, body, wide = false, navVariant }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)} — RMS</title>
+  ${FAVICON_LINK}
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
 </head>

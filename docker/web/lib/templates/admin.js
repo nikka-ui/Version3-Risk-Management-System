@@ -678,7 +678,13 @@ function settingsPage(user, settings, flash, error) {
     })}
     <form method="post" action="/admin/settings" class="admin-settings-form">
       <section class="sup-card sup-card--compact">
-        <h2>Landing Page Title</h2>
+        <div class="admin-settings-section-head">
+          <h2>Landing Page Title</h2>
+          <button type="submit" class="admin-btn-reset" formaction="/admin/settings/reset-landing"
+            onclick="return confirm('Reset landing page text to the system default configuration?');">
+            Reset to default
+          </button>
+        </div>
         <p class="sup-muted-block">Edit the sign-in page text only. The illustration image is fixed.</p>
         <div class="admin-form-grid">
           <div class="field admin-form-grid__full"><label for="landingTagline">Tagline</label>
@@ -697,7 +703,13 @@ function settingsPage(user, settings, flash, error) {
         </div>
       </section>
       <section class="sup-card sup-card--compact">
-        <h2>AI Configuration</h2>
+        <div class="admin-settings-section-head">
+          <h2>AI Configuration</h2>
+          <button type="submit" class="admin-btn-reset" formaction="/admin/settings/reset-ai"
+            onclick="return confirm('Reset AI configuration to the system default risk levels?');">
+            Reset to default
+          </button>
+        </div>
         <div class="field"><label for="defaultRiskLevels">Default Risk Levels</label>
           <input id="defaultRiskLevels" name="defaultRiskLevels" type="text" value="${escapeHtml((settings.defaultRiskLevels || []).join(', '))}"></div>
       </section>

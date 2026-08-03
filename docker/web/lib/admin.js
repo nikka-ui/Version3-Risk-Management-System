@@ -85,6 +85,8 @@ const AUDIT_ACTION_LABELS = {
   position_deleted: 'Deleted Position',
   ticket_deleted: 'Deleted Ticket',
   settings_updated: 'Updated Settings',
+  settings_reset_landing: 'Reset Landing Page Settings',
+  settings_reset_ai: 'Reset AI Configuration',
   login_success: 'Login',
   login_failed: 'Failed Login',
   logout: 'Logout',
