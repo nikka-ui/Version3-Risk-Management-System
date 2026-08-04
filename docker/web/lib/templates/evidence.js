@@ -312,12 +312,18 @@ function attachmentInteractiveScript(panelId, modalId, drawerId) {
  * @param {object} ticket
  * @param {{ attachmentBasePath: string, compact?: boolean, theme?: 'default' | 'console', interactive?: boolean }} opts
  */
-function evidenceSection(ticket, { attachmentBasePath, compact = false, theme = 'default', interactive = false } = {}) {
+function evidenceSection(ticket, {
+  attachmentBasePath,
+  compact = false,
+  theme = 'default',
+  interactive = false,
+  titleOverride = null,
+} = {}) {
   const isConsole = theme === 'console';
   const cardClass = isConsole
     ? `sup-card${compact ? ' sup-card--compact' : ''}`
     : `card${compact ? ' card--compact' : ''}`;
-  const title = isConsole ? 'Attachments' : 'Evidence';
+  const title = isConsole ? (titleOverride || 'Attachments') : (titleOverride || 'Evidence');
   const items = ticket?.evidence || [];
   const panelId = `attachment-panel-${(ticket?.reference || 'ticket').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   const modalId = `${panelId}-modal`;

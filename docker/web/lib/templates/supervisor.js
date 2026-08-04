@@ -1,6 +1,6 @@
 const { RISK_CATEGORIES, getCategoryLabel, getStatusLabel, getStatusTone, getPriorityLabel, getPriorityTone, REPORTER_REVISION_STATUSES } = require('../../config/tickets');
 const { escapeHtml, formatDate } = require('../html');
-const { canSupervisorSubmitAccomplishment } = require('../tickets');
+const { canSupervisorSubmitAccomplishment, canSupervisorUploadEvidence, getImplementationEvidence } = require('../tickets');
 const { supervisorAppLayout } = require('./supervisor-layout');
 const { flashMessage } = require('./layout');
 const { evidenceSection } = require('./evidence');
@@ -195,9 +195,9 @@ function formatEvidenceFileSize(bytes) {
 }
 
 function accomplishmentAttachedEvidenceMarkup(ticket, attachmentBasePath) {
-  const items = (ticket?.evidence || []).filter((e) => e.storageKey || !e.legacy);
+  const items = getImplementationEvidence(ticket);
   if (!items.length) {
-    return `<p class="upload-evidence-status upload-evidence-status--missing" id="accEvidenceStatus">No evidence uploaded yet — add at least one file below.</p>`;
+    return `<p class="upload-evidence-status upload-evidence-status--missing" id="accEvidenceStatus">No action-plan proof uploaded yet — upload evidence that the department action plan was applied.</p>`;
   }
   const rows = items
     .map((e) => {
@@ -215,7 +215,7 @@ function accomplishmentAttachedEvidenceMarkup(ticket, attachmentBasePath) {
       </li>`;
     })
     .join('');
-  return `<p class="upload-evidence-status upload-evidence-status--ok" id="accEvidenceStatus">${items.length} file${items.length === 1 ? '' : 's'} attached — ready to submit</p>
+  return `<p class="upload-evidence-status upload-evidence-status--ok" id="accEvidenceStatus">${items.length} action-plan proof file${items.length === 1 ? '' : 's'} attached — ready to submit</p>
     <ul class="upload-preview upload-preview--attached" id="accEvidenceList">${rows}</ul>`;
 }
 
@@ -249,6 +249,35 @@ function addEvidenceUploadFormMarkup(ref, { compact = false } = {}) {
     <div class="upload-message" id="addEvMessage" role="status"></div>
     <button type="submit" class="btn-primary btn-primary--auto" id="addEvSubmitBtn" disabled>Upload files</button>
   </form>`;
+}
+
+/** File picker embedded in the accomplishment form (no separate Upload files submit). */
+function accomplishmentEvidencePickerMarkup() {
+  return `<div class="upload-zone upload-zone--compact" id="accEvDropzone" role="button" tabindex="0" aria-label="Select accomplishment evidence files">
+      <div class="upload-icon" aria-hidden="true">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 16V4" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+          <path d="M7 9L12 4L17 9" stroke="#476C9B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 16.5C19.2 18.7 17.2 20 15 20H9C6.8 20 4.8 18.7 4 16.5" stroke="#476C9B" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="upload-title">Drag and drop files here</p>
+      <p class="upload-sub">Accepted types: PDF, PNG, JPG (max 20MB)</p>
+      <button type="button" class="btn-outline btn-upload" id="accEvBrowseBtn">Browse files</button>
+      <input id="accEvFileInput" name="attachments" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" style="display:none">
+    </div>
+    <div class="upload-pending-wrap" id="accEvPending" hidden>
+      <div class="upload-pending-head">
+        <span class="upload-pending-badge" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="upload-pending-label">Files selected — will upload when you submit</span>
+      </div>
+      <ul class="upload-preview upload-preview--pending" id="accEvPreview"></ul>
+    </div>
+    <div class="upload-message" id="accEvMessage" role="status"></div>`;
 }
 
 function addEvidenceUploadFormScript() {
@@ -437,7 +466,7 @@ function supervisorPage(title, user, activeNav, body, stats, notifications) {
   });
 }
 
-function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
+function renderExistingAttachments(ticket, { removable = true } = {}) {
   const items = ticket?.evidence || [];
   if (!items.length) return '';
   const rows = items
@@ -446,9 +475,10 @@ function renderExistingAttachments(ticket, { inputPrefix = 'remove' } = {}) {
       const link = e.storageKey
         ? `<a href="/supervisor/attachments/${escapeHtml(e.id)}" target="_blank" rel="noopener">${escapeHtml(e.name || e.originalName)}</a>`
         : escapeHtml(e.name || '—');
-      const remove = e.id
-        ? `<label class="attach-remove"><input type="checkbox" name="removeAttachmentIds" value="${escapeHtml(e.id)}"> Remove</label>`
-        : '';
+      const remove =
+        removable && e.id
+          ? `<label class="attach-remove"><input type="checkbox" name="removeAttachmentIds" value="${escapeHtml(e.id)}"> Remove</label>`
+          : '';
       return `<li class="upload-preview-item upload-preview-item--saved">
         <span class="upload-name">${link}</span>
         <span class="upload-meta">${escapeHtml(formatDate(e.uploadedAt))}${sizeMb}</span>
@@ -795,11 +825,16 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
   const showAccomplishment = canSupervisorSubmitAccomplishment(t);
   const accomplishmentSubmitted = accomplishmentSubmittedBlock(t.accomplishment);
   const accomplishmentPending = accomplishmentPendingBlock(t);
-  const existingEvidenceCount = (t.evidence || []).filter((e) => e.storageKey || !e.legacy).length;
-  const canAddEvidence = ['under_review', 'in_mitigation', 'in_progress', 'returned', 'pending_audit', 'reopened'].includes(t.status);
+  const implementationEvidenceCount = Array.isArray(t.implementationEvidence)
+    ? t.implementationEvidence.length
+    : getImplementationEvidence(t).length;
+  // Standalone Add evidence is only for returned/reopened tickets.
+  // While the ticket is with the department head or PCEO, reporters cannot upload.
+  // Action-plan proof uploads appear inside the accomplishment report form instead.
+  const showStandaloneAddEvidence =
+    canSupervisorUploadEvidence(t) && !showAccomplishment && !t.accomplishment;
 
-  const addEvidenceForm =
-    canAddEvidence && !showAccomplishment
+  const addEvidenceForm = showStandaloneAddEvidence
       ? `<section class="card">
           <h2>Add evidence</h2>
           <p class="text-muted">Upload PDF, PNG, or JPG files (max 20MB each).</p>
@@ -809,12 +844,11 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
       : '';
 
   const accomplishmentForm = showAccomplishment
-      ? `<section class="card card--accent accomplishment-report-card${existingEvidenceCount === 0 ? ' card--required-evidence' : ''}">
+      ? `<section class="card card--accent accomplishment-report-card${implementationEvidenceCount === 0 ? ' card--required-evidence' : ''}">
           <h2>Submit accomplishment report</h2>
-          <p class="text-muted">Document mitigation implementation and outcomes after completing the department action plan. Upload supporting evidence, then submit for department head review and closure.</p>
+          <p class="text-muted">Document mitigation implementation and outcomes after completing the department action plan. Select proof that the action plan was applied, then submit for department head review and closure.</p>
           ${t.deptActionPlan?.summary ? `<p class="accomplishment-plan-ref"><strong>Department action plan:</strong> ${escapeHtml(t.deptActionPlan.summary)}</p>` : ''}
-          <div class="stack-form accomplishment-report-form">
-          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="accomplishment-report-form__fields" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
+          <form method="post" action="/supervisor/tickets/${escapeHtml(ref)}/accomplishment" class="stack-form accomplishment-report-form" id="accomplishmentForm" enctype="multipart/form-data" novalidate>
             <div class="field field--required">
               <label for="summary">Implementation summary <span class="req" aria-hidden="true">*</span></label>
               <textarea id="summary" name="summary" rows="3" required placeholder="Describe what was implemented from the department action plan"></textarea>
@@ -823,44 +857,183 @@ function ticketFormPage(user, ticket, { mode, flash, error, stats = {} }) {
               <label for="outcomes">Outcomes and results <span class="req" aria-hidden="true">*</span></label>
               <textarea id="outcomes" name="outcomes" rows="3" required placeholder="Describe measurable outcomes and results after implementation"></textarea>
             </div>
-          </form>
-          <div class="field field--required accomplishment-evidence-field" id="accEvidenceField" data-required="evidence">
-            <label for="addEvDropzone">Accomplishment result evidence <span class="req" aria-hidden="true">*</span></label>
-            <p class="field-hint">Upload at least one supporting file (PDF, PNG, or JPG, max 20MB each) before submitting your report.</p>
-            <div class="accomplishment-evidence-field__attached" id="accEvidenceAttached">
-              ${accomplishmentAttachedEvidenceMarkup(t, '/supervisor/attachments')}
+            <div class="field field--required accomplishment-evidence-field" id="accEvidenceField" data-required="evidence">
+              <label for="accEvDropzone">Accomplishment result evidence <span class="req" aria-hidden="true">*</span></label>
+              <p class="field-hint">Required — select at least one file proving the department action plan was applied (PDF, PNG, or JPG, max 20MB each). Original ticket attachments do not count. Files upload when you click Submit accomplishment.</p>
+              <div class="accomplishment-evidence-field__attached" id="accEvidenceAttached">
+                ${accomplishmentAttachedEvidenceMarkup(t, '/supervisor/attachments')}
+              </div>
+              ${accomplishmentEvidencePickerMarkup()}
             </div>
-            ${addEvidenceUploadFormMarkup(ref, { compact: true })}
-          </div>
-          <div class="accomplishment-submit-row">
-            <button type="submit" form="accomplishmentForm" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${existingEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
-          </div>
-          </div>
-          ${addEvidenceUploadFormScript()}
+            <div class="accomplishment-submit-row">
+              <button type="submit" class="btn-primary btn-primary--auto" id="accomplishmentSubmitBtn"${implementationEvidenceCount === 0 ? ' disabled' : ''}>Submit accomplishment</button>
+            </div>
+          </form>
           <script>
             (function () {
               const form = document.getElementById('accomplishmentForm');
               if (!form) return;
-              const savedCount = ${existingEvidenceCount};
+              const summary = document.getElementById('summary');
+              const outcomes = document.getElementById('outcomes');
+              const dropzone = document.getElementById('accEvDropzone');
+              const browseBtn = document.getElementById('accEvBrowseBtn');
+              const fileInput = document.getElementById('accEvFileInput');
+              const pending = document.getElementById('accEvPending');
+              const preview = document.getElementById('accEvPreview');
+              const message = document.getElementById('accEvMessage');
               const evidenceField = document.getElementById('accEvidenceField');
               const submitBtn = document.getElementById('accomplishmentSubmitBtn');
+              const savedCount = ${implementationEvidenceCount};
+              const allowedExt = new Set(['pdf', 'png', 'jpg', 'jpeg']);
+              const draftKey = 'acc-draft-${escapeHtml(ref)}';
+              let selectedFiles = [];
 
-              function updateState() {
-                const hasEvidence = savedCount > 0;
-                if (evidenceField) evidenceField.classList.toggle('field--invalid', !hasEvidence);
-                if (submitBtn) submitBtn.disabled = !hasEvidence;
+              function syncInput() {
+                const dt = new DataTransfer();
+                selectedFiles.forEach((f) => dt.items.add(f));
+                fileInput.files = dt.files;
               }
 
+              function setMessage(msg, type) {
+                if (!message) return;
+                message.textContent = msg || '';
+                message.className = 'upload-message';
+                if (type === 'error') message.classList.add('upload-message--error');
+                if (type === 'ok') message.classList.add('upload-message--ok');
+              }
+
+              function notify(msg, type) {
+                setMessage(msg, type);
+                if (window.showAppToast) window.showAppToast(msg, type === 'error' ? 'error' : 'success');
+              }
+
+              function saveDraft() {
+                try {
+                  sessionStorage.setItem(draftKey, JSON.stringify({
+                    summary: summary.value,
+                    outcomes: outcomes.value,
+                  }));
+                } catch (err) {}
+              }
+
+              function restoreDraft() {
+                try {
+                  const raw = sessionStorage.getItem(draftKey);
+                  if (!raw) return;
+                  const draft = JSON.parse(raw);
+                  if (draft.summary && !summary.value) summary.value = draft.summary;
+                  if (draft.outcomes && !outcomes.value) outcomes.value = draft.outcomes;
+                } catch (err) {}
+              }
+
+              function clearDraft() {
+                try { sessionStorage.removeItem(draftKey); } catch (err) {}
+              }
+
+              function renderPending() {
+                preview.innerHTML = '';
+                if (!selectedFiles.length) {
+                  pending.hidden = true;
+                  return;
+                }
+                pending.hidden = false;
+                selectedFiles.forEach((f, idx) => {
+                  const li = document.createElement('li');
+                  li.className = 'upload-preview-item upload-preview-item--pending';
+                  li.innerHTML =
+                    '<span class="upload-pending-item-icon" aria-hidden="true">' +
+                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+                    '<path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+                    '</svg></span>' +
+                    '<span class="upload-name"></span>' +
+                    '<span class="upload-meta"></span>' +
+                    '<button type="button" class="upload-remove-btn">Remove</button>';
+                  li.querySelector('.upload-name').textContent = f.name;
+                  li.querySelector('.upload-meta').textContent = (f.size / 1024 / 1024).toFixed(2) + ' MB · Selected';
+                  li.querySelector('.upload-remove-btn').addEventListener('click', () => {
+                    selectedFiles.splice(idx, 1);
+                    syncInput();
+                    renderPending();
+                    updateState();
+                    if (!selectedFiles.length) setMessage('', null);
+                  });
+                  preview.appendChild(li);
+                });
+              }
+
+              function validate(file) {
+                const parts = String(file.name || '').toLowerCase().split('.');
+                const ext = parts.length > 1 ? parts[parts.length - 1] : '';
+                if (!allowedExt.has(ext)) return { ok: false, reason: 'Unsupported file type: ' + ext.toUpperCase() };
+                if (file.size > 20 * 1024 * 1024) return { ok: false, reason: 'File exceeds 20MB: ' + file.name };
+                return { ok: true };
+              }
+
+              function addFiles(files) {
+                const arr = Array.from(files || []);
+                const before = selectedFiles.length;
+                const names = [];
+                for (const f of arr) {
+                  const v = validate(f);
+                  if (!v.ok) { notify(v.reason, 'error'); continue; }
+                  selectedFiles.push(f);
+                  names.push(f.name);
+                }
+                selectedFiles = selectedFiles.slice(0, 10);
+                const added = selectedFiles.length - before;
+                syncInput();
+                renderPending();
+                updateState();
+                if (added > 0) {
+                  notify(added === 1 ? '"' + names[names.length - 1] + '" selected' : added + ' file(s) selected', 'ok');
+                  dropzone.classList.add('upload-zone--success');
+                  setTimeout(() => dropzone.classList.remove('upload-zone--success'), 2000);
+                }
+              }
+
+              function updateState() {
+                const hasSummary = summary.value.trim().length > 0;
+                const hasOutcomes = outcomes.value.trim().length > 0;
+                const newCount = selectedFiles.length;
+                const hasEvidence = savedCount > 0 || newCount > 0;
+                summary.closest('.field').classList.toggle('field--invalid', !hasSummary);
+                outcomes.closest('.field').classList.toggle('field--invalid', !hasOutcomes);
+                if (evidenceField) evidenceField.classList.toggle('field--invalid', !hasEvidence);
+                if (submitBtn) submitBtn.disabled = !(hasSummary && hasOutcomes && hasEvidence);
+                saveDraft();
+              }
+
+              browseBtn.addEventListener('click', () => fileInput.click());
+              dropzone.addEventListener('click', (e) => { if (e.target === dropzone) fileInput.click(); });
+              dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+              fileInput.addEventListener('change', (e) => { addFiles(e.target.files); e.target.value = ''; });
+              ['dragenter', 'dragover'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+              ['dragleave', 'drop'].forEach((evt) => dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+              dropzone.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
+              summary.addEventListener('input', updateState);
+              outcomes.addEventListener('input', updateState);
+
               form.addEventListener('submit', function (e) {
-                if (savedCount === 0) {
+                const hasSummary = summary.value.trim().length > 0;
+                const hasOutcomes = outcomes.value.trim().length > 0;
+                const hasEvidence = savedCount > 0 || selectedFiles.length > 0;
+                if (!hasSummary || !hasOutcomes || !hasEvidence) {
                   e.preventDefault();
                   updateState();
                   if (window.showAppToast) {
-                    window.showAppToast('Upload at least one evidence file before submitting your accomplishment report.', 'error');
+                    if (!hasSummary || !hasOutcomes) {
+                      window.showAppToast('Fill in Implementation summary and Outcomes and results before submitting.', 'error');
+                    } else {
+                      window.showAppToast('Select at least one evidence file proving the action plan was applied before submitting.', 'error');
+                    }
                   }
+                  return;
                 }
+                syncInput();
+                clearDraft();
               });
 
+              restoreDraft();
               updateState();
             })();
           </script>
@@ -1377,7 +1550,7 @@ function newRiskReportPreviewPage(user, ticket, { flash, error, stats = {}, show
           <h2>EVIDENCE ATTACHMENTS</h2>
           <p class="section-hint">Supporting files attached to this risk report.</p>
         </div>
-        ${renderExistingAttachments(ticket) || '<p class="text-muted">No attachments on file.</p>'}
+        ${renderExistingAttachments(ticket, { removable: false }) || '<p class="text-muted">No attachments on file.</p>'}
       </section>
 
       <section class="enterprise-card review-submission-section review-submission-section--pending" id="reviewSubmissionSection">

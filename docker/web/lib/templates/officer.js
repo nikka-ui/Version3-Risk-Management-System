@@ -1,4 +1,5 @@
-const { getCategoryLabel, getStatusLabel, getStatusTone, DEPARTMENTS } = require('../../config/tickets');
+const { getCategoryLabel, getStatusLabel, getStatusTone, departmentsMatch } = require('../../config/tickets');
+const { listDepartments } = require('../store');
 const { escapeHtml, formatDate } = require('../html');
 const { getAccomplishmentForTicket } = require('../tickets');
 const { flashMessage } = require('./layout');
@@ -559,9 +560,13 @@ function ticketGovernancePage(user, ticket, { flash, error, stats, backHref, act
       })
     : '';
 
-  const deptOptions = DEPARTMENTS.map(
-    (d) => `<option value="${escapeHtml(d)}"${d === t.department ? ' selected' : ''}>${escapeHtml(d)}</option>`,
-  ).join('');
+  const deptOptions = listDepartments()
+    .map((d) => String(d.name || '').trim())
+    .filter(Boolean)
+    .map(
+      (d) => `<option value="${escapeHtml(d)}"${departmentsMatch(d, t.department) ? ' selected' : ''}>${escapeHtml(d)}</option>`,
+    )
+    .join('');
 
   const reopenBlock = ['closed', 'resolved'].includes(t.status)
     ? `<section class="sup-card sup-card--accent officer-reopen-card">

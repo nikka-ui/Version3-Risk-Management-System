@@ -53,6 +53,7 @@ const {
   deptHeadInboxPage,
   deptHeadActivePage,
   deptHeadDraftsPage,
+  deptHeadReturnedPage,
   deptHeadOverduePage,
   deptHeadPendingClosurePage,
   deptHeadAllTicketsPage,
@@ -114,6 +115,7 @@ const {
   listDeptHeadActive,
   listDeptHeadOverdue,
   listDeptHeadActionPlanDrafts,
+  listDeptHeadReturned,
   listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,
@@ -896,6 +898,16 @@ app.get('/dept/drafts', requireDeptHead, (req, res) => {
   const user = req.session.user;
   res.type('html').send(
     deptHeadDraftsPage(user, listDeptHeadActionPlanDrafts(user), flashFromQuery(req.query), {
+      error: req.query.error ? decodeURIComponent(req.query.error) : null,
+      stats: deptStats(user),
+    }),
+  );
+});
+
+app.get('/dept/returned', requireDeptHead, (req, res) => {
+  const user = req.session.user;
+  res.type('html').send(
+    deptHeadReturnedPage(user, listDeptHeadReturned(user), flashFromQuery(req.query), {
       error: req.query.error ? decodeURIComponent(req.query.error) : null,
       stats: deptStats(user),
     }),

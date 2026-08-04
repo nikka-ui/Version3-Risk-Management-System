@@ -153,7 +153,8 @@ function needsActionPlanDecision(ticket) {
   const level = ticket.riskLevel || ticket.ai?.riskLevel?.id;
   if (!['high', 'critical'].includes(level)) return false;
   if (!String(ticket.actionPlan?.summary || '').trim()) return false;
-  if (ticket.presidentPlanDecision?.decisionId === 'approve') return false;
+  // Any recorded plan decision ends this cycle until a new plan is submitted.
+  if (ticket.presidentPlanDecision) return false;
   if (ticket.status === 'pending_president_final') return false;
   if (['closed', 'resolved', 'draft'].includes(ticket.status)) return false;
   return true;
@@ -206,17 +207,16 @@ function presidentModalShell(id, title, desc, formHtml) {
   </div>`;
 }
 
-/** Side action bar — Approve / Decline / Return (mirrors department-head ownership bar). */
+/** Side action bar — Approve / Return (mirrors department-head ownership bar). */
 function actionPlanDecisionSideBar(ticket, ref) {
   if (!needsActionPlanDecision(ticket)) return '';
   return `<section class="dept-action-bar dept-action-bar--side" id="president-decision" aria-label="Action plan decision">
     <div class="dept-action-bar__copy">
       <strong>Action plan decision</strong>
-      <p>Approve or decline this High/Critical action plan before implementation.</p>
+      <p>Approve this High/Critical action plan, or return it for revision before implementation.</p>
     </div>
     <div class="dept-action-bar__buttons">
       <button type="button" class="dept-action-btn dept-action-btn--accept" data-pres-modal-open="approve">Approve action plan</button>
-      <button type="button" class="dept-action-btn dept-action-btn--reject" data-pres-modal-open="decline">Decline action plan</button>
       <button type="button" class="dept-action-btn dept-action-btn--reassign" data-pres-modal-open="return">Return for revision</button>
     </div>
   </section>`;
@@ -248,18 +248,6 @@ function presidentDecisionModals(ticket, ref) {
       </div>
     </form>`;
 
-    const declineForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
-      <input type="hidden" name="decision" value="decline">
-      <div class="field field--console">
-        <label for="declineNote">Reason <span class="text-muted">(required)</span></label>
-        <textarea id="declineNote" name="note" rows="3" required placeholder="Explain why the action plan is declined…"></textarea>
-      </div>
-      <div class="dept-modal__actions">
-        <button type="button" class="btn-outline btn-primary--auto" data-pres-modal-close>Cancel</button>
-        <button type="submit" class="btn-danger--outline">Decline action plan</button>
-      </div>
-    </form>`;
-
     const returnForm = `<form method="post" action="/president/tickets/${escapeHtml(ref)}/decision" class="stack-form stack-form--console dept-modal__form">
       <input type="hidden" name="decision" value="return">
       <div class="field field--console">
@@ -274,7 +262,6 @@ function presidentDecisionModals(ticket, ref) {
 
     modals.push(
       presidentModalShell('pres-modal-approve', 'Approve action plan', 'Release this plan to the reporter for implementation.', approveForm),
-      presidentModalShell('pres-modal-decline', 'Decline action plan', 'Reject the plan. The department must create a new one.', declineForm),
       presidentModalShell('pres-modal-return', 'Return for revision', 'Send the plan back with revision instructions.', returnForm),
     );
   }
@@ -367,7 +354,7 @@ function presidentDecisionCard(ticket) {
 function commentsSection(ticket, ref, user) {
   return threadDiscussionSection(ticket, ref, {
     title: 'Discussion thread',
-    hint: 'Share feedback on the action plan. Visible to the Department Head and Risk Management Officer (RMO). Not visible to the ticket reporter.',
+    hint: '',
     postAction: `/president/tickets/${escapeHtml(ref)}/comment`,
     canPost: true,
     canReact: false,
@@ -455,7 +442,7 @@ function presidentOverviewPage(user, dashboard, flash) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'President dashboard',
-      desc: 'Organization-wide risk oversight. Final approving authority for High and Critical risks — review and approve or decline department action plans before implementation.',
+      desc: 'Organization-wide risk oversight. Final approving authority for High and Critical risks — review and approve department action plans, or return them for revision, before implementation.',
       actionHtml: stats.pendingCount
         ? '<a href="/president/pending" class="sup-btn-primary">Review pending decisions</a>'
         : '',
@@ -513,7 +500,7 @@ function pendingQueuePage(user, tickets, flash, stats = {}) {
     ${flashMessage(flash)}
     ${supPageHead({
       title: 'Pending decisions',
-      desc: 'High and Critical risk action plans awaiting your approval or decline.',
+      desc: 'High and Critical risk action plans awaiting your approval or return for revision.',
     })}
     ${tableCard({ rows, emptyMessage: 'No tickets awaiting presidential decision.', showHead: false })}`;
 
@@ -533,7 +520,7 @@ function riskListPage(user, { title, desc, tickets, flash, activeNav, level, sta
 function highTicketsPage(user, tickets, flash, stats = {}) {
   return riskListPage(user, {
     title: 'High risks',
-    desc: 'High-risk reports. Action plans on these tickets require presidential approve or decline.',
+    desc: 'High-risk reports. Action plans on these tickets require presidential approval or return for revision.',
     tickets,
     flash,
     activeNav: 'high',

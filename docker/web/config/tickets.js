@@ -171,7 +171,7 @@ const DEPARTMENT_ALIASES = {
   ],
   hr: ['hr', 'hrms', 'human resources', 'human resource management'],
   operations: ['operations', 'ops', 'operation'],
-  admin: ['admin', 'administration', 'administrative'],
+  admin: ['admin', 'administration', 'administrative', 'support admin', 'admin support'],
   internal_audit: ['internal audit', 'ia', 'audit'],
   treasury: ['treasury'],
   corp_plan: ['corp plan', 'corporate planning', 'planning'],

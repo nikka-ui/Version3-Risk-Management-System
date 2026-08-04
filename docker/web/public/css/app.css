@@ -7490,6 +7490,18 @@ body.dept-modal-open {
   line-height: 1.5;
 }
 
+.dept-plan-revise-banner {
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: var(--sup-radius-sm);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  font-weight: 600;
+}
+
 .dept-plan__summary {
   margin: 0 0 0.6rem;
   line-height: 1.6;
@@ -7501,6 +7513,43 @@ body.dept-modal-open {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.dept-plan-docs-details {
+  margin-top: 0.25rem;
+}
+
+.dept-plan-docs-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--sup-ink);
+  padding: 0.25rem 0;
+  user-select: none;
+  list-style: none;
+}
+
+.dept-plan-docs-summary::-webkit-details-marker {
+  display: none;
+}
+
+.dept-plan-docs {
+  border-top: 1px solid var(--sup-border, #e5e7eb);
+  margin-top: 0.25rem;
+}
+
+.dept-plan-docs__title {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--sup-ink);
+}
+
+.dept-plan-docs .field-hint {
+  margin: 0 0 0.85rem;
+}
+
+.dept-plan-docs .upload-zone {
+  margin-bottom: 0.75rem;
 }
 
 .dept-people {

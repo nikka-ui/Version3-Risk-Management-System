@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { id: 'dashboard', href: '/dept', label: 'Dashboard', icon: 'dashboard' },
   { id: 'inbox', href: '/dept/inbox', label: 'Ownership inbox', icon: 'inbox', statKey: 'inbox' },
   { id: 'active', href: '/dept/active', label: 'In progress', icon: 'active', statKey: 'active' },
+  { id: 'returned', href: '/dept/returned', label: 'Returned ticket', icon: 'returned', statKey: 'returned', critical: true },
   { id: 'drafts', href: '/dept/drafts', label: 'Action plan drafts', icon: 'drafts', statKey: 'drafts' },
   { id: 'overdue', href: '/dept/overdue', label: 'Overdue', icon: 'overdue', statKey: 'overdue' },
   { id: 'closure', href: '/dept/closure', label: 'Pending closure', icon: 'closure', statKey: 'pendingClosure' },
@@ -18,6 +19,7 @@ function navIcon(name) {
     dashboard: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`,
     inbox: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`,
     active: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+    returned: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h10a5 5 0 0 1 0 10H9"/><path d="M7 6 3 10l4 4"/></svg>`,
     drafts: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>`,
     overdue: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
     closure: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>`,
@@ -32,7 +34,7 @@ function sidebarNav(activeNav, stats = {}) {
     const count = item.statKey ? Number(stats[item.statKey] || 0) : 0;
     const badge =
       count > 0
-        ? `<span class="supervisor-sidebar__badge" aria-label="${count} pending">${count}</span>`
+        ? `<span class="supervisor-sidebar__badge${item.critical ? ' supervisor-sidebar__badge--critical' : ''}" aria-label="${count} pending">${count}</span>`
         : '';
     return `<a href="${item.href}" class="supervisor-sidebar__link${active}">
       <span class="supervisor-sidebar__icon">${navIcon(item.icon)}</span>

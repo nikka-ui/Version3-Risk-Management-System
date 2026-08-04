@@ -130,6 +130,68 @@ function isUnpublishedActionPlan(ticket) {
   return DEPT_HEAD_EXECUTION_STATUSES.includes(ticket.status);
 }
 
+/** True when President returned/declined and the department still needs to revise. */
+function isPresidentReturnedToDeptHead(ticket) {
+  if (!ticket) return false;
+  const planDecision = ticket.presidentPlanDecision;
+  if (
+    planDecision
+    && ['return', 'reject'].includes(planDecision.decisionId)
+    && ticket.status === 'in_progress'
+  ) {
+    return true;
+  }
+  const finalDecision = ticket.presidentFinalDecision;
+  if (
+    finalDecision
+    && finalDecision.decisionId === 'return'
+    && ['in_mitigation', 'in_progress', 'reopened'].includes(ticket.status)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildActionPlanRevisionPayload(plan) {
+  return {
+    summary: String(plan?.summary || '').trim(),
+    steps: (plan?.steps || []).map((s) => String(s || '').trim()).filter(Boolean),
+    targetDate: String(plan?.targetDate || '').trim().slice(0, 10),
+  };
+}
+
+function hashActionPlanRevision(plan) {
+  return crypto.createHash('sha256').update(JSON.stringify(buildActionPlanRevisionPayload(plan))).digest('hex');
+}
+
+function captureActionPlanReturnSnapshot(ticket) {
+  ticket.actionPlanReturnedAt = new Date().toISOString();
+  ticket.actionPlanReturnRevisionHash = hashActionPlanRevision(ticket.actionPlan);
+}
+
+function clearActionPlanReturnSnapshot(ticket) {
+  ticket.actionPlanReturnedAt = null;
+  ticket.actionPlanReturnRevisionHash = null;
+}
+
+function ensureActionPlanReturnBaseline(ticket) {
+  if (!isPresidentReturnedToDeptHead(ticket)) return false;
+  if (ticket.actionPlanReturnRevisionHash) return false;
+  // Only baseline when an action-plan decision triggered the return/decline.
+  if (!['return', 'reject'].includes(ticket.presidentPlanDecision?.decisionId)) return false;
+  captureActionPlanReturnSnapshot(ticket);
+  return true;
+}
+
+function hasActionPlanRevisionSinceReturn(ticket, proposedPlan = null) {
+  if (!isPresidentReturnedToDeptHead(ticket)) return true;
+  if (!['return', 'reject'].includes(ticket.presidentPlanDecision?.decisionId)) return true;
+  ensureActionPlanReturnBaseline(ticket);
+  if (!ticket.actionPlanReturnRevisionHash) return true;
+  const plan = proposedPlan || ticket.actionPlan;
+  return hashActionPlanRevision(plan) !== ticket.actionPlanReturnRevisionHash;
+}
+
 const OVERDUE_NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function ticketDueKey(ticket) {
@@ -223,6 +285,7 @@ function publicTicket(ticket) {
     actionPlanDraftUpdatedAt: isUnpublishedActionPlan(ticket)
       ? (ticket.actionPlan?.updatedAt || null)
       : null,
+    returnedByPresident: isPresidentReturnedToDeptHead(ticket),
     personnelCount: (ticket.personnel || []).length,
     progressUpdateCount: (ticket.progressUpdates || []).length,
     latestProgressPercent: (ticket.progressUpdates || []).length
@@ -703,6 +766,70 @@ function canSupervisorSubmitAccomplishment(ticket) {
   return getReporterAccomplishmentEligibility(ticket).canSubmit === true;
 }
 
+/**
+ * Reporter may upload evidence only when:
+ * - revising a returned ticket, or
+ * - implementing a published action plan (accomplishment proof).
+ * Not while the ticket is with the department head or PCEO.
+ */
+function canSupervisorUploadEvidence(ticket) {
+  if (!ticket) return false;
+  if (canSupervisorSubmitAccomplishment(ticket)) return true;
+  return ['returned', 'ownership_rejected', 'reopened'].includes(ticket.status);
+}
+
+/** When the reporter became responsible for implementing the action / mitigation plan. */
+function getMitigationAssignmentAt(ticket) {
+  ensureDeptHeadFields(ticket);
+  const fromPlan =
+    ticket?.actionPlan?.publishedToReporterAt
+    || ticket?.actionPlan?.submittedForReviewAt
+    || null;
+  if (fromPlan) return fromPlan;
+
+  const events = ticket?.auditTrail || [];
+  const assignEvent = [...events].reverse().find((e) =>
+    /action plan sent|mitigation plan approved|implementation required/i.test(
+      `${e.action || ''} ${e.detail || ''}`,
+    ),
+  );
+  if (assignEvent?.at) return assignEvent.at;
+  return null;
+}
+
+function isStoredEvidenceFile(evidence) {
+  return Boolean(evidence && (evidence.storageKey || !evidence.legacy));
+}
+
+/**
+ * Evidence that proves the department action plan / mitigation was applied.
+ * Original report attachments do not count — only files uploaded after the plan
+ * was issued to the reporter, or explicitly tagged as implementation proof.
+ */
+function isImplementationEvidence(ticket, evidence) {
+  if (!isStoredEvidenceFile(evidence)) return false;
+  if (evidence.purpose === 'implementation' || evidence.purpose === 'accomplishment') return true;
+  const ids = ticket?.implementationEvidenceIds || [];
+  if (evidence.id && ids.includes(evidence.id)) return true;
+  const assignedAt = getMitigationAssignmentAt(ticket);
+  if (!assignedAt || !evidence.uploadedAt) return false;
+  return new Date(evidence.uploadedAt).getTime() >= new Date(assignedAt).getTime();
+}
+
+function getImplementationEvidence(ticket) {
+  return (ticket?.evidence || []).filter((e) => isImplementationEvidence(ticket, e));
+}
+
+function rememberImplementationEvidenceIds(ticket, attachments = []) {
+  if (!ticket.implementationEvidenceIds) ticket.implementationEvidenceIds = [];
+  const known = new Set(ticket.implementationEvidenceIds);
+  for (const att of attachments) {
+    if (!att?.id || known.has(att.id)) continue;
+    ticket.implementationEvidenceIds.push(att.id);
+    known.add(att.id);
+  }
+}
+
 function findAttachmentOnTicket(ticket, attachmentId) {
   return (ticket?.evidence || []).find((a) => a.id === attachmentId) || null;
 }
@@ -715,14 +842,20 @@ async function findAttachmentForUser(attachmentId, username) {
   return { ticket, attachment };
 }
 
-async function mergeUploadedEvidence(ticket, uploadedFiles, uploadedBy) {
+async function mergeUploadedEvidence(ticket, uploadedFiles, uploadedBy, { purpose = null } = {}) {
   if (!uploadedFiles?.length) return null;
   const result = await saveUploadedFiles(ticket.reference, uploadedFiles, {
     uploadedBy: uploadedBy || ticket.submittedBy,
   });
   if (result.error) return result;
-  ticket.evidence = [...(ticket.evidence || []), ...result.attachments];
+  const attachments = (result.attachments || []).map((a) => (
+    purpose ? { ...a, purpose } : a
+  ));
+  ticket.evidence = [...(ticket.evidence || []), ...attachments];
   ticket.evidenceCount = ticket.evidence.length;
+  if (purpose === 'implementation' || purpose === 'accomplishment') {
+    rememberImplementationEvidenceIds(ticket, attachments);
+  }
   return null;
 }
 
@@ -910,28 +1043,23 @@ function syncOversightCommentToExecutiveFeed(ticket, record) {
   });
 }
 
-/** Shared discussion visible to reporter, department, RMO, executive, and others. */
-function sharedDiscussionComments(ticket, { excludeOversight = false } = {}) {
+/** Shared discussion visible to reporter, department, RMO, executive, president, and others. */
+function sharedDiscussionComments(ticket) {
   ensureThreadComments(ticket);
   ensurePrivateComments(ticket);
-  let thread = reporterVisibleThreadComments(ticket);
-  if (excludeOversight) {
-    thread = thread.filter((c) => !['executive', 'president'].includes(c.authorRole));
-  }
+  const thread = reporterVisibleThreadComments(ticket);
   const seen = new Set(thread.map((c) => c.id));
-  const legacyExecutive = excludeOversight
-    ? []
-    : (ticket.executiveComments || [])
-        .filter((c) => c && c.id && !seen.has(c.id))
-        .map((c) => ({
-          ...c,
-          kind: c.kind || 'comment',
-          authorRole: c.authorRole || 'executive',
-          roleLabel: c.roleLabel || c.authorPosition || 'Executive Committee',
-          reactions: c.reactions || {},
-          mentions: [],
-          attachments: c.attachments || [],
-        }));
+  const legacyExecutive = (ticket.executiveComments || [])
+    .filter((c) => c && c.id && !seen.has(c.id))
+    .map((c) => ({
+      ...c,
+      kind: c.kind || 'comment',
+      authorRole: c.authorRole || 'executive',
+      roleLabel: c.roleLabel || c.authorPosition || 'Executive Committee',
+      reactions: c.reactions || {},
+      mentions: [],
+      attachments: c.attachments || [],
+    }));
   return [...thread, ...legacyExecutive].sort(
     (a, b) => new Date(a.at || 0) - new Date(b.at || 0),
   );
@@ -1363,14 +1491,25 @@ async function addEvidence(reference, username, body, { uploadedFiles } = {}) {
   const { saveStore } = getStore();
   const ticket = getTicketByRef(reference, username);
   if (!ticket) return { error: 'Ticket not found.' };
+  if (!canSupervisorUploadEvidence(ticket)) {
+    return {
+      error:
+        'You cannot add evidence while this ticket is with the department head or PCEO. Upload action-plan proof only when you are implementing the published plan, or after the ticket is returned to you.',
+    };
+  }
   await hydrateTicketEvidence(ticket);
-  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
+  const purpose = canSupervisorSubmitAccomplishment(ticket) ? 'implementation' : null;
+  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username, { purpose });
   if (uploadErr) return uploadErr;
   if (!uploadedFiles?.length) {
     const added = parseEvidenceList(body.evidenceFiles);
     if (!added.length) return { error: 'Upload at least one evidence file.' };
     const saved = await saveLegacyEvidenceReferences(ticket.reference, added, { uploadedBy: username });
-    ticket.evidence = [...(ticket.evidence || []), ...saved];
+    const tagged = purpose
+      ? saved.map((a) => ({ ...a, purpose }))
+      : saved;
+    ticket.evidence = [...(ticket.evidence || []), ...tagged];
+    if (purpose) rememberImplementationEvidenceIds(ticket, tagged);
   }
   ticket.evidenceCount = (ticket.evidence || []).length;
   ticket.updatedAt = new Date().toISOString();
@@ -1604,7 +1743,7 @@ async function ticketForRole(ticket, role) {
     merged.evidence = ticket.evidence || [];
     ensureThreadComments(ticket);
     const { findUserRecord } = require('./store');
-    merged.threadComments = sharedDiscussionComments(ticket, { excludeOversight: true }).map((c) => {
+    merged.threadComments = sharedDiscussionComments(ticket).map((c) => {
       if (c.authorPosition) return c;
       const author = c.authorUsername ? findUserRecord(c.authorUsername) : null;
       if (!author?.position) return c;
@@ -1662,6 +1801,8 @@ async function ticketForRole(ticket, role) {
     merged.isOverdue = computeTicketOverdue(ticket);
     merged.accomplishment = getAccomplishmentForTicket(ticket);
     merged.accomplishmentEligibility = getReporterAccomplishmentEligibility(ticket);
+    merged.implementationEvidence = getImplementationEvidence(ticket);
+    merged.implementationEvidenceCount = merged.implementationEvidence.length;
     return merged;
   }
 
@@ -1696,6 +1837,12 @@ async function ticketForRole(ticket, role) {
         || (ticket.likelihood && ticket.impact ? Math.round((ticket.likelihood + ticket.impact) / 2) : 2),
     ).label;
     merged.oversightComments = oversightCommentsForTicket(ticket);
+    merged.returnedByPresident = isPresidentReturnedToDeptHead(ticket);
+    merged.mustReviseActionPlanBeforeSubmit = Boolean(
+      merged.returnedByPresident
+      && ['return', 'reject'].includes(ticket.presidentPlanDecision?.decisionId)
+      && !hasActionPlanRevisionSinceReturn(ticket),
+    );
     return merged;
   }
 
@@ -2012,15 +2159,33 @@ function findDepartmentForTicket(ticket) {
   return listDepartments().find((d) => departmentsMatch(d.name, deptName)) || null;
 }
 
+/** Active department names from System Administrator department management. */
+function listActiveDepartmentNames() {
+  const { listDepartments } = require('./store');
+  return listDepartments()
+    .map((d) => String(d.name || '').trim())
+    .filter(Boolean);
+}
+
+/** Resolve a submitted department name to the admin-managed department name, or null. */
+function resolveActiveDepartmentName(name) {
+  const target = String(name || '').trim();
+  if (!target) return null;
+  const match = listActiveDepartmentNames().find((d) => departmentsMatch(d, target));
+  return match || null;
+}
+
 function requiresPresidentApproval(ticket) {
   return PRESIDENT_RISK_LEVELS.has(ticketRiskLevelId(ticket));
 }
 
-/** True when a High/Critical action plan still needs President approve/decline. */
+/** True when a High/Critical action plan still needs President approve/return. */
 function needsPresidentActionPlanDecision(ticket) {
   if (!requiresPresidentApproval(ticket)) return false;
   if (!String(ticket.actionPlan?.summary || '').trim()) return false;
-  if (ticket.presidentPlanDecision?.decisionId === 'approve') return false;
+  // Any recorded plan decision (approve, return, reject) ends this review cycle
+  // until the department submits a new plan (which clears presidentPlanDecision).
+  if (ticket.presidentPlanDecision) return false;
   if (ticket.status === 'pending_president_final') return false;
   if (['closed', 'resolved', 'draft'].includes(ticket.status)) return false;
   return true;
@@ -2190,6 +2355,7 @@ function recordPresidentDecision(reference, user, body = {}) {
     note: note || null,
     authorUsername: user.username,
     authorName: user.displayName || user.username,
+    authorPosition: user.position || null,
     at: now,
     phase: isFinalPhase ? 'final' : 'action_plan',
   };
@@ -2246,6 +2412,7 @@ function recordPresidentDecision(reference, user, body = {}) {
     } else if (normalizedDecision === 'reject') {
       ticket.status = 'in_progress';
       ticket.actionPlan = null;
+      captureActionPlanReturnSnapshot(ticket);
       appendTicketAuditEvent(ticket, {
         action: 'President declined action plan',
         detail: note || 'Action plan declined by the President.',
@@ -2259,6 +2426,7 @@ function recordPresidentDecision(reference, user, body = {}) {
         ticket.actionPlan.publishedToReporterAt = null;
         ticket.actionPlan.submittedForReviewAt = null;
       }
+      captureActionPlanReturnSnapshot(ticket);
       appendTicketAuditEvent(ticket, {
         action: 'President returned action plan',
         detail: note || 'Returned to department for revision.',
@@ -2275,18 +2443,31 @@ function recordPresidentDecision(reference, user, body = {}) {
   logPresidentAction(ticket, user, `president_${normalizedDecision}`, note);
 
   const notifyTitle = isFinalPhase
-    ? (normalizedDecision === 'return' ? 'Returned for revision' : 'Ticket closed')
+    ? (normalizedDecision === 'return' ? 'Returned by President' : 'Ticket closed')
     : {
         approve: 'Action plan approved',
-        reject: 'Action plan declined',
-        return: 'Action plan returned',
+        reject: 'Action plan declined by President',
+        return: 'Returned by President',
       }[normalizedDecision];
+
+  const notifyMessage = (() => {
+    if (normalizedDecision === 'return' && !isFinalPhase) {
+      return `${user.displayName || 'The President'} returned the action plan for ${ticket.reference} for revision.${note ? ` Reason: ${note}` : ''}`;
+    }
+    if (normalizedDecision === 'return' && isFinalPhase) {
+      return `${user.displayName || 'The President'} returned ${ticket.reference} to the department.${note ? ` Reason: ${note}` : ''}`;
+    }
+    if (normalizedDecision === 'reject') {
+      return `${user.displayName || 'The President'} declined the action plan for ${ticket.reference}.${note ? ` Reason: ${note}` : ''}`;
+    }
+    return `The President ${decisionLabels[normalizedDecision]?.toLowerCase() || normalizedDecision} ${ticket.reference}.${note ? ` Reason: ${note}` : ''}`;
+  })();
 
   notifyWorkflowStakeholders(ticket, normalizedDecision === 'close' || (normalizedDecision === 'approve' && isFinalPhase) ? 'closure' : 'return', {
     actor: user,
     type: `president_${normalizedDecision}`,
     title: notifyTitle,
-    message: `The President ${decisionLabels[normalizedDecision]?.toLowerCase() || normalizedDecision} ${ticket.reference}.${note ? ` Reason: ${note}` : ''}`,
+    message: notifyMessage,
   });
 
   return { ticket: publicTicket(ticket), flashKey: `president_${normalizedDecision}` };
@@ -2529,9 +2710,10 @@ function getTicketByRefForDeptHead(reference, user) {
   );
   if (!ticket) return null;
   if (!isDeptHeadTicketForUser(ticket, user)) return null;
-  if (repairDeptHeadLegacyAuditStatus(ticket)) {
-    saveStore();
-  }
+  let dirty = false;
+  if (repairDeptHeadLegacyAuditStatus(ticket)) dirty = true;
+  if (ensureActionPlanReturnBaseline(ticket)) dirty = true;
+  if (dirty) saveStore();
   return ticket;
 }
 
@@ -2555,7 +2737,9 @@ function listDeptHeadInbox(user) {
 }
 
 function listDeptHeadActive(user) {
-  return listTicketsForDeptHead(user).filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status));
+  return listTicketsForDeptHead(user).filter(
+    (t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status) && !t.returnedByPresident,
+  );
 }
 
 function listDeptHeadOverdue(user) {
@@ -2564,11 +2748,21 @@ function listDeptHeadOverdue(user) {
 
 function listDeptHeadActionPlanDrafts(user) {
   return listTicketsForDeptHead(user)
-    .filter((t) => t.hasDraftActionPlan && t.ownerUsername === user.username)
+    .filter((t) => t.hasDraftActionPlan && t.ownerUsername === user.username && !t.returnedByPresident)
     .sort(
       (a, b) => new Date(b.actionPlanDraftUpdatedAt || b.updatedAt)
         - new Date(a.actionPlanDraftUpdatedAt || a.updatedAt),
     );
+}
+
+function listDeptHeadReturned(user) {
+  return listTicketsForDeptHead(user)
+    .filter((t) => t.returnedByPresident && (!t.ownerUsername || t.ownerUsername === user.username))
+    .sort((a, b) => {
+      const aAt = a.presidentPlanDecision?.at || a.presidentFinalDecision?.at || a.updatedAt;
+      const bAt = b.presidentPlanDecision?.at || b.presidentFinalDecision?.at || b.updatedAt;
+      return new Date(bAt) - new Date(aAt);
+    });
 }
 
 function listDeptHeadPendingClosure(user) {
@@ -2578,11 +2772,17 @@ function listDeptHeadPendingClosure(user) {
 function getDeptHeadStats(user) {
   const tickets = listTicketsForDeptHead(user);
   const { getUnreadNotificationCount } = require('./store');
+  const returned = tickets.filter(
+    (t) => t.returnedByPresident && (!t.ownerUsername || t.ownerUsername === user.username),
+  ).length;
   return {
     total: tickets.length,
     inbox: tickets.filter((t) => DEPT_HEAD_INBOX_STATUSES.includes(t.status)).length,
-    active: tickets.filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status)).length,
-    drafts: tickets.filter((t) => t.hasDraftActionPlan && t.ownerUsername === user.username).length,
+    active: tickets.filter((t) => DEPT_HEAD_ACTIVE_STATUSES.includes(t.status) && !t.returnedByPresident).length,
+    drafts: tickets.filter(
+      (t) => t.hasDraftActionPlan && t.ownerUsername === user.username && !t.returnedByPresident,
+    ).length,
+    returned,
     pendingClosure: tickets.filter((t) => DEPT_HEAD_CLOSURE_STATUSES.includes(t.status)).length,
     awaitingPresident: tickets.filter((t) => t.status === 'pending_president').length,
     rejected: tickets.filter((t) => t.status === 'ownership_rejected').length,
@@ -2777,11 +2977,11 @@ function reassignTicket(reference, user, body = {}) {
 
   const reason = String(body.reason || '').trim();
   const comment = String(body.comment || '').trim();
-  const target = String(body.targetDepartment || '').trim();
+  const targetRaw = String(body.targetDepartment || '').trim();
   if (!reason) return { error: 'A reason is required to request reassignment.' };
-  if (!comment) return { error: 'A comment is required to request reassignment.' };
-  if (!target) return { error: 'Select the target department for reassignment.' };
-  if (!DEPARTMENTS.includes(target)) return { error: 'Invalid target department.' };
+  if (!targetRaw) return { error: 'Select the target department for reassignment.' };
+  const target = resolveActiveDepartmentName(targetRaw);
+  if (!target) return { error: 'Invalid target department.' };
   if (departmentsMatch(target, ticket.department)) {
     return { error: 'The ticket is already assigned to that department.' };
   }
@@ -2878,6 +3078,19 @@ function saveActionPlan(reference, user, body = {}) {
   if (submitForReview && !targetDate) {
     return { error: 'A target completion date is required before sending the plan to the reporter.' };
   }
+
+  const proposedPlan = {
+    summary,
+    steps,
+    targetDate: targetDate || ticket.actionPlan?.targetDate || null,
+  };
+  if (submitForReview && !hasActionPlanRevisionSinceReturn(ticket, proposedPlan)) {
+    return {
+      error:
+        'Revise the action plan before submitting it again. Update the summary, steps, or target date to address the President\'s feedback.',
+    };
+  }
+
   ticket.actionPlan = {
     summary,
     steps,
@@ -2898,6 +3111,7 @@ function saveActionPlan(reference, user, body = {}) {
   ticket.updatedAt = now;
 
   if (submitForReview) {
+    clearActionPlanReturnSnapshot(ticket);
     if (requiresPresidentApproval(ticket)) {
       // High / Critical — hold for President approval before releasing to the reporter.
       ticket.status = 'pending_president';
@@ -3026,7 +3240,7 @@ async function uploadDeptDocuments(reference, user, { uploadedFiles } = {}) {
   if (!uploadedFiles?.length) return { error: 'Select at least one document to upload.' };
 
   await hydrateTicketEvidence(ticket);
-  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, user.username);
+  const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, user.username, { purpose: 'implementation' });
   if (uploadErr) return uploadErr;
 
   const now = new Date().toISOString();
@@ -3163,9 +3377,10 @@ function reopenTicketAsOfficer(reference, user, body = {}) {
   }
 
   const reason = String(body.reason || '').trim();
-  const target = String(body.department || body.targetDepartment || ticket.department || '').trim();
+  const targetRaw = String(body.department || body.targetDepartment || ticket.department || '').trim();
   if (!reason) return { error: 'A reason is required to reopen this ticket.' };
-  if (!target || !DEPARTMENTS.includes(target)) {
+  const target = resolveActiveDepartmentName(targetRaw);
+  if (!target) {
     return { error: 'Select a valid department to assign this ticket.' };
   }
 
@@ -3276,14 +3491,17 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
 
   return hydrateTicketEvidence(ticket).then(async () => {
     if (uploadedFiles?.length) {
-      const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username);
+      const uploadErr = await mergeUploadedEvidence(ticket, uploadedFiles, username, {
+        purpose: 'implementation',
+      });
       if (uploadErr) return uploadErr;
     }
 
-    const storedFiles = (ticket.evidence || []).filter((e) => e.storageKey || !e.legacy);
-    if (!storedFiles.length) {
+    const implementationEvidence = getImplementationEvidence(ticket);
+    if (!implementationEvidence.length) {
       return {
-        error: 'At least one evidence file is required before submitting your accomplishment report.',
+        error:
+          'Upload at least one evidence file proving the department action plan was applied before submitting your accomplishment report. Original ticket attachments do not count.',
       };
     }
 
@@ -3295,10 +3513,11 @@ function submitAccomplishment(reference, username, displayName, body, { uploaded
       ticketTitle: ticket.title,
       summary,
       outcomes,
-      evidence: storedFiles.map((e) => ({
+      evidence: implementationEvidence.map((e) => ({
         id: e.id,
         name: e.name || e.originalName,
         uploadedAt: e.uploadedAt,
+        purpose: e.purpose || 'implementation',
       })),
       submittedBy: username,
       submittedByName: displayName,
@@ -3435,6 +3654,8 @@ module.exports = {
   canSupervisorReviseReport,
   canSupervisorEdit,
   canSupervisorSubmitAccomplishment,
+  canSupervisorUploadEvidence,
+  getImplementationEvidence,
   hasRevisionSinceReturn,
   ensureReturnRevisionBaseline,
   findAttachmentForUser,
@@ -3480,6 +3701,7 @@ module.exports = {
   listDeptHeadActive,
   listDeptHeadOverdue,
   listDeptHeadActionPlanDrafts,
+  listDeptHeadReturned,
   listDeptHeadPendingClosure,
   getDeptHeadStats,
   acceptOwnership,

@@ -27,6 +27,51 @@ const ACTION_ICONS = {
   view: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
 };
 
+const PASSWORD_TOGGLE_ICONS = `
+  <svg class="login-password-toggle__icon login-password-toggle__icon--show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+  <svg class="login-password-toggle__icon login-password-toggle__icon--hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94"/>
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19"/>
+    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>`;
+
+function passwordField({ id, name, label, required = true, minlength = 6 }) {
+  const req = required ? 'required' : '';
+  const min = minlength ? `minlength="${minlength}"` : '';
+  return `<div class="field">
+    <label for="${escapeHtml(id)}">${escapeHtml(label)}</label>
+    <div class="login-password-wrap">
+      <input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="password" ${req} ${min} autocomplete="new-password">
+      <button type="button" class="login-password-toggle" data-password-toggle="${escapeHtml(id)}"
+        aria-label="Show ${escapeHtml(label.toLowerCase())}" aria-controls="${escapeHtml(id)}" aria-pressed="false">
+        ${PASSWORD_TOGGLE_ICONS}
+      </button>
+    </div>
+  </div>`;
+}
+
+const passwordToggleScript = `
+<script>
+  (function () {
+    document.querySelectorAll('[data-password-toggle]').forEach(function (toggle) {
+      const input = document.getElementById(toggle.getAttribute('data-password-toggle'));
+      if (!input) return;
+      toggle.addEventListener('click', function () {
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        toggle.classList.toggle('is-visible', show);
+        const label = input.id === 'confirmPassword' ? 'confirm password' : 'password';
+        toggle.setAttribute('aria-label', show ? 'Hide ' + label : 'Show ' + label);
+        toggle.setAttribute('aria-pressed', String(show));
+      });
+    });
+  })();
+</script>`;
+
 /** Icon-only action link. variant maps to a color in CSS. */
 function iconLink(href, icon, label, variant) {
   return `<a href="${href}" class="admin-icon-btn admin-icon-btn--${variant}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${ACTION_ICONS[icon]}</a>`;
@@ -265,10 +310,8 @@ function usersPage(user, users, departments, flash, error, { editUser, filters }
             ${
               editUser
                 ? ''
-                : `<div class="field"><label for="password">Password</label>
-              <input id="password" name="password" type="password" required minlength="6"></div>
-            <div class="field"><label for="confirmPassword">Confirm Password</label>
-              <input id="confirmPassword" name="confirmPassword" type="password" required minlength="6"></div>`
+                : `${passwordField({ id: 'password', name: 'password', label: 'Password' })}
+            ${passwordField({ id: 'confirmPassword', name: 'confirmPassword', label: 'Confirm Password' })}`
             }
           </div>
           <div class="action-row">
@@ -276,6 +319,7 @@ function usersPage(user, users, departments, flash, error, { editUser, filters }
             <a href="/admin/users" class="sup-btn-outline">Cancel</a>
           </div>
         </form>
+        ${editUser ? '' : passwordToggleScript}
       </section>`
     : '';
 
@@ -330,13 +374,12 @@ function resetPasswordPage(user, targetUser, flash, error) {
     <section class="sup-card sup-card--compact">
       <form method="post" action="/admin/users/${escapeHtml(targetUser.username)}/reset-password">
         <div class="admin-form-grid">
-          <div class="field"><label for="password">New Password</label>
-            <input id="password" name="password" type="password" required minlength="6"></div>
-          <div class="field"><label for="confirmPassword">Confirm Password</label>
-            <input id="confirmPassword" name="confirmPassword" type="password" required minlength="6"></div>
+          ${passwordField({ id: 'password', name: 'password', label: 'New Password' })}
+          ${passwordField({ id: 'confirmPassword', name: 'confirmPassword', label: 'Confirm Password' })}
         </div>
         <button type="submit" class="sup-btn-primary">Reset Password</button>
       </form>
+      ${passwordToggleScript}
     </section>`;
   return adminPage('Reset Password', user, 'users', body);
 }
