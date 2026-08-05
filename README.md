@@ -1,20 +1,34 @@
 # Version 3 — AI Risk Management System
 
-ISO 31000-aligned enterprise risk management with AI-assisted categorization, multi-role workflows (Supervisor, RMO, Audit, Executive), and Docker-based deployment.
+ISO 31000-aligned enterprise risk management with AI-assisted categorization, department ownership workflows (Ticket Reporter → Department Head → President for High/Critical), RMO governance oversight, Executive view-only dashboards, and Docker-based deployment.
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
 | [docs/README.md](docs/README.md) | Documentation index |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and workflow |
+| [docs/LOGIN.md](docs/LOGIN.md) | Roles, seed accounts, and consoles (**start here**) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and current workflow |
 | [docs/PORT_REGISTRY.md](docs/PORT_REGISTRY.md) | Port assignments (authoritative) |
 | [docs/DOCKER.md](docs/DOCKER.md) | Run Docker dev/prod stacks |
 | [docs/CONTAINER_SECURITY.md](docs/CONTAINER_SECURITY.md) | Container hardening |
 | [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Environment variables |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Backups, updates, incidents |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Backups, resets, updates, incidents |
 
-Original specifications: `V2_AI_Risk_Management_System_Documentation.docx`, `RMS FLOWCHART.png`.
+Original specifications: `V2_AI_Risk_Management_System_Documentation.docx`, `RMS FLOWCHART.png` (historical; prefer LOGIN + ARCHITECTURE for current roles).
+
+## Roles (summary)
+
+| Role | Console |
+|------|---------|
+| Ticket Reporter | `/supervisor` |
+| Department Head / VP | `/dept` |
+| Risk Management Officer (RMO) | `/officer` (oversight only) |
+| President | `/president` (High/Critical) |
+| Executive Committee | `/executive` (view only) |
+| System Administrator | `/admin` |
+
+Full credentials and capabilities: [docs/LOGIN.md](docs/LOGIN.md).
 
 ## Quick start (Docker)
 
@@ -34,10 +48,9 @@ curl http://localhost:8080/health
 ```
 
 - Application URL: http://localhost:8080
-- **Login:** http://localhost:8080/login — see [docs/LOGIN.md](docs/LOGIN.md) for built-in accounts
-- **IT Admin:** http://localhost:8080/admin (`admin` / `a3c1993`) — accounts, roles, logs
-- **Department Supervisor:** http://localhost:8080/supervisor (`personnel` / `a3c2026`) — risk reports, tickets, accomplishments
-- API (placeholder): http://localhost:8080/api/
+- **Login:** http://localhost:8080/login — [docs/LOGIN.md](docs/LOGIN.md)
+- **Examples:** `admin` / `a3c1993` · `reporter` / `a3c2026` · `it-head` / `dept2026` · `rm-officer` / `a3c2026` · `president` / `a3c2026`
+- API stub: http://localhost:8080/api/
 - PostgreSQL (dev, localhost only): `127.0.0.1:5433`
 
 Optional dev services (MinIO, Mailpit):
@@ -55,12 +68,12 @@ docker compose -f docker/compose.yml -f docker/compose.override.yml --profile de
 ## Repository structure
 
 ```
-docker/           # Compose, Dockerfiles, nginx, secrets templates
-docs/             # Architecture, ports, security, operations
+docker/           # Compose, Dockerfiles, nginx, Express web app, secrets templates
+docs/             # Architecture, login, ports, security, operations
 .env.example      # Environment template
 ```
 
-Application code (Laravel, Next.js, Flask ML) will replace placeholder containers under `docker/api`, `docker/web`, and `docker/ai-service`.
+The live product UI and ticket workflow run in **`docker/web`** (Express). Laravel (`docker/api`) and expanded AI remain scaffold/target layers — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 

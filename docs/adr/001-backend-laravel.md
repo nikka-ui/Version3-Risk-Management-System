@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted (target for `api` container)
+
+## Reality check
+
+The **current product UI and ticket workflow** run in **`docker/web`** (Node 20 + Express, session auth, `store.json`). This ADR still defines the default for the separate **`api`** service when REST ownership moves off the Express app.
 
 ## Context
 

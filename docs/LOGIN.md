@@ -1,117 +1,174 @@
 # Login and built-in accounts (development)
 
-The web application provides a minimalist side-panel login page at `/login`. Authentication is session-based (cookie) until the Laravel API implements Sanctum/JWT.
+The web application provides a side-panel login page at `/login`. Authentication is **session-based** (cookie) in the Express app under `docker/web`.
 
 ## Access URL
 
 | Environment | URL |
 |-------------|-----|
 | Docker (default) | http://localhost:8080/login |
-| Web container direct | http://localhost:3000/login (internal) |
+| Web container direct | http://localhost:3000/login (internal network only) |
 
-## Built-in credentials
+## Roles (canonical)
+
+Source of truth: [`docker/web/config/roles.js`](../docker/web/config/roles.js).
+
+| Role id | Label | Console path | Assignable in User Management |
+|---------|-------|--------------|-------------------------------|
+| `supervisor` | Ticket Reporter | `/supervisor` | Yes |
+| `dept_head` | Department Head / Vice President | `/dept` | Yes |
+| `rm_officer` | Risk Management Officer (RMO) | `/officer` | Yes |
+| `executive` | Executive Committee | `/executive` | Yes |
+| `president` | President | `/president` | Yes |
+| `admin` | System Administrator | `/admin` | Yes |
+| `employee` | Employee | `/dashboard` | No (registry stub only) |
+
+There is **no Audit Officer** console. RMO is **governance oversight only** — departments own tickets; the President approves High/Critical plans and finals.
+
+## Built-in credentials (seed accounts)
+
+Defined in [`docker/web/config/users.js`](../docker/web/config/users.js). Usernames are case-insensitive at login.
 
 | Username | Password | Role |
 |----------|----------|------|
-| `personnel` | `a3c2026` | Department Supervisor |
+| `admin` | `a3c1993` | System Administrator |
+| `sys-admin` | `a3c2026` | System Administrator |
+| `reporter` | `a3c2026` | Ticket Reporter |
+| `it-head` | `dept2026` | Department Head (Information Technology) |
+| `fin-head` | `dept2026` | Department Head (Finance) |
+| `ops-head` | `dept2026` | Department Head (Operations) |
+| `admin-head` | `dept2026` | Department Head (Administration) |
 | `rm-officer` | `a3c2026` | Risk Management Officer |
-| `audit-officer` | `a3c2026` | Audit Officer |
-| `executive` | `a3c2026` | Executive |
-| `admin` | `a3c1993` | IT Administrator (user/role management) |
+| `president` | `a3c2026` | President |
+| `executive` | `a3c2026` | Executive Committee |
 
-Additional roles (e.g. **Employee**) can be assigned when creating accounts in the admin console.
+**Do not use these passwords in production.**
 
-Usernames are case-insensitive at login.
+## Ticket Reporter (`supervisor`)
 
-## Administrator capabilities
+Sign in as `reporter` / `a3c2026` → http://localhost:8080/supervisor
 
-Sign in as `admin` to open the **IT Administration** console at http://localhost:8080/admin:
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview | `/supervisor` | Summary and quick links |
+| Drafts / tickets | `/supervisor/tickets` | Create, edit drafts, track submitted work |
+| New report | `/supervisor/tickets/new` | 5W1H risk report |
+| Ticket detail | `/supervisor/tickets/:ref` | View, revise returned tickets, implement plans, accomplishments |
+| Returned / action | `/supervisor/actions` (and related queues) | Tickets needing revision or implementation |
+| Accomplishments | `/supervisor/accomplishments` | Accomplishment history |
+| Notifications | `/supervisor/notifications` | In-app alerts |
+| Profile | `/supervisor/profile` | Account profile |
+
+**Submit rules:** All 5W1H fields and **at least one evidence file** (PDF/PNG/JPG) are required. Evidence metadata is stored in PostgreSQL (`risk_attachments`); file bytes go to MinIO/S3 (not `store.json`).
+
+**Revision:** When status is `returned` or `ownership_rejected`, the reporter must change the report before resubmit. Reporters do **not** own tickets or write action plans.
+
+## Department Head / Vice President (`dept_head`)
+
+Sign in as `it-head` (or other `*-head`) / `dept2026` → http://localhost:8080/dept
+
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview | `/dept` | Department dashboard |
+| Inbox | `/dept/inbox` (or tickets inbox) | Newly assigned tickets — accept, reject, or reassign |
+| Active / drafts | `/dept/...` | In-progress ownership, action plans, personnel, documents |
+| Returned tickets | `/dept/returned` | Plans or finals returned/rejected by the President |
+| Overdue / pending closure | Dept queues | SLA and closure after accomplishment |
+| Ticket detail | `/dept/tickets/:ref` | Ownership actions, action plan draft/publish, resolution |
+
+**Ownership:** After accept (`in_progress`), the head builds and publishes an action plan.
+
+- **Low / Moderate** → published plan goes to the reporter (`in_mitigation`).
+- **High / Critical** → plan goes to the President (`pending_president`).
+
+**Return to reporter** for report revision is allowed only **after ownership is accepted**. Closing after accomplishment uses department closure for Low/Moderate; High/Critical final decisions go through the President.
+
+## Risk Management Officer — RMO (`rm_officer`)
+
+Sign in as `rm-officer` / `a3c2026` → http://localhost:8080/officer
+
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview | `/officer` | Governance dashboard |
+| Risk register | `/officer/tickets` | Organization-wide tickets (view) |
+| Overdue & SLA | `/officer/overdue` | SLA / overdue monitoring |
+| Monitoring | `/officer/monitoring` | Lifecycle monitoring |
+| Ticket detail | `/officer/tickets/:ref` | View, thread comments, reopen closed tickets |
+
+RMO **cannot** accept ownership, edit mitigation plans, or close tickets as owner. Reopen of closed tickets (reassign to department) is allowed for governance.
+
+## President (`president`)
+
+Sign in as `president` / `a3c2026` → http://localhost:8080/president
+
+| Screen | URL | Purpose |
+|--------|-----|---------|
+| Overview / queues | `/president` | Pending High/Critical work |
+| Ticket detail | `/president/tickets/:ref` | Approve, reject, or return (reason required for reject/return) |
+
+Scope is **High and Critical** only:
+
+1. **Action-plan phase** (`pending_president`) — approve / reject / return the department plan.
+2. **Final phase** (`pending_president_final`) — final close/approve / return.
+
+Notifications for this role are filtered to High/Critical.
+
+## Executive Committee (`executive`)
+
+Sign in as `executive` / `a3c2026` → http://localhost:8080/executive
+
+View-only oversight: dashboard, heatmap, reports, trends, statistics, department performance, ticket detail and comments. Notifications are High/Critical only. Pill/UI: “View only”.
+
+## System Administrator (`admin`)
+
+Sign in as `admin` / `a3c1993` (or `sys-admin` / `a3c2026`) → http://localhost:8080/admin
 
 | Screen | URL | Purpose |
 |--------|-----|---------|
 | Overview | `/admin` | Summary and quick links |
-| Accounts | `/admin/accounts` | Create accounts, assign roles, delete user-created accounts |
-| Credentials log | `/admin/logs/credentials` | Sign-in and account change history |
-| Report history | `/admin/logs/reports` | Risk ticket submission history (empty until supervisors submit reports) |
+| Users | `/admin/users` | Create/edit users, roles, employee IDs (`EMP-###`), password reset |
+| Departments | `/admin/departments` | Department catalog |
+| Positions | `/admin/positions` | Position catalog |
+| Tickets | `/admin/tickets` | View / soft-delete tickets (no workflow approve/close) |
+| Audit logs | `/admin/audit-logs` | Administrator and system action trail |
+| Settings | `/admin/settings` | Landing branding, AI, security options; reset helpers |
+| Profile | `/admin/profile` | Admin profile |
 
-User data is stored in `docker/web/data/store.json` (persisted via Docker volume in development).
+Administrators **cannot** approve risk reports, publish mitigation as owners, or override RMO/President workflow decisions.
 
-## Department Supervisor
+Operational data lives mainly in `docker/web/data/store.json` (Docker volume). Attachment metadata: PostgreSQL; files: MinIO/S3.
 
-Sign in as `personnel` / `a3c2026` to open the **Department Supervisor** console at http://localhost:8080/supervisor:
+## End-to-end workflow (current)
 
-| Screen | URL | Purpose |
-|--------|-----|---------|
-| Overview | `/supervisor` | Summary stats and quick links |
-| My tickets | `/supervisor/tickets` | All risk reports you submitted |
-| New report | `/supervisor/tickets/new` | Create a 5W1H risk report with evidence references |
-| Ticket detail | `/supervisor/tickets/:ref` | View, edit drafts, submit, add evidence, submit accomplishments |
-| Action required | `/supervisor/actions` | Tickets needing implementation or revision |
-| Accomplishments | `/supervisor/accomplishments` | History of accomplishment reports |
+1. Reporter creates a full 5W1H report with evidence and submits.
+2. AI assists classification/routing; ticket is **assigned** to a department.
+3. Department Head accepts (or rejects/reassigns); builds action plan.
+4. Low/Moderate → reporter implements; High/Critical → President reviews the plan.
+5. Reporter implements published plan and submits an accomplishment.
+6. Department closes Low/Moderate after accomplishment; High/Critical go to President final decision.
+7. RMO monitors organization-wide and may reopen closed tickets; Executive views High/Critical oversight.
 
-Submitted tickets appear in the IT Administrator **Report history** log (`/admin/logs/reports`).
-
-**My Tickets (draft CRUD):** Open `/supervisor/tickets` to edit or delete **Draft** reports before submission. Submitted tickets are view-only.
-
-**Evidence files:** Uploaded PDF/PNG/JPG files are stored on disk at `docker/web/uploads/` (Docker volume `/app/uploads`), not inside `store.json`. Each ticket links to its files by ticket reference (e.g. `RISK-2026-00001/`).
-
-## Risk Management Officer
-
-Sign in as `rm-officer` / `a3c2026` to open the **Risk Management Officer** console at http://localhost:8080/officer:
-
-| Screen | URL | Purpose |
-|--------|-----|---------|
-| Overview | `/officer` | Dashboard stats and quick links |
-| Review queue | `/officer/review` | Risk reports awaiting initial validation (Under RMO Review) |
-| Final validation | `/officer/final-validation` | Accomplishment reports awaiting effectiveness validation |
-| Implementation monitoring | `/officer/monitoring` | Tickets with approved mitigation in progress |
-| All tickets | `/officer/tickets` | Organization-wide submitted tickets |
-| Ticket detail | `/officer/tickets/:ref` | Review report, accept/reject, or final close/return |
-
-Workflow (per architecture): validate submitted reports (accept with mitigation plan or return for revision); after department implementation and accomplishment submission, perform final validation and close or return for further work.
-
-When the RMO accepts a report and defines a mitigation solution, the ticket moves to **Under Audit Review** and is routed to the Audit Officer (see below) before any implementation begins.
-
-Officer actions are recorded in the IT Administrator **Report history** log (`/admin/logs/reports`).
-
-## Audit Officer
-
-Sign in as `audit-officer` / `a3c2026` to open the **Audit Officer** console at http://localhost:8080/audit:
-
-| Screen | URL | Purpose |
-|--------|-----|---------|
-| Overview | `/audit` | Dashboard stats and quick links |
-| Audit queue | `/audit/review` | Mitigation solutions awaiting audit review (Under Audit Review) |
-| All tickets | `/audit/tickets` | Organization-wide submitted tickets (read-only) |
-| Ticket detail | `/audit/tickets/:ref` | Review the RMO solution, then approve or return to RMO |
-
-Workflow (per architecture step 4): the Audit Officer independently reviews the mitigation solution defined by the RMO **before** the department implements it.
-
-- **Approve** — confirm the implementation due date and release the ticket for implementation (status becomes **Implementation Required**).
-- **Return to RMO** — record audit notes explaining why the solution is insufficient; the ticket returns to the RMO review queue (**Returned by Audit**) for a revised solution, which loops back through audit.
-
-Audit actions are recorded in the IT Administrator **Report history** log (`/admin/logs/reports`).
+See [Architecture](ARCHITECTURE.md) for statuses and design notes.
 
 ## Security notes
 
-- Credentials are defined in [`docker/web/config/users.js`](../docker/web/config/users.js) for development only.
-- **Do not use these passwords in production.** Replace with database-backed auth and strong secrets.
-- Set `SESSION_SECRET` in `.env` for production deployments.
+- Seed credentials are for **development only**.
+- Set a strong `SESSION_SECRET` in `.env` for shared/production deployments.
 - Sessions expire after 8 hours (cookie `maxAge`).
 
 ## Implementation files
 
 | Path | Purpose |
 |------|---------|
-| `docker/web/server.js` | Routes: `/login`, `/dashboard`, `/logout`, `/supervisor`, `/officer`, `/audit`, `/admin` |
-| `docker/web/lib/templates/officer.js` | Risk Management Officer HTML templates |
-| `docker/web/lib/templates/audit.js` | Audit Officer HTML templates |
-| `docker/web/config/users.js` | Account definitions |
-| `docker/web/public/css/login.css` | Login and dashboard styles |
-| `docker/web/lib/auth.js` | Session guards and authentication |
-| `docker/web/lib/templates.js` | HTML templates |
+| `docker/web/config/roles.js` | Role registry (labels, paths, assignable) |
+| `docker/web/config/users.js` | Seed accounts |
+| `docker/web/config/tickets.js` | Statuses and workflow constants |
+| `docker/web/server.js` | HTTP routes |
+| `docker/web/lib/auth.js` | Session guards |
+| `docker/web/lib/tickets.js` | Ticket CRUD and transitions |
+| `docker/web/lib/templates/*.js` | Role consoles (supervisor, dept-head, officer, president, executive, admin) |
 
-## Rebuild after changes
+## Rebuild after code changes
 
 ```powershell
 docker compose -f docker/compose.yml -f docker/compose.override.yml up --build -d web

@@ -38,6 +38,38 @@ Redis holds ephemeral cache/queue data. Persist AOF volume `rms_redis_data` but 
 - **Dev:** MinIO data in volume `rms_minio_data`
 - **Prod:** Use managed S3 with versioning and lifecycle rules
 
+### Application store (`store.json`)
+
+Ticket, user, department, position, notification, and log data for the live Express app live in:
+
+`docker/web/data/store.json` (compose volume `./web/data` → `/app/data`)
+
+Back up this file with attachment metadata (PostgreSQL) and MinIO/S3 objects when taking application-level backups. The file is gitignored.
+
+## Resetting ticket data
+
+Preserve **users, departments, positions, settings**, and audit/credential logs while clearing tickets and related operational data:
+
+```powershell
+# Copy script into the writable data mount if the image predates the script, then:
+docker cp docker\web\scripts\reset-ticket-data.js rms-web:/app/data/reset-ticket-data.js
+docker exec rms-web node /app/data/reset-ticket-data.js
+docker restart rms-web
+```
+
+Clears: `riskTickets`, accomplishments, report logs, notifications, deleted-ticket logs, `risk_attachments`, MinIO objects under the uploads bucket.
+
+After reset, the next ticket reference is `RISK-{currentYear}-00001`.
+
+**Broader wipe** (also filters seed users — use with care):
+
+```powershell
+docker exec rms-web node /app/data/reset-production-data.js
+# or with --keep-demo-accounts
+```
+
+Prefer `reset-ticket-data.js` when you only need a fresh ticket sequence.
+
 ## Updates and maintenance
 
 1. Announce maintenance window.

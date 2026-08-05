@@ -13,7 +13,7 @@ Run the RMS stack locally or in production using Docker Compose.
 ### 1. Environment file
 
 ```powershell
-cd "C:\Users\IT Nikka\Documents\GitHub\Version2-Risk-Management-System"
+cd C:\dev\Version3-Risk-Management-System
 Copy-Item .env.example .env
 ```
 
@@ -73,8 +73,9 @@ Production requires TLS certificates in `docker/nginx/certs/` (fullchain.pem, pr
 
 | URL | Service |
 |-----|---------|
-| http://localhost:8080/ | Frontend (placeholder) |
-| http://localhost:8080/api/ | API (placeholder) |
+| http://localhost:8080/ | Express RMS web app (login + role consoles) |
+| http://localhost:8080/login | Sign-in — see [LOGIN.md](LOGIN.md) |
+| http://localhost:8080/api/ | API stub / future Laravel |
 | http://localhost:8080/health | nginx health |
 | http://localhost:8080/ai-health | AI health (proxied) |
 | http://127.0.0.1:5433 | PostgreSQL (host only) |
@@ -98,34 +99,34 @@ docker compose -f docker/compose.yml -f docker/compose.override.yml down
 docker compose -f docker/compose.yml -f docker/compose.override.yml down -v
 ```
 
-## Placeholder images
+## Application images
 
-Until application code is added:
+- **web** — Express RMS application on port 3000 (tickets, RBAC consoles, sessions)
+- **api** — PHP/nginx stub with `/health` on port 8080 (Laravel target — [ADR 001](adr/001-backend-laravel.md))
+- **ai-service** — Flask service on port 5000
 
-- **web** — Express static placeholder on port 3000
-- **api** — PHP/nginx stub with `/health` on port 8080
-- **ai-service** — Flask `/health` on port 5000
+### Evolving the stack
 
-Replace Dockerfiles under `docker/web`, `docker/api`, and `docker/ai-service` when scaffolding Laravel and Next.js.
-
-## Replacing placeholders
-
-### Laravel API
+#### Laravel API
 
 1. Create Laravel 11 app in `backend/` or project root.
 2. Update `docker/api/Dockerfile` to copy application code and run `composer install`.
 3. Run migrations: `docker compose exec api php artisan migrate`
 
-### Next.js frontend
+#### Next.js frontend (optional future UI)
 
 1. Scaffold Next.js 14 in `frontend/`.
-2. Update `docker/web/Dockerfile` for `output: 'standalone'` build.
+2. Update `docker/web/Dockerfile` for `output: 'standalone'` build **or** introduce a separate UI service.
 3. Set `NEXT_PUBLIC_API_URL` to `/api/v1`.
 
-### AI service
+#### AI service
 
-1. Implement NLP and classification in `docker/ai-service/` or `ai-service/`.
+1. Expand NLP and classification in `docker/ai-service/`.
 2. Expose `/classify` and `/summarize` per V2 API contract.
+
+### Ticket data reset
+
+See [Operations — Resetting ticket data](OPERATIONS.md#resetting-ticket-data). Scripts live under `docker/web/scripts/`.
 
 ## Troubleshooting
 
@@ -135,6 +136,7 @@ Replace Dockerfiles under `docker/web`, `docker/api`, and `docker/ai-service` wh
 | Port 8080 in use | Set `NGINX_HTTP_PORT` in `.env` |
 | `rms_data` network unreachable | Ensure `postgres` and `redis` are healthy: `docker compose ps` |
 | API 502 via nginx | Wait for `api` healthcheck; check `docker compose logs api` |
+| Login / app 502 after rebuild | nginx may have cached an old `web` IP. Config uses Docker DNS (`resolver 127.0.0.11`) with dynamic upstreams in `docker/nginx/conf.d/rms.conf`. Reload or restart nginx: `docker restart rms-nginx` |
 
 ## Related
 

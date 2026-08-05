@@ -39,7 +39,7 @@ Authoritative port assignments for the AI Risk Management System (RMS) Docker st
 | Path | Upstream | Notes |
 |------|----------|-------|
 | `/` | `web:3000` | Frontend SPA |
-| `/api/` | `api:80` | Laravel API (`/api/v1/` in application) |
+| `/api/` | `api:8080` | API stub / future Laravel (`/api/v1/` in application) |
 | `/health` | nginx local | Stack health check |
 | `/ai-health` | `ai-service:5000/health` | AI service health (internal route) |
 

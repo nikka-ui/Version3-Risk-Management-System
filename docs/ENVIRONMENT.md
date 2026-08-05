@@ -28,10 +28,10 @@ Configuration contract for RMS Docker and application services. Copy [`.env.exam
 
 | Variable | Default | Used by | Description |
 |----------|---------|---------|-------------|
-| `DB_HOST` | `postgres` | api, ai-service | Docker DNS name |
-| `DB_PORT` | `5432` | api, ai-service | Container port |
-| `DB_DATABASE` | `rms` | api, postgres | Database name |
-| `DB_USERNAME` | `rms` | api, postgres | Database user |
+| `DB_HOST` | `postgres` | api, web, ai-service | Docker DNS name |
+| `DB_PORT` | `5432` | api, web, ai-service | Container port |
+| `DB_DATABASE` | `rms` | api, web, postgres | Database name |
+| `DB_USERNAME` | `rms` | api, web, postgres | Database user |
 | `DB_PASSWORD` | — | — | **Use secret file** `docker/secrets/db_password.txt` |
 
 Postgres container reads `POSTGRES_PASSWORD_FILE=/run/secrets/db_password`.
@@ -75,14 +75,24 @@ Production: use AWS S3 or Azure Blob with IAM-scoped credentials; do not run Min
 
 Change before sharing dev environments.
 
-### Authentication (when Laravel is added)
+### Authentication
 
-| Secret / variable | Location |
-|-------------------|----------|
-| `APP_KEY` | `docker/secrets/app_key.txt` |
-| `SANCTUM_STATEFUL_DOMAINS` | `.env` — e.g. `localhost:8080` |
+| Secret / variable | Location | Used by |
+|-------------------|----------|---------|
+| `SESSION_SECRET` | `.env` | **Express web** (`docker/web`) — cookie session signing. Set a long random value for any shared/production deploy. |
+| `APP_KEY` | `docker/secrets/app_key.txt` | Planned Laravel `api` |
+| `SANCTUM_STATEFUL_DOMAINS` | `.env` | Planned Laravel Sanctum — e.g. `localhost:8080` |
 
-Generate Laravel key: `php artisan key:generate` (run inside `api` container).
+Generate Laravel key when scaffolding the API: `php artisan key:generate` (inside `api` container).
+
+### Object storage (web attachments)
+
+| Variable | Default | Used by |
+|----------|---------|---------|
+| `S3_ENDPOINT` | `http://minio:9000` | web |
+| `S3_BUCKET` | `rms-uploads` | web |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | (dev defaults) | web |
+| `S3_USE_PATH_STYLE_ENDPOINT` | `true` | web |
 
 ## Docker secrets (not in .env)
 
