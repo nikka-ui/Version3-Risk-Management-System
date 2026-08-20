@@ -13,6 +13,7 @@ const DEPARTMENTS = [
   'Internal Audit',
   'IT',
   'MMCD',
+  'New Business Operations',
   'Operations',
   'RMO',
   'Treasury',
@@ -179,6 +180,7 @@ const DEPARTMENT_ALIASES = {
   mmcd: ['mmcd', 'maintenance', 'facilities'],
   rmo: ['rmo', 'risk management office', 'risk management', 'risk management unit', 'risk governance office', 'rmu'],
   business_dev: ['business development', 'bd', 'business dev'],
+  nbo: ['nbo', 'new business operations', 'new business'],
   pceo: ['pceo', 'president and chief executive office', 'office of the president'],
 };
 

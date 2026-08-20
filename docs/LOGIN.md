@@ -31,22 +31,27 @@ Defined in [`docker/web/config/users.js`](../docker/web/config/users.js). Userna
 
 | Username | Password | Role |
 |----------|----------|------|
-| `admin` | `a3c1993` | System Administrator |
 | `sys-admin` | `a3c2026` | System Administrator |
-| `reporter` | `a3c2026` | Ticket Reporter |
-| `it-head` | `dept2026` | Department Head (Information Technology) |
-| `fin-head` | `dept2026` | Department Head (Finance) |
-| `ops-head` | `dept2026` | Department Head (Operations) |
-| `admin-head` | `dept2026` | Department Head (Administration) |
-| `rm-officer` | `a3c2026` | Risk Management Officer |
-| `president` | `a3c2026` | President |
-| `executive` | `a3c2026` | Executive Committee |
+| `admin` | `a3c1993` | System Administrator |
+| `reporter` | `a3c1993` | Ticket Reporter |
+| `dephead` | `a3c1993` | Department Head (Information Technology) |
+| `mmcd` | `a3c1993` | Department Head (MMCD) |
+| `finance` | `a3c1993` | Department Head (Finance) |
+| `operations` | `a3c1993` | Department Head (Operations) |
+| `adminsupport` | `a3c1993` | Department Head (Administration) |
+| `hrms` | `a3c1993` | Department Head (HRMS) |
+| `nbo` | `a3c1993` | Department Head (New Business Operations) |
+| `rmo` | `a3c1993` | Risk Management Officer |
+| `pceo` | `a3c1993` | President / CEO |
+| `executive` | `a3c1993` | Executive Committee |
+
+Legacy usernames still work: `it-head` / `fin-head` / `ops-head` / `admin-head` (`dept2026`), `rm-officer` / `president` (`a3c2026`).
 
 **Do not use these passwords in production.**
 
 ## Ticket Reporter (`supervisor`)
 
-Sign in as `reporter` / `a3c2026` → http://localhost:8080/supervisor
+Sign in as `reporter` / `a3c1993` → http://localhost:8080/supervisor
 
 | Screen | URL | Purpose |
 |--------|-----|---------|
@@ -65,7 +70,7 @@ Sign in as `reporter` / `a3c2026` → http://localhost:8080/supervisor
 
 ## Department Head / Vice President (`dept_head`)
 
-Sign in as `it-head` (or other `*-head`) / `dept2026` → http://localhost:8080/dept
+Sign in as `dephead` (or other department accounts) / `a3c1993` → http://localhost:8080/dept
 
 | Screen | URL | Purpose |
 |--------|-----|---------|
@@ -85,7 +90,7 @@ Sign in as `it-head` (or other `*-head`) / `dept2026` → http://localhost:8080/
 
 ## Risk Management Officer — RMO (`rm_officer`)
 
-Sign in as `rm-officer` / `a3c2026` → http://localhost:8080/officer
+Sign in as `rmo` / `a3c1993` → http://localhost:8080/officer
 
 | Screen | URL | Purpose |
 |--------|-----|---------|
@@ -99,7 +104,7 @@ RMO **cannot** accept ownership, edit mitigation plans, or close tickets as owne
 
 ## President (`president`)
 
-Sign in as `president` / `a3c2026` → http://localhost:8080/president
+Sign in as `pceo` / `a3c1993` → http://localhost:8080/president
 
 | Screen | URL | Purpose |
 |--------|-----|---------|
@@ -115,13 +120,13 @@ Notifications for this role are filtered to High/Critical.
 
 ## Executive Committee (`executive`)
 
-Sign in as `executive` / `a3c2026` → http://localhost:8080/executive
+Sign in as `executive` / `a3c1993` → http://localhost:8080/executive
 
 View-only oversight: dashboard, heatmap, reports, trends, statistics, department performance, ticket detail and comments. Notifications are High/Critical only. Pill/UI: “View only”.
 
 ## System Administrator (`admin`)
 
-Sign in as `admin` / `a3c1993` (or `sys-admin` / `a3c2026`) → http://localhost:8080/admin
+Sign in as `sys-admin` / `a3c2026` (or `admin` / `a3c1993`) → http://localhost:8080/admin
 
 | Screen | URL | Purpose |
 |--------|-----|---------|

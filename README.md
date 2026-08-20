@@ -9,6 +9,7 @@ ISO 31000-aligned enterprise risk management with AI-assisted categorization, de
 | [docs/README.md](docs/README.md) | Documentation index |
 | [docs/LOGIN.md](docs/LOGIN.md) | Roles, seed accounts, and consoles (**start here**) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and current workflow |
+| [docs/system-flowchart.png](docs/system-flowchart.png) | Current system flowchart (roles, workflow, stack) |
 | [docs/PORT_REGISTRY.md](docs/PORT_REGISTRY.md) | Port assignments (authoritative) |
 | [docs/DOCKER.md](docs/DOCKER.md) | Run Docker dev/prod stacks |
 | [docs/CONTAINER_SECURITY.md](docs/CONTAINER_SECURITY.md) | Container hardening |
@@ -49,7 +50,7 @@ curl http://localhost:8080/health
 
 - Application URL: http://localhost:8080
 - **Login:** http://localhost:8080/login — [docs/LOGIN.md](docs/LOGIN.md)
-- **Examples:** `admin` / `a3c1993` · `reporter` / `a3c2026` · `it-head` / `dept2026` · `rm-officer` / `a3c2026` · `president` / `a3c2026`
+- **Examples:** `sys-admin` / `a3c2026` · `reporter` / `a3c1993` · `dephead` / `a3c1993` · `rmo` / `a3c1993` · `pceo` / `a3c1993`
 - API stub: http://localhost:8080/api/
 - PostgreSQL (dev, localhost only): `127.0.0.1:5433`
 

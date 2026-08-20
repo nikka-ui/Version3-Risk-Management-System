@@ -124,7 +124,7 @@ function authenticate(username, password) {
   if (!record) {
     return { error: 'invalid_username' };
   }
-  if (record.password !== password) {
+  if (record.password !== String(password || '')) {
     return { error: 'invalid_password' };
   }
   return { user: sessionUser(record) };

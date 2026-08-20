@@ -17,7 +17,7 @@ These in-repo Word documents and diagram are the original requirements (may stil
 ## Reading order
 
 1. [Login accounts & roles (dev)](LOGIN.md) — **authoritative** built-in users, consoles, and capabilities
-2. [Architecture](ARCHITECTURE.md) — current vs planned stack, workflow, statuses
+2. [Architecture](ARCHITECTURE.md) — current vs planned stack, workflow, statuses ([system flowchart](system-flowchart.png))
 3. [Port Registry](PORT_REGISTRY.md) — authoritative port assignments
 4. [Docker Guide](DOCKER.md) — run dev/prod compose stacks
 5. [Container Security](CONTAINER_SECURITY.md) — hardening and threat model

@@ -83,6 +83,45 @@ function seedDepartments(now) {
   }));
 }
 
+/** Insert missing seed departments and accounts without overwriting live profiles. */
+function applySeedCatalog(store, now) {
+  let changed = false;
+  if (!store.departments) store.departments = [];
+  const byCode = new Map(
+    store.departments
+      .filter((d) => d && d.code)
+      .map((d) => [String(d.code).toUpperCase(), d]),
+  );
+  const byName = new Map(
+    store.departments
+      .filter((d) => d && d.name)
+      .map((d) => [String(d.name).toLowerCase(), d]),
+  );
+  for (const seed of SEED_DEPARTMENTS) {
+    const existing = byCode.get(String(seed.code).toUpperCase()) || byName.get(String(seed.name).toLowerCase());
+    if (existing) continue;
+    store.departments.push({
+      id: `dept-${String(seed.code).toLowerCase()}-${Date.now()}`,
+      ...seed,
+      autoApproveLowModerate: seed.autoApproveLowModerate === true,
+      head: seed.head || null,
+      createdAt: now,
+      updatedAt: now,
+      active: true,
+    });
+    changed = true;
+  }
+
+  if (!store.users) store.users = [];
+  const existingUsernames = new Set(store.users.map((u) => u.username));
+  for (const seed of SEED_USERS) {
+    if (existingUsernames.has(seed.username)) continue;
+    store.users.push(seedUserRecord(seed, now));
+    changed = true;
+  }
+  return changed;
+}
+
 function defaultStore() {
   const now = new Date().toISOString();
   return {
@@ -340,12 +379,8 @@ function loadStore() {
       cache.meta.employeeIdsSequential = true;
       migrated = true;
     }
-    const existingUsernames = new Set((cache.users || []).map((u) => u.username));
-    for (const seed of SEED_USERS) {
-      if (!existingUsernames.has(seed.username)) {
-        cache.users.push(seedUserRecord(seed, now));
-        migrated = true;
-      }
+    if (applySeedCatalog(cache, now)) {
+      migrated = true;
     }
     // Compliance Officer role removed — deactivate leftover accounts and strip the role.
     for (const u of cache.users || []) {

@@ -263,6 +263,54 @@ body {
   transform: translateY(1px);
 }
 
+.login-forgot {
+  margin-top: 0.9rem;
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.login-forgot a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.login-forgot a:hover {
+  text-decoration: underline;
+}
+
+.login-otp-input {
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.login-resend {
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.login-resend__btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.login-resend__btn:hover {
+  text-decoration: underline;
+}
+
+.alert--success {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: #bbf7d0;
+}
+
 .login-foot {
   font-size: 0.75rem;
   color: var(--text-muted);

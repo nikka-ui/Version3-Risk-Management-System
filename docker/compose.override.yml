@@ -12,6 +12,9 @@ services:
     user: root
     environment:
       NODE_ENV: development
+      MAIL_HTTP_URL: http://mailpit:8025
+      MAIL_FROM_ADDRESS: noreply@rms.local
+      MAIL_FROM_NAME: ACCC RMS
     volumes:
       - ./web/data:/app/data
       # Mount app source so role consoles update without image rebuild
@@ -42,8 +45,6 @@ services:
   mailpit:
     image: axllent/mailpit:v1.21
     container_name: rms-mailpit
-    profiles:
-      - dev
     networks:
       - rms_app
     ports:

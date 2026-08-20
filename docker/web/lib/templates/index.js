@@ -2,27 +2,30 @@ const { escapeHtml } = require('../html');
 const { appLayout } = require('./layout');
 const { FONT_LINKS, FAVICON_LINK, STYLESHEET_LINK } = require('./head');
 
-function loginPage({ error, next, branding }) {
-  const errorBlock = error
-    ? `<div class="alert" role="alert">${escapeHtml(error)}</div>`
-    : '';
-  const nextField = next
-    ? `<input type="hidden" name="next" value="${escapeHtml(next)}">`
-    : '';
+const PASSWORD_TOGGLE_ICONS = `<svg class="login-password-toggle__icon login-password-toggle__icon--show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <svg class="login-password-toggle__icon login-password-toggle__icon--hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94"/>
+            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19"/>
+            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+            <line x1="1" y1="1" x2="23" y2="23"/>
+          </svg>`;
 
+function authShell({ branding, inner }) {
   const year = new Date().getFullYear();
   const tagline = (branding && branding.landingTagline) || 'Identify. Assess. Mitigate.';
   const headline =
     (branding && branding.landingHeadline) || 'ACCC Risk\nManagement\nSystem';
   const organization = (branding && branding.organizationName) || 'ACCC';
-  const pageTitle = 'ACCC Risk Management System';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(pageTitle)}</title>
+  <title>ACCC Risk Management System</title>
   ${FAVICON_LINK}
   ${FONT_LINKS}
   ${STYLESHEET_LINK}
@@ -41,9 +44,55 @@ function loginPage({ error, next, branding }) {
       </aside>
       <main class="login-panel">
         <div class="login-form-wrap">
+          ${inner}
+        </div>
+        <footer class="login-foot">
+          <span>&copy; ${year} ${escapeHtml(organization)}. Authorized personnel only.</span>
+        </footer>
+      </main>
+    </div>
+  </div>
+  <script>
+    (function () {
+      document.querySelectorAll('.login-password-wrap').forEach(function (wrap) {
+        const input = wrap.querySelector('input');
+        const toggle = wrap.querySelector('.login-password-toggle');
+        if (!input || !toggle) return;
+        toggle.addEventListener('click', function () {
+          const show = input.type === 'password';
+          input.type = show ? 'text' : 'password';
+          toggle.classList.toggle('is-visible', show);
+          toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+          toggle.setAttribute('aria-pressed', String(show));
+        });
+      });
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+function alertBlocks({ error, success }) {
+  const successBlock = success
+    ? `<div class="alert alert--success" role="status">${escapeHtml(success)}</div>`
+    : '';
+  const errorBlock = error
+    ? `<div class="alert" role="alert">${escapeHtml(error)}</div>`
+    : '';
+  return `${successBlock}${errorBlock}`;
+}
+
+function loginPage({ error, success, next, branding }) {
+  const nextField = next
+    ? `<input type="hidden" name="next" value="${escapeHtml(next)}">`
+    : '';
+
+  return authShell({
+    branding,
+    inner: `
           <h1 class="login-title">Sign In</h1>
           <p class="login-sub">Use your assigned credentials to continue.</p>
-          ${errorBlock}
+          ${alertBlocks({ error, success })}
           <form method="post" action="/login" autocomplete="on" class="login-form">
             ${nextField}
             <div class="login-field">
@@ -58,45 +107,73 @@ function loginPage({ error, next, branding }) {
                   autocomplete="current-password" placeholder="Enter your password">
                 <button type="button" class="login-password-toggle" id="password-toggle"
                   aria-label="Show password" aria-controls="password" aria-pressed="false">
-                  <svg class="login-password-toggle__icon login-password-toggle__icon--show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                  <svg class="login-password-toggle__icon login-password-toggle__icon--hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
-                    <line x1="1" y1="1" x2="23" y2="23"/>
-                  </svg>
+                  ${PASSWORD_TOGGLE_ICONS}
                 </button>
               </div>
             </div>
             <button type="submit" class="login-submit">Sign In</button>
-          </form>
-        </div>
-        <footer class="login-foot">
-          <span>&copy; ${year} ${escapeHtml(organization)}. Authorized personnel only.</span>
-        </footer>
-      </main>
-    </div>
-  </div>
-  <script>
-    (function () {
-      const input = document.getElementById('password');
-      const toggle = document.getElementById('password-toggle');
-      if (!input || !toggle) return;
+            <p class="login-forgot"><a href="/forgot-password">Forgot password?</a></p>
+          </form>`,
+  });
+}
 
-      toggle.addEventListener('click', function () {
-        const show = input.type === 'password';
-        input.type = show ? 'text' : 'password';
-        toggle.classList.toggle('is-visible', show);
-        toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
-        toggle.setAttribute('aria-pressed', String(show));
-      });
-    })();
-  </script>
-</body>
-</html>`;
+function forgotPasswordPage({ error, username, branding }) {
+  return authShell({
+    branding,
+    inner: `
+          <h1 class="login-title">Forgot password</h1>
+          <p class="login-sub">Enter your username. If an account exists, we will email a 6-digit code to the address on file.</p>
+          ${alertBlocks({ error })}
+          <form method="post" action="/forgot-password" autocomplete="on" class="login-form">
+            <div class="login-field">
+              <label for="username">Username</label>
+              <input id="username" name="username" type="text" required autofocus
+                autocapitalize="none" autocomplete="username" placeholder="Enter your username"
+                value="${escapeHtml(username || '')}">
+            </div>
+            <button type="submit" class="login-submit">Send code</button>
+            <p class="login-forgot"><a href="/login">Back to sign in</a></p>
+          </form>`,
+  });
+}
+
+function forgotPasswordResetPage({ error, username, branding }) {
+  return authShell({
+    branding,
+    inner: `
+          <h1 class="login-title">Reset password</h1>
+          <p class="login-sub">Enter the 6-digit code we sent to the email on your account, then choose a new password.</p>
+          ${alertBlocks({ error })}
+          <form method="post" action="/forgot-password/reset" autocomplete="on" class="login-form">
+            <div class="login-field">
+              <label for="otp">One-time code</label>
+              <input id="otp" name="otp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
+                autocomplete="one-time-code" placeholder="000000" class="login-otp-input">
+            </div>
+            <div class="login-field">
+              <label for="password">New password</label>
+              <div class="login-password-wrap">
+                <input id="password" name="password" type="password" required minlength="6"
+                  autocomplete="new-password" placeholder="Enter a new password">
+                <button type="button" class="login-password-toggle"
+                  aria-label="Show password" aria-controls="password" aria-pressed="false">
+                  ${PASSWORD_TOGGLE_ICONS}
+                </button>
+              </div>
+            </div>
+            <div class="login-field">
+              <label for="confirmPassword">Confirm password</label>
+              <input id="confirmPassword" name="confirmPassword" type="password" required minlength="6"
+                autocomplete="new-password" placeholder="Re-enter new password">
+            </div>
+            <button type="submit" class="login-submit">Reset password</button>
+          </form>
+          <form method="post" action="/forgot-password" class="login-resend">
+            <input type="hidden" name="username" value="${escapeHtml(username || '')}">
+            <button type="submit" class="login-resend__btn">Resend code</button>
+          </form>
+          <p class="login-forgot"><a href="/login">Back to sign in</a></p>`,
+  });
 }
 
 function dashboardPage(user) {
@@ -164,4 +241,4 @@ function dashboardPage(user) {
   });
 }
 
-module.exports = { loginPage, dashboardPage };
+module.exports = { loginPage, dashboardPage, forgotPasswordPage, forgotPasswordResetPage };

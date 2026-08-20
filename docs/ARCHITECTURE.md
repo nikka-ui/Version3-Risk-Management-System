@@ -76,7 +76,7 @@ Canonical registry: [`docker/web/config/roles.js`](../docker/web/config/roles.js
 6. Department closes Low/Moderate after accomplishment; High/Critical use **President final** decision.
 7. RMO monitors compliance and may **reopen** closed tickets; Executive monitors High/Critical views continuously.
 
-Historical swimlane art in [`RMS FLOWCHART.png`](../RMS%20FLOWCHART.png) may still show older Audit/RMO-ownership steps — prefer this document and [LOGIN.md](LOGIN.md) for current behavior.
+Current layered diagram: [`system-flowchart.png`](system-flowchart.png). Historical swimlane art in [`RMS FLOWCHART.png`](../RMS%20FLOWCHART.png) may still show older Audit/RMO-ownership steps — prefer this document and [LOGIN.md](LOGIN.md) for current behavior.
 
 ### Notable rules
 

@@ -5,7 +5,7 @@ const FONT_LINKS = `
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">`;
 
 /** Bump this when CSS/JS assets change so browsers fetch the new files. */
-const ASSET_VERSION = '20260803f';
+const ASSET_VERSION = '20260818a';
 
 /** Favicon link with a cache-busting version query. */
 const FAVICON_LINK = `<link rel="icon" type="image/png" href="/img/favicon.png?v=${ASSET_VERSION}">

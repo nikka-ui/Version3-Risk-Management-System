@@ -13,7 +13,7 @@ const {
   sessionUser,
   refreshSessionUser,
 } = require('./lib/auth');
-const { loginPage, dashboardPage } = require('./lib/templates');
+const { loginPage, dashboardPage, forgotPasswordPage, forgotPasswordResetPage } = require('./lib/templates');
 const {
   adminOverviewPage,
   usersPage,
@@ -186,6 +186,7 @@ const {
   getSystemSettings,
   updateSystemSettings,
 } = require('./lib/store');
+const { requestPasswordResetOtp, consumePasswordResetOtp } = require('./lib/passwordReset');
 const { isAssignableRole, roleDashboardPath } = require('./config/roles');
 const { DEFAULT_SYSTEM_SETTINGS } = require('./config/admin');
 const { REPORTER_REVISION_STATUSES } = require('./config/tickets');
@@ -318,11 +319,15 @@ app.get('/login', (req, res) => {
   };
   const errorKey = typeof req.query.error === 'string' ? req.query.error : '';
   const error = loginErrors[errorKey] || null;
+  const success = req.query.flash === 'password_reset'
+    ? 'Password reset successfully. You can sign in with your new password.'
+    : null;
   const next = typeof req.query.next === 'string' ? req.query.next : '';
   const settings = getSystemSettings();
   res.type('html').send(
     loginPage({
       error,
+      success,
       next,
       branding: {
         landingTagline: settings.landingTagline,
@@ -402,6 +407,92 @@ app.post('/login', (req, res) => {
     destination = next;
   }
   return res.redirect(destination);
+});
+
+function loginBranding() {
+  const settings = getSystemSettings();
+  return {
+    landingTagline: settings.landingTagline,
+    landingHeadline: settings.landingHeadline,
+    organizationName: settings.organizationName,
+  };
+}
+
+app.get('/forgot-password', (req, res) => {
+  if (req.session?.user) {
+    return res.redirect(dashboardPath(req.session.user));
+  }
+  const error = typeof req.query.error === 'string' ? req.query.error : '';
+  res.type('html').send(
+    forgotPasswordPage({
+      error: error || null,
+      username: typeof req.query.username === 'string' ? req.query.username : '',
+      branding: loginBranding(),
+    }),
+  );
+});
+
+app.post('/forgot-password', async (req, res) => {
+  const username = String(req.body.username || '').trim().toLowerCase();
+  const { clientIp } = require('./lib/logger');
+  try {
+    const result = await requestPasswordResetOtp(username, clientIp(req));
+    if (result.error) {
+      return res.redirect(`/forgot-password?error=${encodeURIComponent(result.error)}&username=${encodeURIComponent(username)}`);
+    }
+  } catch (err) {
+    console.error('Forgot-password email failed:', err.message || err);
+    return res.redirect(`/forgot-password?error=${encodeURIComponent('Could not send the reset email. Please try again or contact the administrator.')}&username=${encodeURIComponent(username)}`);
+  }
+  req.session.passwordResetUsername = username;
+  return res.redirect('/forgot-password/reset');
+});
+
+app.get('/forgot-password/reset', (req, res) => {
+  if (req.session?.user) {
+    return res.redirect(dashboardPath(req.session.user));
+  }
+  const username = req.session?.passwordResetUsername;
+  if (!username) {
+    return res.redirect('/forgot-password');
+  }
+  const error = typeof req.query.error === 'string' ? req.query.error : '';
+  res.type('html').send(
+    forgotPasswordResetPage({
+      error: error || null,
+      username,
+      branding: loginBranding(),
+    }),
+  );
+});
+
+app.post('/forgot-password/reset', (req, res) => {
+  const username = req.session?.passwordResetUsername;
+  if (!username) {
+    return res.redirect('/forgot-password');
+  }
+  const { otp, password, confirmPassword } = req.body;
+  const result = consumePasswordResetOtp(username, otp, password, confirmPassword);
+  if (result.error) {
+    return res.redirect(`/forgot-password/reset?error=${encodeURIComponent(result.error)}`);
+  }
+  delete req.session.passwordResetUsername;
+  const { appendAuditLog } = require('./lib/store');
+  const { parseClientInfo } = require('./lib/admin');
+  const { device, browser } = parseClientInfo(req);
+  appendAuditLog({
+    username,
+    role: result.user?.role || '—',
+    roleLabel: result.user?.roleLabel || '—',
+    action: 'password_reset',
+    module: 'Security',
+    description: 'Password reset via emailed OTP',
+    ip: require('./lib/logger').clientIp(req),
+    device,
+    browser,
+    targetUser: username,
+  });
+  return res.redirect('/login?flash=password_reset');
 });
 
 app.post('/logout', (req, res) => {
